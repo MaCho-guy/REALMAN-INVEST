@@ -6,6 +6,7 @@ import xml.etree.ElementTree as ET
 import random
 import os
 import concurrent.futures
+import urllib.parse
 
 # 1. 대시보드 제목 세팅
 st.set_page_config(page_title="REALMAN INVEST", layout="wide")
@@ -129,7 +130,12 @@ for name, ticker in {'미 10년물 국채': '^TNX', 'WTI 원유': 'CL=F', 'S&P 5
     macro_data[name] = {"price": hist['Close'].iloc[-1], "change": hist['Close'].iloc[-1] - hist['Close'].iloc[-2]} if len(hist) >= 2 else {"price": hist['Close'].iloc[-1], "change": 0.0}
 
 try:
-    res = requests.get("https://production.dataviz.cnn.io/index/fearandgreed/graphdata", headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Referer': 'https://edition.cnn.com/'
+    }
+    res = requests.get("https://production.dataviz.cnn.io/index/fearandgreed/graphdata", headers=headers, timeout=5)
     if res.status_code == 200:
         fg = res.json()['fear_and_greed']
         macro_data['CNN 공탐지수'] = {"price": round(fg['score']), "change": fg['rating']}
@@ -172,6 +178,14 @@ if os.path.exists(DB_FILE):
     tab1, tab2 = st.tabs(["52주 신고가", "저평가&우상향"])
 
     with tab1:
+        # 클릭하면 기준이 나오는 아코디언 메뉴 추가
+        with st.expander("💡 '52주 신고가' 스크리닝 기준 보기"):
+            st.markdown("""
+            <div style="font-size:13px; color:#475569;">
+            ✔️ <b>52주 신고가 근접</b> : 현재 주가가 최근 1년(52주) 최고점 대비 <b>5% 이내(95% 이상)</b>에 위치한 강한 상승 추세의 종목
+            </div>
+            """, unsafe_allow_html=True)
+            
         for market in ['NASDAQ', 'S&P 500', 'KOSPI']:
             st.markdown(f"<h6 style='margin-top: 15px; margin-bottom: 8px; color: #1E293B;'>{market}</h6>", unsafe_allow_html=True)
             high_stocks = [s for s in screen_data if s['market'] == market and s['price'] >= s['high52'] * 0.95]
@@ -184,6 +198,16 @@ if os.path.exists(DB_FILE):
                 st.caption("해당 종목 없음")
                 
     with tab2:
+        # 클릭하면 기준이 나오는 아코디언 메뉴 추가
+        with st.expander("💡 '저평가 & EPS 우상향' 스크리닝 기준 보기"):
+            st.markdown("""
+            <div style="font-size:13px; color:#475569; line-height: 1.6;">
+            ✔️ <b>PER (주가수익비율)</b> : 0 초과 ~ 15 미만<br>
+            ✔️ <b>PBR (주가순자산비율)</b> : 0 초과 ~ 1.5 미만<br>
+            ✔️ <b>EPS (주당순이익) 우상향</b> : 과거 1년간 흑자를 기록했으며, 내년 예상 실적이 과거 실적보다 높은 성장 기업
+            </div>
+            """, unsafe_allow_html=True)
+            
         for market in ['NASDAQ', 'S&P 500', 'KOSPI']:
             st.markdown(f"<h6 style='margin-top: 15px; margin-bottom: 8px; color: #1E293B;'>{market}</h6>", unsafe_allow_html=True)
             value_stocks = [s for s in screen_data if s['market'] == market and 0 < s['per'] < 15 and 0 < s['pbr'] < 1.5 and s['eps_growth']]
@@ -220,9 +244,8 @@ with c_blg:
                 st.markdown(f'<div class="news-item"><a href="{item.find("link").text}" target="_blank"><b>[{name}]</b> {item.find("title").text}</a></div>', unsafe_allow_html=True)
         except: pass
 
-# --- 8. 마인드셋 (에러 방지: 가장 직관적이고 안전한 코드로 변경) ---
+# --- 8. 마인드셋 ---
 st.markdown('<div class="section-title">마인드셋</div>', unsafe_allow_html=True)
-
 gurus = [
     {"name": "워런 버핏", "emoji": "👴", "search": "워런 버핏 투자 조언", "quotes": ["위대한 기업을 적당한 가격에 사는 것이 훨씬 낫다.", "원칙 1: 절대 돈을 잃지 마라."]},
     {"name": "찰리 멍거", "emoji": "👓", "search": "찰리 멍거 명언", "quotes": ["바보 같은 짓을 피하는 것이 중요하다.", "이해하지 못하는 것에는 절대 투자하지 마라."]},
@@ -232,10 +255,7 @@ gurus = [
     {"name": "존 보글", "emoji": "⛵", "search": "존 보글 인덱스 펀드", "quotes": ["모든 주식을 소유하라.", "투자의 핵심은 비용을 최소화하는 것이다."]}
 ]
 
-# 4명을 랜덤으로 뽑기
 selected_gurus = random.sample(gurus, 4)
-
-# 에러가 나지 않도록 복잡한 반복문을 없애고 1열, 2열에 차례대로 안전하게 배치했습니다.
 col1, col2 = st.columns(2)
 
 with col1:

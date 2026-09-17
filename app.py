@@ -11,48 +11,62 @@ import urllib.parse
 # 1. 대시보드 제목 세팅
 st.set_page_config(page_title="REALMAN INVEST", layout="wide")
 
-# --- 1. 모던 다크 박스 UI & 슈프림 로고 배경 (CSS) ---
+# --- 1. 모바일 최적화 다크 박스 UI & 슈프림 로고 배경 (CSS) ---
 custom_css = """
 <style>
     .stApp { background: linear-gradient(135deg, #E2E8F0 0%, #CBD5E1 100%); }
     #MainMenu, footer, header {visibility: hidden;}
     
-    /* 📌 슈프림(SUPREME) 로고 스타일 */
-    .supreme-container { display: flex; justify-content: center; margin-top: 10px; margin-bottom: 30px; }
+    /* 📌 반응형 슈프림(SUPREME) 로고 */
+    .supreme-container { display: flex; justify-content: center; margin-top: 5px; margin-bottom: 25px; }
     .supreme-box { 
-        background-color: #DA291C; color: #FFFFFF; padding: 8px 30px; border-radius: 2px; 
+        background-color: #DA291C; color: #FFFFFF; border-radius: 2px; 
         text-align: center; font-family: 'Futura', 'Trebuchet MS', sans-serif;
-        font-size: 48px !important; font-weight: 900; font-style: italic; 
-        letter-spacing: -2px; box-shadow: 0 8px 16px rgba(218, 41, 28, 0.3); text-transform: uppercase;
+        font-weight: 900; font-style: italic; text-transform: uppercase;
+        box-shadow: 0 6px 12px rgba(218, 41, 28, 0.3);
+        /* PC 기본 사이즈 */
+        font-size: 40px !important; padding: 6px 24px; letter-spacing: -2px;
     }
     
     .section-title { 
-        background-color: #1E293B; color: #FFFFFF; padding: 12px 20px; border-radius: 8px; 
-        font-size: 19px; font-weight: 700; margin-top: 40px; margin-bottom: 20px; 
+        background-color: #1E293B; color: #FFFFFF; padding: 10px 16px; border-radius: 6px; 
+        font-size: 17px; font-weight: 700; margin-top: 35px; margin-bottom: 15px; 
         box-shadow: 0 2px 4px rgba(0,0,0,0.05); letter-spacing: -0.5px;
     }
     
-    .card-link { text-decoration: none !important; color: inherit !important; display: block; }
-    .card-link:hover .stock-card { transform: translateY(-3px); box-shadow: 0 6px 12px rgba(0,0,0,0.1); }
-    
-    .stock-card { 
-        background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; 
-        padding: 16px 20px; margin-bottom: 12px; display: flex; justify-content: space-between; 
-        align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,0.03); transition: all 0.2s ease-in-out; 
+    /* 📌 핵심: 모바일에서 2열로 나란히 배치되도록 CSS Grid 적용 */
+    .card-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr); /* 모바일 기본: 2칸 */
+        gap: 10px;
     }
-    .card-left { display: flex; flex-direction: column; }
-    .stock-name { font-size: 16px; font-weight: 700; color: #0F172A; }
-    .stock-ticker { font-size: 13px; font-weight: 500; color: #64748B; margin-top: 2px; }
-    .card-right { display: flex; flex-direction: column; align-items: flex-end; }
-    .stock-price { font-size: 16px; font-weight: 700; color: #0F172A; }
+    @media (min-width: 768px) {
+        .card-grid { grid-template-columns: repeat(3, 1fr); gap: 12px; } /* 태블릿/PC: 3칸 */
+        .supreme-box { font-size: 48px !important; padding: 8px 30px; }
+    }
     
-    .badge { font-size: 13px; font-weight: 600; margin-top: 4px; padding: 4px 8px; border-radius: 6px; }
+    .card-link { text-decoration: none !important; color: inherit !important; display: block; }
+    .card-link:hover .stock-card { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+    
+    /* 카드 여백 및 폰트 축소 (스크롤 최소화) */
+    .stock-card { 
+        background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 10px; 
+        padding: 12px 14px; display: flex; justify-content: space-between; 
+        align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.03); transition: all 0.2s ease-in-out; 
+    }
+    .card-left { display: flex; flex-direction: column; overflow: hidden; }
+    .stock-name { font-size: 14px; font-weight: 700; color: #0F172A; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+    .stock-ticker { font-size: 11px; font-weight: 500; color: #64748B; margin-top: 1px; }
+    .card-right { display: flex; flex-direction: column; align-items: flex-end; }
+    .stock-price { font-size: 14px; font-weight: 700; color: #0F172A; }
+    
+    .badge { font-size: 11px; font-weight: 600; margin-top: 3px; padding: 2px 6px; border-radius: 4px; }
     .badge-up { background-color: #DCFCE7; color: #166534; }
     .badge-down { background-color: #FEE2E2; color: #991B1B; }
     .badge-neutral { background-color: #F1F5F9; color: #475569; }
     
-    .news-item { background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px 16px; margin-bottom: 8px; font-size: 14px; font-weight: 500; }
-    .news-item a { color: #0F172A; text-decoration: none; }
+    .news-item { background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 6px; padding: 10px 12px; margin-bottom: 6px; font-size: 13px; font-weight: 500; }
+    .news-item a { color: #0F172A; text-decoration: none; display: block; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
     .news-item a:hover { color: #2563EB; text-decoration: underline; }
 </style>
 """
@@ -90,11 +104,6 @@ def update_market_db():
             if future.result(): results.append(future.result())
     pd.DataFrame(results).to_csv(DB_FILE, index=False)
 
-with st.sidebar:
-    st.markdown("### 시스템 관리")
-    if st.button("스크리닝 DB 최신화"):
-        with st.spinner("병렬 스크리닝 진행 중..."): update_market_db()
-        st.success("데이터베이스 업데이트 완료!")
 
 # --- 3. UI 컴포넌트 렌더링 함수 ---
 def draw_macro_card(name, price, change):
@@ -123,7 +132,6 @@ for name, ticker in {'미 10년물 국채': '^TNX', 'WTI 원유': 'CL=F', 'S&P 5
     hist = yf.Ticker(ticker).history(period="2d")
     macro_data[name] = {"price": hist['Close'].iloc[-1], "change": hist['Close'].iloc[-1] - hist['Close'].iloc[-2]} if len(hist) >= 2 else {"price": hist['Close'].iloc[-1], "change": 0.0}
 
-# 🚨 CNN 공탐지수 스크래핑 안전장치 완벽 적용 (에러 방지)
 try:
     res = requests.get("https://production.dataviz.cnn.io/index/fearandgreed/graphdata", headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
     if res.status_code == 200:
@@ -134,9 +142,12 @@ try:
 except:
     macro_data['CNN 공탐지수'] = {"price": 0, "change": "수집 불가"}
 
-cols = st.columns(3)
-for i, (name, data) in enumerate(macro_data.items()):
-    with cols[i % 3]: st.markdown(draw_macro_card(name, data['price'], data['change']), unsafe_allow_html=True)
+# CSS Grid로 묶어서 출력 (세로 나열 방지)
+html_macro = '<div class="card-grid">'
+for name, data in macro_data.items():
+    html_macro += draw_macro_card(name, data['price'], data['change'])
+html_macro += '</div>'
+st.markdown(html_macro, unsafe_allow_html=True)
 
 # --- 5. 관심 종목 현황 ---
 st.markdown('<div class="section-title">관심 종목 현황</div>', unsafe_allow_html=True)
@@ -146,54 +157,71 @@ for t in my_stocks:
     hist = yf.Ticker(t).history(period="2d")
     if len(hist) >= 2: stock_data.append({'ticker': t, 'price': hist['Close'].iloc[-1], 'change': ((hist['Close'].iloc[-1] - hist['Close'].iloc[-2]) / hist['Close'].iloc[-2]) * 100})
 
-cols = st.columns(3)
-for idx, stock in enumerate(stock_data):
+html_stock = '<div class="card-grid">'
+for stock in stock_data:
     display_name = '삼성전자' if stock['ticker'] == '005930.KS' else 'SK하이닉스' if stock['ticker'] == '000660.KS' else stock['ticker']
-    with cols[idx % 3]: st.markdown(draw_stock_card(display_name, stock['ticker'], stock['price'], stock['change']), unsafe_allow_html=True)
+    html_stock += draw_stock_card(display_name, stock['ticker'], stock['price'], stock['change'])
+html_stock += '</div>'
+st.markdown(html_stock, unsafe_allow_html=True)
 
 # --- 6. 시장별 우량주 스크리닝 ---
 st.markdown('<div class="section-title">시장별 우량주 스크리닝</div>', unsafe_allow_html=True)
+st.caption("※ 수동 업데이트 필요")
+if st.button("🔄 스크리닝 DB 최신화"):
+    with st.spinner("병렬 스크리닝 진행 중..."): 
+        update_market_db()
+    st.success("업데이트 완료!")
+
 if os.path.exists(DB_FILE):
     screen_data = pd.read_csv(DB_FILE).to_dict('records')
-    tab1, tab2 = st.tabs(["52주 신고가 근접 (5% 이내)", "저평가 & EPS 우상향"])
+    tab1, tab2 = st.tabs(["52주 신고가", "저평가&우상향"])
 
     with tab1:
-        cols = st.columns(3)
-        for col, market in zip(cols, ['NASDAQ', 'S&P 500', 'KOSPI']):
-            with col:
-                st.markdown(f"**{market}**")
-                for s in [s for s in screen_data if s['market'] == market and s['price'] >= s['high52'] * 0.95]: 
-                    st.markdown(draw_stock_card(s['ticker'], s['ticker'], s['price'], None, "신고가 근접"), unsafe_allow_html=True)
+        for market in ['NASDAQ', 'S&P 500', 'KOSPI']:
+            st.markdown(f"<h6 style='margin-top: 15px; margin-bottom: 8px; color: #1E293B;'>{market}</h6>", unsafe_allow_html=True)
+            high_stocks = [s for s in screen_data if s['market'] == market and s['price'] >= s['high52'] * 0.95]
+            if high_stocks:
+                html_screen = '<div class="card-grid">'
+                for s in high_stocks: html_screen += draw_stock_card(s['ticker'], s['ticker'], s['price'], None, "신고가 근접")
+                html_screen += '</div>'
+                st.markdown(html_screen, unsafe_allow_html=True)
+            else:
+                st.caption("해당 종목 없음")
+                
     with tab2:
-        cols = st.columns(3)
-        for col, market in zip(cols, ['NASDAQ', 'S&P 500', 'KOSPI']):
-            with col:
-                st.markdown(f"**{market}**")
-                for s in [s for s in screen_data if s['market'] == market and 0 < s['per'] < 15 and 0 < s['pbr'] < 1.5 and s['eps_growth']]: 
-                    st.markdown(draw_stock_card(s['ticker'], s['ticker'], s['price'], None, f"PER {s['per']:.1f}"), unsafe_allow_html=True)
+        for market in ['NASDAQ', 'S&P 500', 'KOSPI']:
+            st.markdown(f"<h6 style='margin-top: 15px; margin-bottom: 8px; color: #1E293B;'>{market}</h6>", unsafe_allow_html=True)
+            value_stocks = [s for s in screen_data if s['market'] == market and 0 < s['per'] < 15 and 0 < s['pbr'] < 1.5 and s['eps_growth']]
+            if value_stocks:
+                html_screen = '<div class="card-grid">'
+                for s in value_stocks: html_screen += draw_stock_card(s['ticker'], s['ticker'], s['price'], None, f"PER {s['per']:.1f}")
+                html_screen += '</div>'
+                st.markdown(html_screen, unsafe_allow_html=True)
+            else:
+                st.caption("해당 종목 없음")
 else:
-    st.warning("왼쪽 사이드바에서 [스크리닝 DB 최신화] 버튼을 눌러주세요!")
+    st.warning("☝️ [스크리닝 DB 최신화] 버튼을 눌러주세요!")
 
 # --- 7. 인사이트 보드 ---
 st.markdown('<div class="section-title">인사이트 보드</div>', unsafe_allow_html=True)
-c_mac, c_stk, c_blg = st.columns(3, gap="medium")
+c_mac, c_stk, c_blg = st.columns(3)
 with c_mac:
-    st.markdown("##### 거시 경제 뉴스")
+    st.markdown("##### 거시 경제")
     try:
-        for item in ET.fromstring(requests.get("https://news.google.com/rss/search?q=거시경제+주식+금리&hl=ko&gl=KR&ceid=KR:ko").content).findall('.//item')[:5]: 
+        for item in ET.fromstring(requests.get("https://news.google.com/rss/search?q=거시경제+주식+금리&hl=ko&gl=KR&ceid=KR:ko").content).findall('.//item')[:4]: 
             st.markdown(f'<div class="news-item"><a href="{item.find("link").text}" target="_blank">{item.find("title").text}</a></div>', unsafe_allow_html=True)
     except: pass
 with c_stk:
-    st.markdown("##### 관심종목 뉴스")
+    st.markdown("##### 관심종목")
     try:
-        for item in ET.fromstring(requests.get("https://news.google.com/rss/search?q=애플+OR+마이크로소프트+OR+테슬라+OR+삼성전자+OR+SK하이닉스&hl=ko&gl=KR&ceid=KR:ko").content).findall('.//item')[:5]: 
+        for item in ET.fromstring(requests.get("https://news.google.com/rss/search?q=애플+OR+마이크로소프트+OR+테슬라+OR+삼성전자+OR+SK하이닉스&hl=ko&gl=KR&ceid=KR:ko").content).findall('.//item')[:4]: 
             st.markdown(f'<div class="news-item"><a href="{item.find("link").text}" target="_blank">{item.find("title").text}</a></div>', unsafe_allow_html=True)
     except: pass
 with c_blg:
-    st.markdown("##### 이웃 블로그 최신글")
+    st.markdown("##### 이웃 블로그")
     for name, url in [("jeunkim", "https://rss.blog.naver.com/jeunkim"), ("crush21", "https://rss.blog.naver.com/crush212121")]:
         try:
-            for item in ET.fromstring(requests.get(url).content).findall('.//item')[:3]: 
+            for item in ET.fromstring(requests.get(url).content).findall('.//item')[:2]: 
                 st.markdown(f'<div class="news-item"><a href="{item.find("link").text}" target="_blank"><b>[{name}]</b> {item.find("title").text}</a></div>', unsafe_allow_html=True)
         except: pass
 
@@ -201,33 +229,34 @@ with c_blg:
 st.markdown('<div class="section-title">마인드셋</div>', unsafe_allow_html=True)
 gurus = [
     {"name": "워런 버핏", "emoji": "👴", "search": "워런 버핏 투자 조언", "quotes": ["위대한 기업을 적당한 가격에 사는 것이 훨씬 낫다.", "원칙 1: 절대 돈을 잃지 마라."]},
-    {"name": "찰리 멍거", "emoji": "👓", "search": "찰리 멍거 명언", "quotes": ["단순히 똑똑한 것보다, 바보 같은 짓을 피하는 것이 중요하다.", "이해하지 못하는 것에는 절대 투자하지 마라."]},
-    {"name": "피터 린치", "emoji": "🏃‍♂️", "search": "피터 린치 강연", "quotes": ["주식 시장에서 가장 중요한 기관은 뇌가 아니라 위장(인내심)이다.", "기업의 수익이 우상향하면 주가도 우상향한다."]},
-    {"name": "앙드레 코스톨라니", "emoji": "🎩", "search": "앙드레 코스톨라니", "quotes": ["투자는 머리로 하는 것이 아니라 엉덩이로 하는 것이다.", "주가는 결국 기업의 가치로 회귀한다."]},
+    {"name": "찰리 멍거", "emoji": "👓", "search": "찰리 멍거 명언", "quotes": ["바보 같은 짓을 피하는 것이 중요하다.", "이해하지 못하는 것에는 절대 투자하지 마라."]},
+    {"name": "피터 린치", "emoji": "🏃‍♂️", "search": "피터 린치 강연", "quotes": ["가장 중요한 기관은 뇌가 아니라 위장(인내심)이다.", "기업 수익이 우상향하면 주가도 우상향한다."]},
+    {"name": "코스톨라니", "emoji": "🎩", "search": "앙드레 코스톨라니", "quotes": ["투자는 머리로 하는 것이 아니라 엉덩이로 하는 것이다.", "주가는 결국 기업의 가치로 회귀한다."]},
     {"name": "레이 달리오", "emoji": "🌐", "search": "레이 달리오 원칙", "quotes": ["시장이 어떻게 움직일지 예측하려 하지 마라.", "고통에 반성을 더하면 발전이 된다."]},
     {"name": "존 보글", "emoji": "⛵", "search": "존 보글 인덱스 펀드", "quotes": ["모든 주식을 소유하라.", "투자의 핵심은 비용을 최소화하는 것이다."]}
 ]
 
 selected = random.sample(gurus, 4)
-cols = st.columns(2) + st.columns(2)
-for i, guru in enumerate(selected):
-    yt = f"https://www.youtube.com/results?search_query={urllib.parse.quote(guru['search'])}&sp=CAM%253D"
-    msg = f"**{guru['emoji']} {guru['name']}**\n\n> \"{random.choice(guru['quotes'])}\"\n\n[▶️ 관련 유튜브 영상 보기 (조회수 순)]({yt})"
-    if i % 2 == 0: cols[i].info(msg)
-    else: cols[i].success(msg)
+for i in range(0, 4, 2):
+    c1, c2 = st.columns(2)
+    for j, col in enumerate([c1, c2]):
+        guru = selected[i + j]
+        yt = f"https://www.youtube.com/results?search_query={urllib.parse.quote(guru['search'])}&sp=CAM%253D"
+        msg = f"**{guru['emoji']} {guru['name']}**\n\n> \"{random.choice(guru['quotes'])}\"\n\n[▶️ 영상 보기 (조회수 순)]({yt})"
+        col.info(msg) if j == 0 else col.success(msg)
 
 # --- 9. 하락장에서 얻은 깨달음 (디자인 대폭 축소) ---
-st.markdown('<div class="section-title" style="font-size: 15px; margin-top: 50px;">하락장에서 얻은 깨달음</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title" style="font-size: 14px; margin-top: 40px; margin-bottom: 10px;">하락장에서 얻은 깨달음</div>', unsafe_allow_html=True)
 st.markdown("""
-<div style="font-size: 12px; color: #64748B; background-color: rgba(255, 255, 255, 0.5); padding: 12px 16px; border-radius: 6px; border: 1px solid #E2E8F0; line-height: 1.6;">
-<b>1.</b> 급격한 상승이나 하락세에 올라타지 마라. 기울기는 완만해지는 때가 오며 그때가 매수, 매도 타이밍이다.<br>
-<b>2.</b> 시장은 항상 낙관론, 비관론에 쏠리기 마련이다. 과도한 비관론에 매수하라.<br>
-<b>3.</b> 전문가라고 하는 사람들도 잘 모른다. 장담하는 사람이 있다면 사기꾼이다.<br>
-<b>4.</b> 오른 만큼 떨어지는 것도 가파르며 그 사이 구간에서 수익을 챙겨서 나오는 것은 어렵다.<br>
+<div style="font-size: 11px; color: #64748B; background-color: rgba(255, 255, 255, 0.4); padding: 10px 14px; border-radius: 6px; border: 1px solid #E2E8F0; line-height: 1.5; margin-bottom: 20px;">
+<b>1.</b> 급격한 상승이나 하락세에 올라타지 마라. 매수, 매도 타이밍은 완만해질 때다.<br>
+<b>2.</b> 시장은 쏠리기 마련이다. 과도한 비관론에 매수하라.<br>
+<b>3.</b> 전문가도 잘 모른다. 장담하는 사람은 사기꾼이다.<br>
+<b>4.</b> 오른 만큼 가파르게 떨어진다. 그 사이 수익을 내는 것은 어렵다.<br>
 <b>5.</b> 큰 자본을 한 번에 투하하지 마라. 분할 매수해라.<br>
-<b>6.</b> 손절도 할 줄 알아야 한다. 그게 싫으면 인내심을 길러라.<br>
-<b>7.</b> 나만 소외된 것 같은 느낌이 들 때가 가장 참아야 할 때이다.<br>
-<b>8.</b> 가치분석은 남에게 맡기지 말고 직접 해라.<br>
-<b>9.</b> 산업의 기술을 잘 안다고 해서 그 기업의 주가를 잘 아는 것은 아니다.
+<b>6.</b> 손절도 할 줄 알아야 한다. 싫으면 인내심을 길러라.<br>
+<b>7.</b> 나만 소외된 것 같을 때가 가장 참아야 할 때다.<br>
+<b>8.</b> 가치분석은 직접 해라.<br>
+<b>9.</b> 산업의 기술을 잘 안다고 주가를 잘 아는 것은 아니다.
 </div>
 """, unsafe_allow_html=True)

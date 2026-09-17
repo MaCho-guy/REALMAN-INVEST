@@ -6,7 +6,6 @@ import xml.etree.ElementTree as ET
 import random
 import os
 import concurrent.futures
-import urllib.parse
 
 # 1. 대시보드 제목 세팅
 st.set_page_config(page_title="REALMAN INVEST", layout="wide")
@@ -24,7 +23,6 @@ custom_css = """
         text-align: center; font-family: 'Futura', 'Trebuchet MS', sans-serif;
         font-weight: 900; font-style: italic; text-transform: uppercase;
         box-shadow: 0 6px 12px rgba(218, 41, 28, 0.3);
-        /* PC 기본 사이즈 */
         font-size: 40px !important; padding: 6px 24px; letter-spacing: -2px;
     }
     
@@ -34,21 +32,20 @@ custom_css = """
         box-shadow: 0 2px 4px rgba(0,0,0,0.05); letter-spacing: -0.5px;
     }
     
-    /* 📌 핵심: 모바일에서 2열로 나란히 배치되도록 CSS Grid 적용 */
+    /* 모바일 2열 배치 (CSS Grid) */
     .card-grid {
         display: grid;
-        grid-template-columns: repeat(2, 1fr); /* 모바일 기본: 2칸 */
+        grid-template-columns: repeat(2, 1fr);
         gap: 10px;
     }
     @media (min-width: 768px) {
-        .card-grid { grid-template-columns: repeat(3, 1fr); gap: 12px; } /* 태블릿/PC: 3칸 */
+        .card-grid { grid-template-columns: repeat(3, 1fr); gap: 12px; }
         .supreme-box { font-size: 48px !important; padding: 8px 30px; }
     }
     
     .card-link { text-decoration: none !important; color: inherit !important; display: block; }
     .card-link:hover .stock-card { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
     
-    /* 카드 여백 및 폰트 축소 (스크롤 최소화) */
     .stock-card { 
         background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 10px; 
         padding: 12px 14px; display: flex; justify-content: space-between; 
@@ -104,7 +101,6 @@ def update_market_db():
             if future.result(): results.append(future.result())
     pd.DataFrame(results).to_csv(DB_FILE, index=False)
 
-
 # --- 3. UI 컴포넌트 렌더링 함수 ---
 def draw_macro_card(name, price, change):
     if name == '원/달러 환율':
@@ -142,7 +138,6 @@ try:
 except:
     macro_data['CNN 공탐지수'] = {"price": 0, "change": "수집 불가"}
 
-# CSS Grid로 묶어서 출력 (세로 나열 방지)
 html_macro = '<div class="card-grid">'
 for name, data in macro_data.items():
     html_macro += draw_macro_card(name, data['price'], data['change'])
@@ -225,8 +220,9 @@ with c_blg:
                 st.markdown(f'<div class="news-item"><a href="{item.find("link").text}" target="_blank"><b>[{name}]</b> {item.find("title").text}</a></div>', unsafe_allow_html=True)
         except: pass
 
-# --- 8. 마인드셋 ---
+# --- 8. 마인드셋 (에러 방지: 가장 직관적이고 안전한 코드로 변경) ---
 st.markdown('<div class="section-title">마인드셋</div>', unsafe_allow_html=True)
+
 gurus = [
     {"name": "워런 버핏", "emoji": "👴", "search": "워런 버핏 투자 조언", "quotes": ["위대한 기업을 적당한 가격에 사는 것이 훨씬 낫다.", "원칙 1: 절대 돈을 잃지 마라."]},
     {"name": "찰리 멍거", "emoji": "👓", "search": "찰리 멍거 명언", "quotes": ["바보 같은 짓을 피하는 것이 중요하다.", "이해하지 못하는 것에는 절대 투자하지 마라."]},
@@ -236,16 +232,32 @@ gurus = [
     {"name": "존 보글", "emoji": "⛵", "search": "존 보글 인덱스 펀드", "quotes": ["모든 주식을 소유하라.", "투자의 핵심은 비용을 최소화하는 것이다."]}
 ]
 
-selected = random.sample(gurus, 4)
-for i in range(0, 4, 2):
-    c1, c2 = st.columns(2)
-    for j, col in enumerate([c1, c2]):
-        guru = selected[i + j]
-        yt = f"https://www.youtube.com/results?search_query={urllib.parse.quote(guru['search'])}&sp=CAM%253D"
-        msg = f"**{guru['emoji']} {guru['name']}**\n\n> \"{random.choice(guru['quotes'])}\"\n\n[▶️ 영상 보기 (조회수 순)]({yt})"
-        col.info(msg) if j == 0 else col.success(msg)
+# 4명을 랜덤으로 뽑기
+selected_gurus = random.sample(gurus, 4)
 
-# --- 9. 하락장에서 얻은 깨달음 (디자인 대폭 축소) ---
+# 에러가 나지 않도록 복잡한 반복문을 없애고 1열, 2열에 차례대로 안전하게 배치했습니다.
+col1, col2 = st.columns(2)
+
+with col1:
+    g1 = selected_gurus[0]
+    yt1 = f"https://www.youtube.com/results?search_query={g1['search'].replace(' ', '+')}&sp=CAM%253D"
+    st.info(f"**{g1['emoji']} {g1['name']}**\n\n> \"{random.choice(g1['quotes'])}\"\n\n[▶️ 영상 보기 (조회수 순)]({yt1})")
+    
+    g2 = selected_gurus[1]
+    yt2 = f"https://www.youtube.com/results?search_query={g2['search'].replace(' ', '+')}&sp=CAM%253D"
+    st.success(f"**{g2['emoji']} {g2['name']}**\n\n> \"{random.choice(g2['quotes'])}\"\n\n[▶️ 영상 보기 (조회수 순)]({yt2})")
+
+with col2:
+    g3 = selected_gurus[2]
+    yt3 = f"https://www.youtube.com/results?search_query={g3['search'].replace(' ', '+')}&sp=CAM%253D"
+    st.info(f"**{g3['emoji']} {g3['name']}**\n\n> \"{random.choice(g3['quotes'])}\"\n\n[▶️ 영상 보기 (조회수 순)]({yt3})")
+    
+    g4 = selected_gurus[3]
+    yt4 = f"https://www.youtube.com/results?search_query={g4['search'].replace(' ', '+')}&sp=CAM%253D"
+    st.success(f"**{g4['emoji']} {g4['name']}**\n\n> \"{random.choice(g4['quotes'])}\"\n\n[▶️ 영상 보기 (조회수 순)]({yt4})")
+
+
+# --- 9. 하락장에서 얻은 깨달음 ---
 st.markdown('<div class="section-title" style="font-size: 14px; margin-top: 40px; margin-bottom: 10px;">하락장에서 얻은 깨달음</div>', unsafe_allow_html=True)
 st.markdown("""
 <div style="font-size: 11px; color: #64748B; background-color: rgba(255, 255, 255, 0.4); padding: 10px 14px; border-radius: 6px; border: 1px solid #E2E8F0; line-height: 1.5; margin-bottom: 20px;">

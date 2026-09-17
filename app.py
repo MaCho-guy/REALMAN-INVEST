@@ -66,6 +66,21 @@ custom_css = """
     .news-item { background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 6px; padding: 10px 12px; margin-bottom: 6px; font-size: 13px; font-weight: 500; }
     .news-item a { color: #0F172A; text-decoration: none; display: block; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
     .news-item a:hover { color: #2563EB; text-decoration: underline; }
+
+    /* 📌 마인드셋 소형 카드 전용 스타일 */
+    .guru-card {
+        background-color: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        border-radius: 10px;
+        padding: 12px 14px;
+        margin-bottom: 10px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .guru-header { font-size: 13px; font-weight: 700; color: #0F172A; margin-bottom: 4px; }
+    .guru-quote { font-size: 12px; color: #475569; font-style: italic; margin-bottom: 8px; line-height: 1.4; }
+    .guru-link { font-size: 11px; font-weight: 600; }
+    .guru-link a { color: #2563EB; text-decoration: none; }
+    .guru-link a:hover { text-decoration: underline; }
 </style>
 """
 st.markdown(custom_css, unsafe_allow_html=True)
@@ -178,7 +193,6 @@ if os.path.exists(DB_FILE):
     tab1, tab2 = st.tabs(["52주 신고가", "저평가&우상향"])
 
     with tab1:
-        # 클릭하면 기준이 나오는 아코디언 메뉴 추가
         with st.expander("💡 '52주 신고가' 스크리닝 기준 보기"):
             st.markdown("""
             <div style="font-size:13px; color:#475569;">
@@ -198,7 +212,6 @@ if os.path.exists(DB_FILE):
                 st.caption("해당 종목 없음")
                 
     with tab2:
-        # 클릭하면 기준이 나오는 아코디언 메뉴 추가
         with st.expander("💡 '저평가 & EPS 우상향' 스크리닝 기준 보기"):
             st.markdown("""
             <div style="font-size:13px; color:#475569; line-height: 1.6;">
@@ -244,7 +257,7 @@ with c_blg:
                 st.markdown(f'<div class="news-item"><a href="{item.find("link").text}" target="_blank"><b>[{name}]</b> {item.find("title").text}</a></div>', unsafe_allow_html=True)
         except: pass
 
-# --- 8. 마인드셋 ---
+# --- 8. 마인드셋 (소형 컴팩트 카드 적용) ---
 st.markdown('<div class="section-title">마인드셋</div>', unsafe_allow_html=True)
 gurus = [
     {"name": "워런 버핏", "emoji": "👴", "search": "워런 버핏 투자 조언", "quotes": ["위대한 기업을 적당한 가격에 사는 것이 훨씬 낫다.", "원칙 1: 절대 돈을 잃지 마라."]},
@@ -256,26 +269,25 @@ gurus = [
 ]
 
 selected_gurus = random.sample(gurus, 4)
+
+def draw_guru_card(guru):
+    yt_url = f"https://www.youtube.com/results?search_query={guru['search'].replace(' ', '+')}&sp=CAM%253D"
+    q = random.choice(guru['quotes'])
+    return f"""
+    <div class="guru-card">
+        <div class="guru-header">{guru['emoji']} {guru['name']}</div>
+        <div class="guru-quote">"{q}"</div>
+        <div class="guru-link"><a href="{yt_url}" target="_blank">▶️ 영상 보기 (조회수 순)</a></div>
+    </div>
+    """
+
 col1, col2 = st.columns(2)
-
 with col1:
-    g1 = selected_gurus[0]
-    yt1 = f"https://www.youtube.com/results?search_query={g1['search'].replace(' ', '+')}&sp=CAM%253D"
-    st.info(f"**{g1['emoji']} {g1['name']}**\n\n> \"{random.choice(g1['quotes'])}\"\n\n[▶️ 영상 보기 (조회수 순)]({yt1})")
-    
-    g2 = selected_gurus[1]
-    yt2 = f"https://www.youtube.com/results?search_query={g2['search'].replace(' ', '+')}&sp=CAM%253D"
-    st.success(f"**{g2['emoji']} {g2['name']}**\n\n> \"{random.choice(g2['quotes'])}\"\n\n[▶️ 영상 보기 (조회수 순)]({yt2})")
-
+    st.markdown(draw_guru_card(selected_gurus[0]), unsafe_allow_html=True)
+    st.markdown(draw_guru_card(selected_gurus[1]), unsafe_allow_html=True)
 with col2:
-    g3 = selected_gurus[2]
-    yt3 = f"https://www.youtube.com/results?search_query={g3['search'].replace(' ', '+')}&sp=CAM%253D"
-    st.info(f"**{g3['emoji']} {g3['name']}**\n\n> \"{random.choice(g3['quotes'])}\"\n\n[▶️ 영상 보기 (조회수 순)]({yt3})")
-    
-    g4 = selected_gurus[3]
-    yt4 = f"https://www.youtube.com/results?search_query={g4['search'].replace(' ', '+')}&sp=CAM%253D"
-    st.success(f"**{g4['emoji']} {g4['name']}**\n\n> \"{random.choice(g4['quotes'])}\"\n\n[▶️ 영상 보기 (조회수 순)]({yt4})")
-
+    st.markdown(draw_guru_card(selected_gurus[2]), unsafe_allow_html=True)
+    st.markdown(draw_guru_card(selected_gurus[3]), unsafe_allow_html=True)
 
 # --- 9. 하락장에서 얻은 깨달음 ---
 st.markdown('<div class="section-title" style="font-size: 14px; margin-top: 40px; margin-bottom: 10px;">하락장에서 얻은 깨달음</div>', unsafe_allow_html=True)

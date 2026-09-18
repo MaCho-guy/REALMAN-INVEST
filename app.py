@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 import xml.etree.ElementTree as ET
 import plotly.graph_objects as go
 import plotly.express as px
+from datetime import datetime, timedelta
 import random
 import uuid
 import urllib.parse
@@ -29,11 +30,27 @@ else:
 # 커스텀 CSS 주입
 st.markdown(f"""
 <style>
-    .stApp {{ background-color: {bg_color}; color: {text_col} !important; }}
-    #MainMenu, footer, header {{visibility: hidden;}}
+    /* 전체 배경 및 텍스트 색상 */
+    .stApp, .stApp p, .stApp span, .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6 {{ color: {text_col}; background-color: {bg_color}; }}
+    
+    /* header를 숨기지 않아야 사이드바 펼치기 버튼(>)이 보입니다 */
+    #MainMenu, footer {{visibility: hidden;}}
+    
     [data-testid="stSidebar"] {{ background-color: {card_bg}; border-right: 1px solid {border_col}; }}
     
-    .sidebar-title {{ font-size: 24px; font-weight: 900; color: #DA291C; font-style: italic; text-align: center; margin-bottom: 20px; letter-spacing: -1px; }}
+    /* 📌 사이드바 타이틀 로고 색상 보호 */
+    .sidebar-title {{ font-size: 24px; font-weight: 900; color: #DA291C !important; font-style: italic; text-align: center; margin-bottom: 20px; letter-spacing: -1px; }}
+    
+    /* 📌 메인 화면 슈프림 타이틀 색상 보호 */
+    .supreme-container {{ display: flex; justify-content: center; margin-top: 10px; margin-bottom: 25px; }}
+    .supreme-box {{ 
+        background-color: #DA291C !important; color: #FFFFFF !important; 
+        padding: 8px 30px; border-radius: 2px; text-align: center; 
+        font-family: 'Futura', sans-serif; font-size: 38px !important; font-weight: 900; 
+        font-style: italic; letter-spacing: -2px; box-shadow: 0 6px 12px rgba(218, 41, 28, 0.3); 
+        text-transform: uppercase;
+    }}
+    
     .section-title {{ background-color: {card_bg}; color: {text_col} !important; border-left: 4px solid #DA291C; padding: 12px 16px; border-radius: 6px; font-size: 18px; font-weight: 700; margin-top: 20px; margin-bottom: 15px; border: 1px solid {border_col}; }}
     
     .card-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; }}
@@ -44,26 +61,24 @@ st.markdown(f"""
     .stock-ticker {{ font-size: 12px; color: {sub_text} !important; margin-top: 2px; }}
     .stock-price {{ font-size: 16px; font-weight: 700; color: {text_col} !important; }}
     
-    .badge {{ font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 4px; color: #fff; }}
-    .badge-up {{ background-color: #ef4444; }} 
-    .badge-down {{ background-color: #3b82f6; }} 
-    .badge-neutral {{ background-color: #475569; }}
+    .badge {{ font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 4px; color: #fff !important; }}
+    .badge-up {{ background-color: #ef4444 !important; }} 
+    .badge-down {{ background-color: #3b82f6 !important; }} 
+    .badge-neutral {{ background-color: #475569 !important; }}
     
     .news-item {{ background-color: {card_bg}; border: 1px solid {border_col}; border-radius: 6px; padding: 12px; margin-bottom: 8px; }}
     .news-item a {{ color: {text_col} !important; text-decoration: none; font-size: 14px; }}
     .news-item a:hover {{ color: #DA291C !important; text-decoration: underline; }}
     
     div[data-baseweb="tab-list"] {{ gap: 24px; margin-bottom: 20px; }}
-    div[data-baseweb="tab"] {{ font-size: 16px !important; font-weight: 700 !important; color: {sub_text} !important; }}
+    div[data-baseweb="tab"] {{ font-size: 16px !important; font-weight: 700 !important; color: {sub_text} !important; border: none !important; }}
     div[aria-selected="true"] {{ color: {text_col} !important; border-bottom: 3px solid #DA291C !important; }}
-    
-    p, div, span, h1, h2, h3, h4, h5, h6 {{ color: {text_col} !important; }}
 </style>
 """, unsafe_allow_html=True)
 
 
 # ==========================================
-# 📌 사이드바 및 라우팅
+# 📌 사이드바 및 7대 섹터 라우팅
 # ==========================================
 st.sidebar.markdown('<div class="sidebar-title">REALMAN INVEST</div>', unsafe_allow_html=True)
 
@@ -85,6 +100,9 @@ if selected_page != st.query_params.get("current_page"):
     st.rerun()
 
 
+# 메인 화면 슈프림 타이틀
+st.markdown('<div class="supreme-container"><div class="supreme-box">REALMAN INVEST</div></div>', unsafe_allow_html=True)
+
 # ==========================================
 # 🛠️ 데이터 연동 함수
 # ==========================================
@@ -101,9 +119,10 @@ def fetch_krx_adr():
         soup_kdq = BeautifulSoup(res_kdq.text, 'html.parser')
         kdq_up = int(soup_kdq.find(id='now_up').text.replace(',', ''))
         kdq_dn = int(soup_kdq.find(id='now_down').text.replace(',', ''))
+        
         return {"KOSPI": (kpi_up, kpi_dn), "KOSDAQ": (kdq_up, kdq_dn)}
     except: 
-        return {"KOSPI": (1200, 800), "KOSDAQ": (900, 700)}
+        return {"KOSPI": (0, 0), "KOSDAQ": (0, 0)}
 
 @st.cache_data(ttl=3600)
 def get_hist_data(ticker, period):
@@ -124,6 +143,26 @@ def plot_line_chart(series, title, color="#DA291C", hline_upper=None, hline_lowe
     if hline_lower: fig.add_hline(y=hline_lower, line_dash="dot", line_color="blue", annotation_text="과매도")
     fig.update_layout(title=title, template=chart_template, height=300, margin=dict(l=20, r=20, t=40, b=20), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
     return fig
+
+def render_tv_widget(symbol, height=450):
+    unique_id = f"tv_{uuid.uuid4().hex}"
+    tv_theme = "dark" if st.session_state.theme_dark else "light"
+    bg_code = "#1E293B" if st.session_state.theme_dark else "#FFFFFF"
+    html_code = f"""
+    <div class="tradingview-widget-container" style="height:{height}px;width:100%">
+      <div id="{unique_id}" style="height:calc(100% - 32px);width:100%"></div>
+      <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+      <script type="text/javascript">
+      new TradingView.widget({{
+      "autosize": true, "symbol": "{symbol}", "interval": "D", "timezone": "Asia/Seoul",
+      "theme": "{tv_theme}", "style": "1", "locale": "kr", "enable_publishing": false,
+      "backgroundColor": "{bg_code}", "hide_top_toolbar": false, "hide_legend": false,
+      "save_image": false, "container_id": "{unique_id}"
+      }});
+      </script>
+    </div>
+    """
+    components.html(html_code, height=height)
 
 
 # ==========================================
@@ -156,27 +195,17 @@ if selected_page == menus[0]:
             st.markdown("</div>", unsafe_allow_html=True)
 
         st.divider()
-        st.markdown("#### 지수 장기 추이 및 차트 (6M, 1Y, 3Y, 5Y)")
-        chart_period = st.select_slider("조회 기간 선택", options=["6mo", "1y", "3y", "5y"], value="1y")
+        st.markdown("#### 지수 장기 추이 및 차트")
+        t_kpi, t_kdq, t_ndq, t_sp = st.tabs(["KOSPI", "KOSDAQ", "NASDAQ 100", "S&P 500"])
         
-        t_kpi, t_kdq, t_ndq, t_sp = st.tabs(["KOSPI", "KOSDAQ", "NASDAQ", "S&P 500"])
-        with t_kpi: 
-            df = get_hist_data("^KS11", chart_period)
-            if not df.empty: st.plotly_chart(plot_line_chart(df['Close'], "KOSPI 장기 추이", "#DA291C"), use_container_width=True)
-        with t_kdq: 
-            df = get_hist_data("^KQ11", chart_period)
-            if not df.empty: st.plotly_chart(plot_line_chart(df['Close'], "KOSDAQ 장기 추이", "#3b82f6"), use_container_width=True)
-        with t_ndq: 
-            df = get_hist_data("^IXIC", chart_period)
-            if not df.empty: st.plotly_chart(plot_line_chart(df['Close'], "NASDAQ 장기 추이", "#10b981"), use_container_width=True)
-        with t_sp: 
-            df = get_hist_data("^GSPC", chart_period)
-            if not df.empty: st.plotly_chart(plot_line_chart(df['Close'], "S&P 500 장기 추이", "#f59e0b"), use_container_width=True)
+        with t_kpi: render_tv_widget("KRX:KOSPI")
+        with t_kdq: render_tv_widget("KRX:KOSDAQ")
+        with t_ndq: render_tv_widget("OANDA:NAS100USD")
+        with t_sp: render_tv_widget("OANDA:SPX500USD")
 
     elif sub_menu == "위험지표":
         st.markdown("#### 1. 이격도 (과매수/과매도)")
         disp_period = st.radio("기간 선택 (이격도)", ["1mo", "2mo", "6mo", "1y", "3y"], horizontal=True, format_func=lambda x: {"1mo":"25일","2mo":"50일","6mo":"6M","1y":"1Y","3y":"3Y"}[x])
-        
         c_kpi, c_kdq = st.columns(2)
         h_kpi = get_hist_data("^KS11", disp_period)
         if not h_kpi.empty:
@@ -191,7 +220,6 @@ if selected_page == menus[0]:
         st.divider()
         st.markdown("#### 2. 글로벌 위험지표 (6M, 1Y, 3Y)")
         glob_period = st.radio("기간 선택 (글로벌)", ["6mo", "1y", "3y"], horizontal=True, format_func=lambda x: x.upper())
-        
         g1, g2 = st.columns(2)
         vix = get_hist_data("^VIX", glob_period)
         if not vix.empty: g1.plotly_chart(plot_line_chart(vix['Close'], f"VIX 공포지수 ({vix['Close'].iloc[-1]:.2f})", "#f59e0b", 30), use_container_width=True)
@@ -214,7 +242,6 @@ if selected_page == menus[0]:
         st.divider()
         st.markdown("#### 3. 한국 위험지표")
         kor_period = st.radio("기간 선택 (한국)", ["6mo", "1y", "3y"], horizontal=True, format_func=lambda x: x.upper(), key="kor")
-        
         k1, k2 = st.columns(2)
         vkospi = get_hist_data("^VKOSPI", kor_period)
         if not vkospi.empty: k1.plotly_chart(plot_line_chart(vkospi['Close'], f"VKOSPI 변동성 ({vkospi['Close'].iloc[-1]:.2f})", "#ec4899", 25), use_container_width=True)
@@ -227,7 +254,6 @@ if selected_page == menus[0]:
 
     elif sub_menu == "주요지수 연도별 수익률":
         st.markdown("#### 1970년대 ~ 현재 연도별 수익률 (S&P500, NASDAQ, KOSPI, KOSDAQ)")
-        
         @st.cache_data(ttl=86400)
         def get_max_annual_returns():
             df = yf.download(["^GSPC", "^IXIC", "^KS11", "^KQ11"], period="max")["Close"]
@@ -344,7 +370,7 @@ elif selected_page == menus[4]:
 
 
 # ==========================================
-# 🎯 [섹터 6] 관심종목 (데이터 로딩 누락 방지 강화)
+# 🎯 [섹터 6] 관심종목
 # ==========================================
 elif selected_page == menus[5]:
     st.markdown('<div class="section-title">내 관심종목 모니터링</div>', unsafe_allow_html=True)
@@ -353,9 +379,7 @@ elif selected_page == menus[5]:
     html_stock = '<div class="card-grid">'
     for t in my_stocks:
         try:
-            # 주말/휴일 누락 방지를 위해 5일치 데이터를 불러와 비교
             hist = get_hist_data(t, "5d")
-            
             if not hist.empty and len(hist) >= 2:
                 close_tdy = hist['Close'].iloc[-1]
                 close_ytd = hist['Close'].iloc[-2]
@@ -369,16 +393,16 @@ elif selected_page == menus[5]:
             
             html_stock += f'<a href="https://finance.yahoo.com/quote/{t}" target="_blank" style="text-decoration:none;"><div class="stock-card"><div class="card-left"><div class="stock-name">{d_name}</div><div class="stock-ticker">{str(t).replace(".KS", "")}</div></div><div class="card-right"><div class="stock-price">{p_str}</div><div class="badge {color}">{chg_pct:+.2f}%</div></div></div></a>'
         except:
-            # 예외가 발생하더라도 카드가 날아가지 않도록 방어
             html_stock += f'<div class="stock-card"><div class="card-left"><div class="stock-name">{t}</div><div class="stock-ticker">로딩 지연</div></div><div class="card-right"><div class="stock-price">-</div><div class="badge badge-neutral">N/A</div></div></div>'
             continue
             
     html_stock += '</div>'
     st.markdown(html_stock, unsafe_allow_html=True)
+    st.caption("[cite: 1]")
 
 
 # ==========================================
-# 🧠 [섹터 7] 마인드셋 (유튜브 링크 명시적 HTML 버튼 처리)
+# 🧠 [섹터 7] 마인드셋
 # ==========================================
 elif selected_page == menus[6]:
     st.markdown('<div class="section-title">투자의 대가들</div>', unsafe_allow_html=True)
@@ -393,7 +417,6 @@ elif selected_page == menus[6]:
     for i, guru in enumerate(random.sample(gurus, 4)):
         yt = f"https://www.youtube.com/results?search_query={urllib.parse.quote(guru['search'])}&sp=CAM%253D"
         
-        # st.info의 마크다운 파싱 오류를 차단하는 강력한 HTML 카드 생성
         html_card = f"""
         <div style="background-color: {card_bg}; padding: 20px; border-radius: 8px; border: 1px solid {border_col}; margin-bottom: 15px; height: 160px; display: flex; flex-direction: column; justify-content: space-between;">
             <div>

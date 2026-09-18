@@ -7,8 +7,10 @@ from bs4 import BeautifulSoup
 import xml.etree.ElementTree as ET
 import random
 import plotly.graph_objects as go
+import plotly.express as px
 import uuid
 import concurrent.futures
+import urllib.parse
 
 # 1. 페이지 세팅 (초기 사이드바 숨김 처리로 jusikbot 스타일의 넓은 화면 확보)
 st.set_page_config(page_title="REALMAN INVEST", layout="wide", initial_sidebar_state="collapsed")
@@ -135,10 +137,11 @@ with tab_market:
         with c2:
             render_tv_widget(symbol, height=400)
 
+    # 🚨 라이선스 우회 심볼(CFD)로 교체 완료
     with sub_kpi: render_index_tab("KOSPI", "KRX:KOSPI", krx_adr["KOSPI"][0], krx_adr["KOSPI"][1])
     with sub_kdq: render_index_tab("KOSDAQ", "KRX:KOSDAQ", krx_adr["KOSDAQ"][0], krx_adr["KOSDAQ"][1])
-    with sub_ndq: render_index_tab("NASDAQ", "NASDAQ:NDX", 0, 0)
-    with sub_sp: render_index_tab("S&P 500", "SP:SPX", 0, 0)
+    with sub_ndq: render_index_tab("NASDAQ", "OANDA:NAS100USD", 0, 0)
+    with sub_sp: render_index_tab("S&P 500", "OANDA:SPX500USD", 0, 0)
 
     st.markdown('<div class="section-title">글로벌 핵심 리스크 지표</div>', unsafe_allow_html=True)
     
@@ -186,8 +189,8 @@ with tab_watchlist:
     st.markdown(html_stock, unsafe_allow_html=True)
 
     st.markdown('<div class="section-title">가치주 스크리닝 시뮬레이션</div>', unsafe_allow_html=True)
-    st.info("💡 과거 설계했던 로직(PER 15 미만, PBR 1.5 미만, 내년 예상 EPS 상향) 기반 필터링입니다.")
-    st.caption("※ 대규모 종목 스크리닝은 클라우드 환경에서 야후 API 차단을 유발할 수 있어 기준 예시로 대체합니다[cite: 1].")
+    st.info("💡 과거 설계했던 로직(PER 15 미만, PBR 1.5 미만, 내년 예상 EPS 상향) 기반 필터링입니다[cite: 1].")
+    st.caption("※ 대규모 종목 스크리닝은 클라우드 환경에서 야후 API 차단을 유발할 수 있어 기준 예시로 대체합니다.")
 
 
 # ==========================================
@@ -229,7 +232,6 @@ with tab_mind:
         {"name": "코스톨라니", "search": "앙드레 코스톨라니", "quotes": ["투자는 머리로 하는 것이 아니라 엉덩이로 하는 것이다.", "주가는 결국 기업의 가치로 회귀한다."]}
     ]
     cols = st.columns(2) + st.columns(2)
-    import urllib.parse
     for i, guru in enumerate(random.sample(gurus, 4)):
         yt = f"https://www.youtube.com/results?search_query={urllib.parse.quote(guru['search'])}&sp=CAM%253D"
         msg = f"**{guru['name']}**\n\n> \"{random.choice(guru['quotes'])}\"\n\n[▶️ 관련 영상 보기]({yt})"

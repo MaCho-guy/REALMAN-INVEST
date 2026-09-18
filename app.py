@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components
 import yfinance as yf
 import pandas as pd
 import requests
@@ -9,77 +8,84 @@ import random
 import os
 import concurrent.futures
 import urllib.parse
-from datetime import datetime
 
-# 1. 대시보드 제목 세팅
+# 1. 대시보드 제목 세팅 (반드시 맨 처음에 위치)
 st.set_page_config(page_title="REALMAN INVEST", layout="wide")
 
-# --- 1. 밤/낮(Dark/Light) 테마 반응형 UI (CSS 변수 활용) ---
-custom_css = """
+# --- 2. 다크/라이트 모드 토글 (사용자 명시적 버튼) ---
+col_logo, col_toggle = st.columns([4, 1])
+with col_toggle:
+    st.write("") # 간격 맞추기
+    is_dark = st.toggle("🌙 다크 모드", value=True)
+
+# 테마에 따른 색상 변수 설정
+bg_grad = "linear-gradient(135deg, #0F172A 0%, #1E293B 100%)" if is_dark else "linear-gradient(135deg, #E2E8F0 0%, #CBD5E1 100%)"
+card_bg = "#1E293B" if is_dark else "#FFFFFF"
+text_col = "#F8FAFC" if is_dark else "#0F172A"
+sub_text = "#94A3B8" if is_dark else "#64748B"
+border_col = "#334155" if is_dark else "#E2E8F0"
+sec_bg = "#0F172A" if is_dark else "#1E293B"
+sec_text = "#FFFFFF"
+
+# CSS 주입
+custom_css = f"""
 <style>
-    /* 기본 스트림릿 테마(Settings -> Theme)를 따라가도록 배경색 하드코딩 제거 */
-    #MainMenu, footer, header {visibility: hidden;}
+    .stApp {{ background: {bg_grad}; color: {text_col}; }}
+    #MainMenu, footer, header {{visibility: hidden;}}
     
-    .supreme-container { display: flex; justify-content: center; margin-top: 5px; margin-bottom: 20px; }
-    .supreme-box { 
+    .supreme-container {{ display: flex; justify-content: center; margin-top: 5px; margin-bottom: 20px; }}
+    .supreme-box {{ 
         background-color: #DA291C; color: #FFFFFF; border-radius: 2px; 
         text-align: center; font-family: 'Futura', 'Trebuchet MS', sans-serif;
         font-weight: 900; font-style: italic; text-transform: uppercase;
         box-shadow: 0 6px 12px rgba(218, 41, 28, 0.3); font-size: 36px !important; padding: 4px 20px; letter-spacing: -2px;
-    }
+    }}
     
-    /* 📌 다크/라이트 모드에 자동 반응하는 섹션 타이틀 */
-    .section-title { 
-        background-color: var(--secondary-background-color); 
-        color: var(--text-color); 
-        border-left: 5px solid #DA291C;
-        padding: 10px 16px; border-radius: 4px; 
-        font-size: 17px; font-weight: 700; margin-top: 25px; margin-bottom: 15px; 
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05); letter-spacing: -0.5px;
-    }
+    .section-title {{ 
+        background-color: {sec_bg}; color: {sec_text}; border-left: 5px solid #DA291C;
+        padding: 10px 16px; border-radius: 4px; font-size: 18px; font-weight: 700; 
+        margin-top: 30px; margin-bottom: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); 
+    }}
     
-    .card-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-    @media (min-width: 768px) { .card-grid { grid-template-columns: repeat(3, 1fr); gap: 12px; } .supreme-box { font-size: 48px !important; padding: 8px 30px; } }
+    .card-grid {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }}
+    @media (min-width: 768px) {{ .card-grid {{ grid-template-columns: repeat(3, 1fr); gap: 12px; }} .supreme-box {{ font-size: 48px !important; padding: 8px 30px; }} }}
     
-    .card-link { text-decoration: none !important; color: inherit !important; display: block; }
-    .card-link:hover .stock-card { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+    .card-link {{ text-decoration: none !important; color: inherit !important; display: block; }}
+    .card-link:hover .stock-card {{ transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.2); }}
     
-    /* 📌 다크/라이트 모드에 자동 반응하는 카드 배경 */
-    .stock-card { 
-        background-color: var(--background-color); 
-        border: 1px solid var(--secondary-background-color); 
-        color: var(--text-color);
+    .stock-card {{ 
+        background-color: {card_bg}; border: 1px solid {border_col}; color: {text_col};
         border-radius: 10px; padding: 12px 14px; display: flex; justify-content: space-between; align-items: center; 
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05); transition: all 0.2s ease-in-out; 
-    }
-    .card-left { display: flex; flex-direction: column; overflow: hidden; }
-    .stock-name { font-size: 14px; font-weight: 700; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
-    .stock-ticker { font-size: 11px; font-weight: 500; opacity: 0.7; margin-top: 1px; }
-    .card-right { display: flex; flex-direction: column; align-items: flex-end; }
-    .stock-price { font-size: 14px; font-weight: 700; }
+        transition: all 0.2s ease-in-out; 
+    }}
+    .card-left {{ display: flex; flex-direction: column; overflow: hidden; }}
+    .stock-name {{ font-size: 14px; font-weight: 700; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }}
+    .stock-ticker {{ font-size: 11px; font-weight: 500; color: {sub_text}; margin-top: 1px; }}
+    .card-right {{ display: flex; flex-direction: column; align-items: flex-end; }}
+    .stock-price {{ font-size: 14px; font-weight: 700; }}
     
-    .badge { font-size: 11px; font-weight: 600; margin-top: 3px; padding: 2px 6px; border-radius: 4px; color: #fff; }
-    .badge-up { background-color: #ef4444; } /* 빨간색 (상승) */
-    .badge-down { background-color: #3b82f6; } /* 파란색 (하락) */
-    .badge-neutral { background-color: #64748B; }
+    .badge {{ font-size: 11px; font-weight: 600; margin-top: 3px; padding: 2px 6px; border-radius: 4px; color: #fff; }}
+    .badge-up {{ background-color: #ef4444; }} 
+    .badge-down {{ background-color: #3b82f6; }} 
+    .badge-neutral {{ background-color: #64748B; }}
     
-    .news-item { 
-        background-color: var(--background-color); 
-        border: 1px solid var(--secondary-background-color); 
-        border-radius: 6px; padding: 10px 12px; margin-bottom: 6px; font-size: 13px; font-weight: 500; 
-    }
-    .news-item a { color: var(--text-color); text-decoration: none; display: block; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
-    .news-item a:hover { opacity: 0.7; text-decoration: underline; }
-    div[role="radiogroup"] { justify-content: center; margin-bottom: 20px; }
+    .news-item {{ background-color: {card_bg}; border: 1px solid {border_col}; border-radius: 6px; padding: 10px 12px; margin-bottom: 6px; font-size: 13px; font-weight: 500; }}
+    .news-item a {{ color: {text_col}; text-decoration: none; display: block; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }}
+    .news-item a:hover {{ text-decoration: underline; }}
+    
+    /* 네비게이션 라디오 버튼 가운데 정렬 */
+    div[role="radiogroup"] {{ justify-content: center; margin-bottom: 20px; }}
 </style>
 """
 st.markdown(custom_css, unsafe_allow_html=True)
-st.markdown('<div class="supreme-container"><div class="supreme-box">REALMAN INVEST</div></div>', unsafe_allow_html=True)
 
-# 📌 이모티콘을 뺀 깔끔한 4섹터 네비게이션
-menu = st.radio("메뉴 이동", ["시장 동향", "우량주 스크리닝", "인사이트 보드", "투자 마인드셋"], horizontal=True, label_visibility="collapsed")
+with col_logo:
+    st.markdown('<div class="supreme-container"><div class="supreme-box">REALMAN INVEST</div></div>', unsafe_allow_html=True)
 
-# --- 2. 스크리닝 & 보조 함수 ---
+# 📌 4섹터 네비게이션
+menu = st.radio("메뉴 이동", ["시장지표", "우량주 스크리닝", "인사이트 보드", "투자 마인드셋"], horizontal=True, label_visibility="collapsed")
+
+# --- 보조 함수 ---
 DB_FILE = "market_db.csv"
 
 def fetch_single_stock(ticker, market):
@@ -106,120 +112,129 @@ def draw_stock_card(name, ticker, price, change=None, extra_info=""):
 
 @st.cache_data(ttl=600)
 def fetch_krx_adr():
-    # 🚨 에러 원인 완벽 차단: try-except와 구조 변경 방어 로직 적용
     try:
         res = requests.get("https://finance.naver.com/sise/", headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
         soup = BeautifulSoup(res.text, 'html.parser')
-        
-        kpi_up_el = soup.select_one('#KOSPI_now ~ .siselist .up em')
-        kpi_dn_el = soup.select_one('#KOSPI_now ~ .siselist .down em')
-        kdq_up_el = soup.select_one('#KOSDAQ_now ~ .siselist .up em')
-        kdq_dn_el = soup.select_one('#KOSDAQ_now ~ .siselist .down em')
-        
-        kpi_up = int(kpi_up_el.text.replace(',','')) if kpi_up_el else 0
-        kpi_dn = int(kpi_dn_el.text.replace(',','')) if kpi_dn_el else 0
-        kdq_up = int(kdq_up_el.text.replace(',','')) if kdq_up_el else 0
-        kdq_dn = int(kdq_dn_el.text.replace(',','')) if kdq_dn_el else 0
-        
-        return {"KOSPI": (kpi_up, kpi_dn), "KOSDAQ": (kdq_up, kdq_dn)}
-    except: 
-        return {"KOSPI": (0, 0), "KOSDAQ": (0, 0)}
+        k_up = soup.select_one('#KOSPI_now ~ .siselist .up em')
+        k_dn = soup.select_one('#KOSPI_now ~ .siselist .down em')
+        q_up = soup.select_one('#KOSDAQ_now ~ .siselist .up em')
+        q_dn = soup.select_one('#KOSDAQ_now ~ .siselist .down em')
+        return {
+            "KOSPI": (int(k_up.text.replace(',','')) if k_up else 0, int(k_dn.text.replace(',','')) if k_dn else 0),
+            "KOSDAQ": (int(q_up.text.replace(',','')) if q_up else 0, int(q_dn.text.replace(',','')) if q_dn else 0)
+        }
+    except: return {"KOSPI": (0, 0), "KOSDAQ": (0, 0)}
 
-# 📌 트레이딩뷰 인터랙티브 위젯 렌더링 함수 (주식봇 사이트와 동일)
-def render_tradingview_widget(symbol):
-    html = f"""
-    <div class="tradingview-widget-container" style="height:400px; width:100%;">
-      <div id="tradingview_{symbol.replace(':','')}" style="height:calc(100% - 32px); width:100%;"></div>
-      <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-      <script type="text/javascript">
-      new TradingView.widget(
-      {{
-      "autosize": true,
-      "symbol": "{symbol}",
-      "interval": "D",
-      "timezone": "Asia/Seoul",
-      "theme": "dark",
-      "style": "1",
-      "locale": "kr",
-      "enable_publishing": false,
-      "backgroundColor": "rgba(0, 0, 0, 1)",
-      "hide_top_toolbar": false,
-      "save_image": false,
-      "container_id": "tradingview_{symbol.replace(':','')}"
-    }}
-      );
-      </script>
-    </div>
-    """
-    components.html(html, height=400)
-
+@st.cache_data(ttl=86400)
+def get_annual_returns():
+    tkrs = {'S&P 500': '^GSPC', 'NASDAQ': '^IXIC', 'KOSPI': '^KS11'}
+    res = {}
+    for name, tk in tkrs.items():
+        h = yf.Ticker(tk).history(period="5y")['Close']
+        if not h.empty:
+            yr_end = h.resample('Y').last()
+            ret = yr_end.pct_change() * 100
+            res[name] = ret.iloc[-4:].round(2)
+    df = pd.DataFrame(res)
+    df.index = df.index.year
+    return df
 
 # ==========================================
-# 📊 섹터 1: 시장 동향
+# 📊 섹터 1: 시장지표 (ADR, 위험지표, 연도별 수익률)
 # ==========================================
-if menu == "시장 동향":
-    st.markdown('<div class="section-title">시장 체력 (ADR) & 확대형 차트</div>', unsafe_allow_html=True)
+if menu == "시장지표":
     
+    # --- 소제목 1: ADR ---
+    st.markdown('<div class="section-title">ADR (시장 체력)</div>', unsafe_allow_html=True)
     krx_adr = fetch_krx_adr()
-    tab_kpi, tab_kdq, tab_ndq, tab_sp = st.tabs(["KOSPI", "KOSDAQ", "NASDAQ", "S&P 500"])
-    
-    def render_market_tab(market_name, tv_symbol, up_cnt, dn_cnt):
-        c1, c2 = st.columns([1, 3])
-        with c1:
-            if up_cnt > 0 or dn_cnt > 0:
-                adr_val = (up_cnt / dn_cnt * 100) if dn_cnt > 0 else 0
-                st.metric(f"{market_name} 실시간 ADR", f"{adr_val:.1f}%", f"상승 {up_cnt} / 하락 {dn_cnt}")
-                st.caption("ADR이 120% 이상이면 과열, 75% 이하면 바닥권(침체)을 의미합니다.")
-            else:
-                st.metric(f"{market_name}", "해당 지표", "실시간 장 운영 아님 / 차트 전용")
-        with c2:
-            # 📌 주식봇 사이트처럼 줌인/줌아웃 가능한 트레이딩뷰 위젯 띄우기
-            render_tradingview_widget(tv_symbol)
+    c1, c2 = st.columns(2)
+    with c1:
+        up, dn = krx_adr["KOSPI"]
+        st.metric("KOSPI 실시간 ADR", f"{(up/dn*100):.1f}%" if dn > 0 else "집계중", f"상승 {up} / 하락 {dn}")
+    with c2:
+        up, dn = krx_adr["KOSDAQ"]
+        st.metric("KOSDAQ 실시간 ADR", f"{(up/dn*100):.1f}%" if dn > 0 else "집계중", f"상승 {up} / 하락 {dn}")
+    st.caption("※ ADR이 120% 이상이면 과열, 75% 이하면 바닥권(침체)을 의미합니다.")
 
-    with tab_kpi: render_market_tab("KOSPI", "KRX:KOSPI", krx_adr["KOSPI"][0], krx_adr["KOSPI"][1])
-    with tab_kdq: render_market_tab("KOSDAQ", "KRX:KOSDAQ", krx_adr["KOSDAQ"][0], krx_adr["KOSDAQ"][1])
-    with tab_ndq: render_market_tab("NASDAQ", "NASDAQ:NDX", 0, 0)
-    with tab_sp: render_market_tab("S&P 500", "SP:SPX", 0, 0)
-
-    st.markdown('<div class="section-title">시스템 리스크 레이더</div>', unsafe_allow_html=True)
+    # --- 소제목 2: 위험지표 ---
+    st.markdown('<div class="section-title">위험지표</div>', unsafe_allow_html=True)
     
-    risk_cols = st.columns(4)
+    # 2-1. 코스피/코스닥 이격도 차트 (버튼식 확대 축소)
+    st.markdown("###### 📉 KOSPI / KOSDAQ 20일 이격도 (과열/침체 판단)")
+    period_map = {'25일': '1mo', '50일': '2mo', '6M': '6mo', '1Y': '1y', '3Y': '3y'}
+    sel_p = st.radio("기간 선택", list(period_map.keys()), horizontal=True, label_visibility="collapsed")
+    
+    try:
+        hist_kpi = yf.Ticker('^KS11').history(period=period_map[sel_p])['Close']
+        hist_kdq = yf.Ticker('^KQ11').history(period=period_map[sel_p])['Close']
+        disp_kpi = (hist_kpi / hist_kpi.rolling(20).mean() * 100).dropna()
+        disp_kdq = (hist_kdq / hist_kdq.rolling(20).mean() * 100).dropna()
+        df_disp = pd.DataFrame({'KOSPI 이격도': disp_kpi, 'KOSDAQ 이격도': disp_kdq})
+        st.line_chart(df_disp, height=250)
+    except:
+        st.error("차트 데이터를 불러오지 못했습니다.")
+
+    st.divider()
+    
+    # 2-2. 글로벌 위험 지표 (VIX, 장단기금리차, 공탐지수, 하이일드)
+    st.markdown("###### 🌍 글로벌 리스크 지표")
+    g_cols = st.columns(4)
+    
+    # VIX
     vix = yf.Ticker('^VIX').history(period="2d")
     vix_val, vix_chg = (vix['Close'].iloc[-1], vix['Close'].iloc[-1]-vix['Close'].iloc[-2]) if len(vix)>1 else (0,0)
-    risk_cols[0].metric("VIX (월가 공포지수)", f"{vix_val:.2f}", f"{vix_chg:+.2f}", delta_color="inverse")
+    g_cols[0].metric("VIX (공포지수)", f"{vix_val:.2f}", f"{vix_chg:+.2f}", delta_color="inverse")
     
+    # 장단기 금리차
     t10 = yf.Ticker('^TNX').history(period="1d")['Close']
     t03 = yf.Ticker('^IRX').history(period="1d")['Close']
     spread = (t10.iloc[-1] - t03.iloc[-1]) if (not t10.empty and not t03.empty) else 0
-    risk_cols[1].metric("장단기 금리차(10y-3m)", f"{spread:.2f}%p", "침체 경고(역전)" if spread < 0 else "정상", delta_color="off")
+    g_cols[1].metric("장단기 금리차(10y-3m)", f"{spread:.2f}%p", "침체 경고" if spread < 0 else "정상", delta_color="off")
     
-    ksp_hist = yf.Ticker('^KS11').history(period="1mo")['Close']
-    ksp_disp = (ksp_hist.iloc[-1] / ksp_hist.rolling(20).mean().iloc[-1]) * 100 if len(ksp_hist)>20 else 100
-    risk_cols[2].metric("KOSPI 20일 이격도", f"{ksp_disp:.1f}", "과열(105 이상)" if ksp_disp>105 else "침체(95 이하)" if ksp_disp<95 else "적정 수준", delta_color="off")
-    
-    fg_val, fg_txt = 0, "수집 불가"
+    # CNN 공탐지수 (헤더 강화)
+    fg_val, fg_txt = 0, "API 차단됨"
     try:
-        res = requests.get("https://production.dataviz.cnn.io/index/fearandgreed/graphdata", headers={'User-Agent': 'Mozilla/5.0'}, timeout=2)
-        if res.status_code == 200: fg_val, fg_txt = round(res.json()['fear_and_greed']['score']), res.json()['fear_and_greed']['rating']
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'Accept': 'application/json',
+            'Referer': 'https://edition.cnn.com/'
+        }
+        res = requests.get("https://production.dataviz.cnn.io/index/fearandgreed/graphdata", headers=headers, timeout=3)
+        if res.status_code == 200: 
+            fg_val, fg_txt = round(res.json()['fear_and_greed']['score']), res.json()['fear_and_greed']['rating']
     except: pass
-    risk_cols[3].metric("CNN 공탐지수", f"{fg_val}점", fg_txt, delta_color="off")
-
-    st.markdown('<div class="section-title">주요 지수 연도별 수익률</div>', unsafe_allow_html=True)
-    @st.cache_data(ttl=86400)
-    def get_annual_returns():
-        tkrs = {'S&P 500': '^GSPC', 'NASDAQ': '^IXIC', 'KOSPI': '^KS11'}
-        res = {}
-        for name, tk in tkrs.items():
-            h = yf.Ticker(tk).history(period="5y")['Close']
-            if not h.empty:
-                yr_end = h.resample('Y').last()
-                ret = yr_end.pct_change() * 100
-                res[name] = ret.iloc[-4:].round(2)
-        df = pd.DataFrame(res)
-        df.index = df.index.year
-        return df.T
+    g_cols[2].metric("CNN 공탐지수", f"{fg_val}점", fg_txt, delta_color="off")
     
-    st.dataframe(get_annual_returns(), use_container_width=True)
+    # 하이일드 스프레드 (대체 지표: HYG ETF 가격)
+    hyg = yf.Ticker('HYG').history(period="2d")
+    hyg_val, hyg_chg = (hyg['Close'].iloc[-1], hyg['Close'].iloc[-1]-hyg['Close'].iloc[-2]) if len(hyg)>1 else (0,0)
+    g_cols[3].metric("하이일드(HYG) 채권", f"${hyg_val:.2f}", f"{hyg_chg:+.2f} (하락시 위험)", delta_color="normal")
+
+    st.divider()
+
+    # 2-3. 한국 위험 지표 (VKOSPI, 신고가-신저가 프록시)
+    st.markdown("###### 🇰🇷 한국 리스크 지표 차트 (최근 6개월)")
+    k_cols = st.columns(2)
+    with k_cols[0]:
+        st.caption("VKOSPI (한국 코스피 변동성 지수)")
+        vkospi = yf.Ticker('^VKOSPI').history(period="6mo")['Close']
+        st.line_chart(vkospi, height=200)
+    with k_cols[1]:
+        st.caption("KOSPI 52주 고점/저점 대비 현재 위치 (%) - 신고가/신저가 체력 프록시")
+        ksp_6m = yf.Ticker('^KS11').history(period="1y")['Close']
+        # 52주 최고/최저 대비 현재 위치 계산 (Stochastic %K 방식 적용)
+        high52 = ksp_6m.rolling(252).max().dropna()
+        low52 = ksp_6m.rolling(252).min().dropna()
+        close = ksp_6m.loc[high52.index]
+        nh_nl_proxy = (close - low52) / (high52 - low52) * 100
+        st.line_chart(nh_nl_proxy.tail(120), height=200) # 최근 6개월 분량만 렌더링
+
+    # --- 소제목 3: 연도별 수익률 ---
+    st.markdown('<div class="section-title">주요지수 연도별 수익률</div>', unsafe_allow_html=True)
+    df_ret = get_annual_returns()
+    st.bar_chart(df_ret, height=300)
+    st.caption("※ 단위: %, 각 연도 말 기준 상승/하락률 (마우스 오버 시 상세 수치 확인 가능)")
+
 
 # ==========================================
 # 🎯 섹터 2: 우량주 스크리닝
@@ -300,8 +315,8 @@ elif menu == "투자 마인드셋":
         cols[i].info(msg) if i % 2 == 0 else cols[i].success(msg)
 
     st.markdown('<div class="section-title" style="margin-top: 40px;">매수 매도 원칙</div>', unsafe_allow_html=True)
-    st.markdown("""
-    <div style="font-size: 13px; color: var(--text-color); background-color: var(--secondary-background-color); padding: 16px; border-radius: 8px; line-height: 1.6;">
+    st.markdown(f"""
+    <div style="font-size: 13px; color: {text_col}; background-color: {sec_bg}; padding: 16px; border-radius: 8px; line-height: 1.6;">
     <b>1.</b> 급격한 상승이나 하락세에 올라타지 마라. 매수, 매도 타이밍은 완만해질 때다.<br>
     <b>2.</b> 시장은 쏠리기 마련이다. 과도한 비관론에 매수하라.<br>
     <b>3.</b> 전문가도 잘 모른다. 장담하는 사람은 사기꾼이다.<br>

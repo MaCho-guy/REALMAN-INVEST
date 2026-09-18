@@ -7,7 +7,6 @@ from bs4 import BeautifulSoup
 import xml.etree.ElementTree as ET
 import plotly.graph_objects as go
 import plotly.express as px
-from datetime import datetime, timedelta
 import random
 import uuid
 import urllib.parse
@@ -19,7 +18,7 @@ st.set_page_config(page_title="REALMAN INVEST", layout="wide", initial_sidebar_s
 if "theme_dark" not in st.session_state:
     st.session_state.theme_dark = True
 
-# 테마 색상 변수 세팅 (글자색 동적 변경 완벽 적용)
+# 테마 색상 변수 세팅 (다크/라이트 모드별 텍스트 색상 완벽 분리)
 if st.session_state.theme_dark:
     bg_color, card_bg, text_col, sub_text, border_col = "#0B1120", "#1E293B", "#F8FAFC", "#94A3B8", "#334155"
     chart_template = "plotly_dark"
@@ -30,7 +29,6 @@ else:
 # 커스텀 CSS 주입
 st.markdown(f"""
 <style>
-    /* 전체 배경 및 기본 글자색 강제 동적 적용 */
     .stApp {{ background-color: {bg_color}; color: {text_col} !important; }}
     #MainMenu, footer, header {{visibility: hidden;}}
     [data-testid="stSidebar"] {{ background-color: {card_bg}; border-right: 1px solid {border_col}; }}
@@ -42,7 +40,6 @@ st.markdown(f"""
     .stock-card {{ background-color: {card_bg}; border: 1px solid {border_col}; border-radius: 8px; padding: 16px; display: flex; justify-content: space-between; align-items: center; transition: transform 0.2s; }}
     .stock-card:hover {{ transform: translateY(-2px); border-color: #DA291C; }}
     
-    /* 📌 카드 내부 글자색 완벽 연동 */
     .stock-name {{ font-size: 15px; font-weight: 700; color: {text_col} !important; }}
     .stock-ticker {{ font-size: 12px; color: {sub_text} !important; margin-top: 2px; }}
     .stock-price {{ font-size: 16px; font-weight: 700; color: {text_col} !important; }}
@@ -52,18 +49,15 @@ st.markdown(f"""
     .badge-down {{ background-color: #3b82f6; }} 
     .badge-neutral {{ background-color: #475569; }}
     
-    /* 뉴스 아이템 글자색 연동 */
     .news-item {{ background-color: {card_bg}; border: 1px solid {border_col}; border-radius: 6px; padding: 12px; margin-bottom: 8px; }}
     .news-item a {{ color: {text_col} !important; text-decoration: none; font-size: 14px; }}
     .news-item a:hover {{ color: #DA291C !important; text-decoration: underline; }}
     
-    /* 탭 디자인 오버라이드 */
     div[data-baseweb="tab-list"] {{ gap: 24px; margin-bottom: 20px; }}
     div[data-baseweb="tab"] {{ font-size: 16px !important; font-weight: 700 !important; color: {sub_text} !important; }}
     div[aria-selected="true"] {{ color: {text_col} !important; border-bottom: 3px solid #DA291C !important; }}
     
-    /* 텍스트 요소가 기본 테마를 무조건 따라가도록 설정 */
-    p, div, span, h1, h2, h3, h4, h5, h6 {{ color: {text_col}; }}
+    p, div, span, h1, h2, h3, h4, h5, h6 {{ color: {text_col} !important; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -81,15 +75,12 @@ if st.sidebar.button("🌞 / 🌙 라이트/다크 전환", use_container_width=
 st.sidebar.divider()
 
 menus = ["시장지표", "자금흐름", "종목/공시", "AI TRADE", "뉴스/인사이트", "관심종목", "마인드셋"]
-
-# 주소창에 저장된 값이 현재 메뉴 리스트에 없으면 강제로 첫 번째 메뉴로 초기화하는 안전장치
 current_param = st.query_params.get("current_page", menus[0])
 if current_param not in menus:
     current_param = menus[0]
     st.query_params["current_page"] = current_param
 
 selected_page = st.sidebar.radio("MENU", menus, index=menus.index(current_param))
-
 if selected_page != st.query_params.get("current_page"):
     st.query_params["current_page"] = selected_page
     st.rerun()
@@ -100,7 +91,6 @@ if selected_page != st.query_params.get("current_page"):
 # ==========================================
 @st.cache_data(ttl=300)
 def fetch_krx_adr():
-    # 개별 지수 상세 페이지 고유 ID 직접 타겟팅 (에러 원천 차단)
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
         res_kpi = requests.get("https://finance.naver.com/sise/sise_index.naver?code=KOSPI", headers=headers, timeout=3)
@@ -309,13 +299,13 @@ elif selected_page == menus[4]:
         return html
 
     with c1:
-        st.markdown(f"<h6 style='color:{text_col};'>🌍 거시 경제 뉴스</h6>", unsafe_allow_html=True)
+        st.markdown(f"<h6>🌍 거시 경제 뉴스</h6>", unsafe_allow_html=True)
         st.markdown(render_rss("https://news.google.com/rss/search?q=거시경제+주식+금리&hl=ko&gl=KR&ceid=KR:ko", 6), unsafe_allow_html=True)
     with c2:
-        st.markdown(f"<h6 style='color:{text_col};'>🎯 기술주 및 시장 뉴스</h6>", unsafe_allow_html=True)
+        st.markdown(f"<h6>🎯 기술주 및 시장 뉴스</h6>", unsafe_allow_html=True)
         st.markdown(render_rss("https://news.google.com/rss/search?q=나스닥+기술주+반도체&hl=ko&gl=KR&ceid=KR:ko", 6), unsafe_allow_html=True)
     with c3:
-        st.markdown(f"<h6 style='color:{text_col};'>📝 이웃 블로그 최신글</h6>", unsafe_allow_html=True)
+        st.markdown(f"<h6>📝 이웃 블로그 최신글</h6>", unsafe_allow_html=True)
         st.markdown(render_rss("https://rss.blog.naver.com/jeunkim", 3), unsafe_allow_html=True)
         st.markdown(render_rss("https://rss.blog.naver.com/crush212121", 3), unsafe_allow_html=True)
 

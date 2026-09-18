@@ -8,6 +8,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime
 import random
+import urllib.parse  # 💡 NameError를 해결하는 누락되었던 모듈 추가
 
 # ==========================================
 # 1. 페이지 및 테마 기본 설정
@@ -380,7 +381,7 @@ elif selected_page == menus[5]:
     for t in my_stocks:
         try:
             hist = get_hist_data(t, "2d")
-            if len(hist) >= 2:
+            if not hist.empty and len(hist) >= 2:
                 close_tdy, close_ytd = hist['Close'].iloc[-1], hist['Close'].iloc[-2]
                 chg_pct = ((close_tdy - close_ytd) / close_ytd) * 100
                 d_name = '삼성전자' if t == '005930.KS' else 'SK하이닉스' if t == '000660.KS' else t

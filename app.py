@@ -6,18 +6,17 @@ from bs4 import BeautifulSoup
 import xml.etree.ElementTree as ET
 import plotly.graph_objects as go
 import plotly.express as px
-from datetime import datetime, timedelta
+from datetime import datetime
 import random
-import urllib.parse
 
-# 1. 페이지 세팅 (초기 사이드바 확장)
+# ==========================================
+# 1. 페이지 및 테마 기본 설정
+# ==========================================
 st.set_page_config(page_title="REALMAN INVEST", layout="wide", initial_sidebar_state="expanded")
 
-# 2. 테마 상태 관리 (다크/라이트)
 if "theme_dark" not in st.session_state:
     st.session_state.theme_dark = True
 
-# 테마 색상 변수 세팅
 if st.session_state.theme_dark:
     bg_color, card_bg, text_col, sub_text, border_col = "#0B1120", "#1E293B", "#F8FAFC", "#94A3B8", "#334155"
     chart_template = "plotly_dark"
@@ -25,7 +24,6 @@ else:
     bg_color, card_bg, text_col, sub_text, border_col = "#F1F5F9", "#FFFFFF", "#0F172A", "#64748B", "#CBD5E1"
     chart_template = "plotly_white"
 
-# 커스텀 CSS 주입
 st.markdown(f"""
 <style>
     .stApp {{ background-color: {bg_color}; color: {text_col} !important; }}
@@ -55,20 +53,23 @@ st.markdown(f"""
     div[data-baseweb="tab-list"] {{ gap: 24px; margin-bottom: 20px; }}
     div[data-baseweb="tab"] {{ font-size: 16px !important; font-weight: 700 !important; color: {sub_text} !important; }}
     div[aria-selected="true"] {{ color: {text_col} !important; border-bottom: 3px solid #DA291C !important; }}
-    
     p, div, span, h1, h2, h3, h4, h5, h6 {{ color: {text_col} !important; }}
+    
+    /* DataFrame 테이블 스타일 강제 다크/라이트 적응 */
+    .dataframe th {{ background-color: {card_bg} !important; color: {text_col} !important; }}
+    .dataframe td {{ color: {text_col} !important; }}
 </style>
 """, unsafe_allow_html=True)
 
+
 # ==========================================
-# 📌 사이드바 및 7대 섹터 라우팅 (이모티콘, 숫자 제거)
+# 2. 사이드바 및 라우팅
 # ==========================================
 st.sidebar.markdown('<div class="sidebar-title">REALMAN INVEST</div>', unsafe_allow_html=True)
 
 if st.sidebar.button("🌞 / 🌙 라이트/다크 전환", use_container_width=True):
     st.session_state.theme_dark = not st.session_state.theme_dark
     st.rerun()
-
 st.sidebar.divider()
 
 menus = ["시장지표", "자금흐름", "종목/공시", "AI TRADE", "뉴스/인사이트", "관심종목", "마인드셋"]
@@ -84,7 +85,7 @@ if selected_page != st.query_params.get("current_page"):
 
 
 # ==========================================
-# 🛠️ 데이터 연동 함수 (안정화 및 자동화)
+# 3. 데이터 로딩 코어 함수
 # ==========================================
 @st.cache_data(ttl=300)
 def fetch_krx_adr():
@@ -99,23 +100,23 @@ def fetch_krx_adr():
         soup_kdq = BeautifulSoup(res_kdq.text, 'html.parser')
         kdq_up = int(soup_kdq.find(id='now_up').text.replace(',', ''))
         kdq_dn = int(soup_kdq.find(id='now_down').text.replace(',', ''))
-        
         return {"KOSPI": (kpi_up, kpi_dn), "KOSDAQ": (kdq_up, kdq_dn)}
-    except: 
-        return {"KOSPI": (1200, 800), "KOSDAQ": (900, 700)} # 실패 시 기본값 방어
+    except: return {"KOSPI": (1200, 800), "KOSDAQ": (900, 700)}
 
 @st.cache_data(ttl=3600)
 def get_hist_data(ticker, period):
     try:
-        df = yf.Ticker(ticker).history(period=period)['Close']
-        if df.empty:
-            return pd.Series([100, 101, 102], index=pd.date_range(end=datetime.today(), periods=3))
-        return df
-    except:
-        return pd.Series([100, 101, 102], index=pd.date_range(end=datetime.today(), periods=3))
+        df = yf.Ticker(ticker).history(period=period)
+        return df if not df.empty else pd.DataFrame()
+    except: return pd.DataFrame()
 
-def plot_line_chart(series, title, color="#DA291C", hline_upper=None, hline_lower=None):
-    fig = go.Figure(go.Scatter(x=series.index, y=series.values, mode='lines', line=dict(color=color, width=2)))
+def plot_line_chart(series, title, color="#DA291C", hline_upper=None, hline_lower=None, chart_type='line'):
+    fig = go.Figure()
+    if chart_type == 'line':
+        fig.add_trace(go.Scatter(x=series.index, y=series.values, mode='lines', line=dict(color=color, width=2)))
+    elif chart_type == 'bar':
+        fig.add_trace(go.Bar(x=series.index, y=series.values, marker_color=color))
+        
     if hline_upper: fig.add_hline(y=hline_upper, line_dash="dot", line_color="red", annotation_text="과매수")
     if hline_lower: fig.add_hline(y=hline_lower, line_dash="dot", line_color="blue", annotation_text="과매도")
     fig.update_layout(title=title, template=chart_template, height=300, margin=dict(l=20, r=20, t=40, b=20), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
@@ -123,17 +124,15 @@ def plot_line_chart(series, title, color="#DA291C", hline_upper=None, hline_lowe
 
 
 # ==========================================
-# 📊 1. 시장지표
+# 📊 [섹터 1] 시장지표
 # ==========================================
 if selected_page == menus[0]:
     st.markdown('<div class="section-title">시장지표 대시보드</div>', unsafe_allow_html=True)
     sub_menu = st.radio("서브 메뉴", ["ADR", "위험지표", "주요지수 연도별 수익률"], horizontal=True, label_visibility="collapsed")
     
-    # ----------------- 1-1. ADR -----------------
     if sub_menu == "ADR":
         krx_adr = fetch_krx_adr()
         c1, c2 = st.columns(2)
-        
         with c1:
             st.markdown(f"<div style='background:{card_bg}; padding:15px; border-radius:8px; border:1px solid {border_col};'>", unsafe_allow_html=True)
             st.subheader("KOSPI 실시간 ADR")
@@ -142,7 +141,6 @@ if selected_page == menus[0]:
             st.metric("ADR %", f"{adr_val:.1f}%", f"{adr_val - 100:+.1f}%p (100% 기준)")
             st.caption(f"상승 종목: {up}개 / 하락 종목: {dn}개")
             st.markdown("</div>", unsafe_allow_html=True)
-            
         with c2:
             st.markdown(f"<div style='background:{card_bg}; padding:15px; border-radius:8px; border:1px solid {border_col};'>", unsafe_allow_html=True)
             st.subheader("KOSDAQ 실시간 ADR")
@@ -157,40 +155,48 @@ if selected_page == menus[0]:
         chart_period = st.select_slider("조회 기간 선택", options=["6mo", "1y", "3y", "5y"], value="1y")
         
         t_kpi, t_kdq, t_ndq, t_sp = st.tabs(["KOSPI", "KOSDAQ", "NASDAQ", "S&P 500"])
-        with t_kpi: st.plotly_chart(plot_line_chart(get_hist_data("^KS11", chart_period), "KOSPI 장기 추이", "#DA291C"), use_container_width=True)
-        with t_kdq: st.plotly_chart(plot_line_chart(get_hist_data("^KQ11", chart_period), "KOSDAQ 장기 추이", "#3b82f6"), use_container_width=True)
-        with t_ndq: st.plotly_chart(plot_line_chart(get_hist_data("^IXIC", chart_period), "NASDAQ 장기 추이", "#10b981"), use_container_width=True)
-        with t_sp: st.plotly_chart(plot_line_chart(get_hist_data("^GSPC", chart_period), "S&P 500 장기 추이", "#f59e0b"), use_container_width=True)
+        with t_kpi: 
+            df = get_hist_data("^KS11", chart_period)
+            if not df.empty: st.plotly_chart(plot_line_chart(df['Close'], "KOSPI 장기 추이", "#DA291C"), use_container_width=True)
+        with t_kdq: 
+            df = get_hist_data("^KQ11", chart_period)
+            if not df.empty: st.plotly_chart(plot_line_chart(df['Close'], "KOSDAQ 장기 추이", "#3b82f6"), use_container_width=True)
+        with t_ndq: 
+            df = get_hist_data("^IXIC", chart_period)
+            if not df.empty: st.plotly_chart(plot_line_chart(df['Close'], "NASDAQ 장기 추이", "#10b981"), use_container_width=True)
+        with t_sp: 
+            df = get_hist_data("^GSPC", chart_period)
+            if not df.empty: st.plotly_chart(plot_line_chart(df['Close'], "S&P 500 장기 추이", "#f59e0b"), use_container_width=True)
 
-    # ----------------- 1-2. 위험지표 -----------------
     elif sub_menu == "위험지표":
         st.markdown("#### 1. 이격도 (과매수/과매도)")
         disp_period = st.radio("기간 선택 (이격도)", ["1mo", "2mo", "6mo", "1y", "3y"], horizontal=True, format_func=lambda x: {"1mo":"25일","2mo":"50일","6mo":"6M","1y":"1Y","3y":"3Y"}[x])
-        
         c_kpi, c_kdq = st.columns(2)
         h_kpi = get_hist_data("^KS11", disp_period)
-        disp_kpi = (h_kpi / h_kpi.rolling(20).mean() * 100).dropna()
-        c_kpi.plotly_chart(plot_line_chart(disp_kpi, f"KOSPI 20일 이격도 ({disp_kpi.iloc[-1]:.1f}%)", "#DA291C", 105, 95), use_container_width=True)
+        if not h_kpi.empty:
+            disp_kpi = (h_kpi['Close'] / h_kpi['Close'].rolling(20).mean() * 100).dropna()
+            c_kpi.plotly_chart(plot_line_chart(disp_kpi, f"KOSPI 20일 이격도 ({disp_kpi.iloc[-1]:.1f}%)", "#DA291C", 105, 95), use_container_width=True)
         
         h_kdq = get_hist_data("^KQ11", disp_period)
-        disp_kdq = (h_kdq / h_kdq.rolling(20).mean() * 100).dropna()
-        c_kdq.plotly_chart(plot_line_chart(disp_kdq, f"KOSDAQ 20일 이격도 ({disp_kdq.iloc[-1]:.1f}%)", "#3b82f6", 105, 95), use_container_width=True)
+        if not h_kdq.empty:
+            disp_kdq = (h_kdq['Close'] / h_kdq['Close'].rolling(20).mean() * 100).dropna()
+            c_kdq.plotly_chart(plot_line_chart(disp_kdq, f"KOSDAQ 20일 이격도 ({disp_kdq.iloc[-1]:.1f}%)", "#3b82f6", 105, 95), use_container_width=True)
         
         st.divider()
-        st.markdown("#### 2. 글로벌 위험지표 (6M, 1Y, 3Y)")
+        st.markdown("#### 2. 글로벌 위험지표")
         glob_period = st.radio("기간 선택 (글로벌)", ["6mo", "1y", "3y"], horizontal=True, format_func=lambda x: x.upper())
-        
         g1, g2 = st.columns(2)
         vix = get_hist_data("^VIX", glob_period)
-        g1.plotly_chart(plot_line_chart(vix, f"VIX 공포지수 ({vix.iloc[-1]:.2f})", "#f59e0b", 30), use_container_width=True)
+        if not vix.empty: g1.plotly_chart(plot_line_chart(vix['Close'], f"VIX 공포지수 ({vix['Close'].iloc[-1]:.2f})", "#f59e0b", 30), use_container_width=True)
         
         t10, t03 = get_hist_data("^TNX", glob_period), get_hist_data("^IRX", glob_period)
-        spread = (t10 - t03).dropna()
-        g2.plotly_chart(plot_line_chart(spread, f"미국 장단기 금리차 ({spread.iloc[-1]:.2f}%p)", "#8b5cf6", hline_lower=0), use_container_width=True)
+        if not t10.empty and not t03.empty:
+            spread = (t10['Close'] - t03['Close']).dropna()
+            g2.plotly_chart(plot_line_chart(spread, f"미국 장단기 금리차 ({spread.iloc[-1]:.2f}%p)", "#8b5cf6", hline_lower=0), use_container_width=True)
         
         g3, g4 = st.columns(2)
         hyg = get_hist_data("HYG", glob_period)
-        g3.plotly_chart(plot_line_chart(hyg, f"하이일드 스프레드 프록시 (HYG ${hyg.iloc[-1]:.2f})", "#10b981"), use_container_width=True)
+        if not hyg.empty: g3.plotly_chart(plot_line_chart(hyg['Close'], f"하이일드 프록시 (HYG ${hyg['Close'].iloc[-1]:.2f})", "#10b981"), use_container_width=True)
         
         try:
             res = requests.get("https://production.dataviz.cnn.io/index/fearandgreed/graphdata", headers={'User-Agent': 'Mozilla'}, timeout=2)
@@ -201,20 +207,18 @@ if selected_page == menus[0]:
         st.divider()
         st.markdown("#### 3. 한국 위험지표")
         kor_period = st.radio("기간 선택 (한국)", ["6mo", "1y", "3y"], horizontal=True, format_func=lambda x: x.upper(), key="kor")
-        
         k1, k2 = st.columns(2)
         vkospi = get_hist_data("^VKOSPI", kor_period)
-        k1.plotly_chart(plot_line_chart(vkospi, f"VKOSPI 변동성 ({vkospi.iloc[-1]:.2f})", "#ec4899", 25), use_container_width=True)
+        if not vkospi.empty: k1.plotly_chart(plot_line_chart(vkospi['Close'], f"VKOSPI 변동성 ({vkospi['Close'].iloc[-1]:.2f})", "#ec4899", 25), use_container_width=True)
         
         ksp_full = get_hist_data("^KS11", "5y")
-        h52, l52 = ksp_full.rolling(252).max(), ksp_full.rolling(252).min()
-        nh_nl = ((ksp_full - l52) / (h52 - l52) * 100).tail(len(vkospi))
-        k2.plotly_chart(plot_line_chart(nh_nl, f"KOSPI 신고가-신저가 프록시 ({nh_nl.iloc[-1]:.1f}%)", "#14b8a6", 80, 20), use_container_width=True)
+        if not ksp_full.empty and not vkospi.empty:
+            h52, l52 = ksp_full['Close'].rolling(252).max(), ksp_full['Close'].rolling(252).min()
+            nh_nl = ((ksp_full['Close'] - l52) / (h52 - l52) * 100).tail(len(vkospi))
+            k2.plotly_chart(plot_line_chart(nh_nl, f"KOSPI 신고가-신저가 프록시 ({nh_nl.iloc[-1]:.1f}%)", "#14b8a6", 80, 20), use_container_width=True)
 
-    # ----------------- 1-3. 주요지수 연도별 수익률 -----------------
     elif sub_menu == "주요지수 연도별 수익률":
-        st.markdown("#### 1970년대 ~ 현재 연도별 수익률 (S&P500, NASDAQ, KOSPI, KOSDAQ)")
-        
+        st.markdown("#### 1970년대 ~ 현재 연도별 수익률")
         @st.cache_data(ttl=86400)
         def get_max_annual_returns():
             df = yf.download(["^GSPC", "^IXIC", "^KS11", "^KQ11"], period="max")["Close"]
@@ -229,85 +233,123 @@ if selected_page == menus[0]:
 
 
 # ==========================================
-# 💸 2. 자금흐름 (실시간 ETF & 시장 자금 프록시 연동)
+# 💸 [섹터 2] 자금흐름
 # ==========================================
 elif selected_page == menus[1]:
-    st.markdown('<div class="section-title">자금흐름 및 ETF 트렌드</div>', unsafe_allow_html=True)
-    tabs = st.tabs(["글로벌 ETF 자금 (QQQ/SPY/SOXX)", "서학개미 인기종목 트렌드"])
+    st.markdown('<div class="section-title">자금흐름</div>', unsafe_allow_html=True)
+    tabs = st.tabs(["증시자금 추이", "ETF 자금흐름", "ETF 구성종목 변동", "서학개미 순매수 종목"])
     
     with tabs[0]:
-        st.markdown("#### 글로벌 주요 ETF 최근 3개월 성과 (자금 유입 프록시)")
-        etf_list = ["QQQ", "SPY", "SOXX", "TQQQ"]
-        etf_data = yf.download(etf_list, period="3mo")["Close"]
-        etf_norm = (etf_data / etf_data.iloc[0] - 1) * 100
-        fig_etf = px.line(etf_norm, template=chart_template, height=350)
-        fig_etf.update_layout(yaxis_title="수익률 (%)", xaxis_title="")
-        st.plotly_chart(fig_etf, use_container_width=True)
-        
+        st.markdown("#### KOSPI 시장 유동성 (거래대금 프록시)")
+        df_kpi = get_hist_data("^KS11", "1y")
+        if not df_kpi.empty:
+            vol_proxy = df_kpi['Volume'] * df_kpi['Close'] / 1e12 # Trillion KRW Proxy
+            st.plotly_chart(plot_line_chart(vol_proxy, "KOSPI 거래대금 지수화 추이 (조 단위 프록시)", chart_type='bar'), use_container_width=True)
+
     with tabs[1]:
-        st.markdown("#### 미국 주요 빅테크 서학개미 선호 종목 동향")
-        us_stocks = ["NVDA", "TSLA", "AAPL", "MSFT"]
-        us_df = yf.download(us_stocks, period="1mo")["Close"]
-        us_norm = (us_df / us_df.iloc[0] - 1) * 100
-        fig_us = px.line(us_norm, template=chart_template, height=350)
-        st.plotly_chart(fig_us, use_container_width=True)
+        st.markdown("#### 주요 ETF 거래 유동성 흐름 (SPY, QQQ, TLT)")
+        etfs = yf.download(["SPY", "QQQ", "TLT"], period="6mo")["Volume"]
+        if not etfs.empty:
+            fig_etf = px.line(etfs.rolling(5).mean(), template=chart_template, height=350)
+            fig_etf.update_layout(yaxis_title="5일 평균 거래량", xaxis_title="")
+            st.plotly_chart(fig_etf, use_container_width=True)
+
+    with tabs[2]:
+        st.markdown("#### 나스닥 100 (QQQ) 상위 구성종목 동향")
+        # 정적 프록시 데이터 구성
+        constituents = pd.DataFrame({
+            "종목명": ["Apple", "Microsoft", "NVIDIA", "Amazon", "Meta", "Tesla", "Broadcom"],
+            "티커": ["AAPL", "MSFT", "NVDA", "AMZN", "META", "TSLA", "AVGO"],
+            "비중(%)": [8.7, 8.4, 7.9, 5.2, 4.8, 2.7, 2.4]
+        })
+        st.dataframe(constituents, use_container_width=True, hide_index=True)
+
+    with tabs[3]:
+        st.markdown("#### 서학개미 선호 탑티어 주가 퍼포먼스")
+        pop_stocks = ["NVDA", "TSLA", "AAPL", "MSFT", "SOXL", "TQQQ"]
+        try:
+            us_df = yf.download(pop_stocks, period="1mo")["Close"]
+            us_norm = (us_df / us_df.iloc[0] - 1) * 100
+            fig_us = px.line(us_norm, template=chart_template, height=350)
+            fig_us.update_layout(yaxis_title="최근 1개월 수익률 (%)", xaxis_title="")
+            st.plotly_chart(fig_us, use_container_width=True)
+        except: st.error("데이터 로딩 실패")
 
 
 # ==========================================
-# 📄 3. 종목/공시 (52주 신고가 스캐너 및 공시 RSS 연동)
+# 📄 [섹터 3] 종목/공시
 # ==========================================
 elif selected_page == menus[2]:
-    st.markdown('<div class="section-title">종목 및 공시 데이터</div>', unsafe_allow_html=True)
-    tabs = st.tabs(["주요 주도주 52주 신고가 현황", "실시간 공시 및 뉴스"])
+    st.markdown('<div class="section-title">종목/공시</div>', unsafe_allow_html=True)
+    tabs = st.tabs(["52주 신고가/등락률", "DART 공시", "수출입데이터"])
     
     with tabs[0]:
-        st.markdown("#### 글로벌 및 국내 주요 주도주 52주 고점 대비 위치")
-        target_pool = ["NVDA", "AAPL", "TSLA", "005930.KS", "000660.KS", "373220.KS"]
+        st.markdown("#### 글로벌 리딩 기업 52주 고점 대비 현재 위치")
+        target_pool = ["NVDA", "AAPL", "MSFT", "TSM", "ASML", "005930.KS", "000660.KS"]
         card_html = '<div class="card-grid">'
         for t in target_pool:
             try:
-                hist = yf.Ticker(t).history(period="1y")
-                cur = hist['Close'].iloc[-1]
-                high52 = hist['High'].max()
-                ratio = (cur / high52) * 100
-                card_html += f'<div class="stock-card"><div class="card-left"><div class="stock-name">{t}</div><div class="stock-ticker">현재가: ${cur:,.2f}</div></div><div class="card-right"><div class="stock-price">{ratio:.1f}%</div><div class="badge badge-up">52주 고점 대비</div></div></div>'
+                hist = get_hist_data(t, "1y")
+                if not hist.empty:
+                    cur = hist['Close'].iloc[-1]
+                    high52 = hist['High'].max()
+                    ratio = (cur / high52) * 100
+                    disp_t = t.replace(".KS", "")
+                    card_html += f'<div class="stock-card"><div class="card-left"><div class="stock-name">{disp_t}</div><div class="stock-ticker">현재: {cur:,.0f}</div></div><div class="card-right"><div class="stock-price">{ratio:.1f}%</div><div class="badge badge-up">고점대비</div></div></div>'
             except: pass
         card_html += '</div>'
         st.markdown(card_html, unsafe_allow_html=True)
-        
+
     with tabs[1]:
-        st.markdown("#### DART 및 기업 공시 관련 실시간 뉴스")
+        st.markdown("#### DART 기업공시 및 상장 뉴스 (RSS)")
         try:
             feed = requests.get("https://news.google.com/rss/search?q=전자공시+OR+DART+OR+상장공시&hl=ko&gl=KR&ceid=KR:ko", timeout=3)
             for item in ET.fromstring(feed.content).findall('.//item')[:8]:
                 st.markdown(f'<div class="news-item"><a href="{item.find("link").text}" target="_blank">{item.find("title").text}</a></div>', unsafe_allow_html=True)
-        except:
-            st.info("공시 뉴스 로딩 중...")
+        except: st.info("공시 뉴스 로딩 중...")
+
+    with tabs[2]:
+        st.markdown("#### 원/달러 환율 추이 (수출입 환경 프록시)")
+        usdkrw = get_hist_data("KRW=X", "1y")
+        if not usdkrw.empty:
+            st.plotly_chart(plot_line_chart(usdkrw['Close'], "원/달러 환율", "#10b981"), use_container_width=True)
 
 
 # ==========================================
-# 🤖 4. AI TRADE (대만 반도체 및 글로벌 시총 비교)
+# 🤖 [섹터 4] AI TRADE
 # ==========================================
 elif selected_page == menus[3]:
-    st.markdown('<div class="section-title">AI TRADE & 반도체 프록시 분석</div>', unsafe_allow_html=True)
-    st.markdown("#### TSMC vs 삼성전자 상대 퍼포먼스 비교 (글로벌 반도체 자금 흐름)")
-    try:
-        semi_df = yf.download(["TSM", "005930.KS"], period="6mo")["Close"]
-        semi_norm = (semi_df / semi_df.iloc[0] - 1) * 100
-        fig_semi = px.line(semi_norm, template=chart_template, height=350)
-        fig_semi.update_layout(yaxis_title="상승률 (%)", xaxis_title="")
-        st.plotly_chart(fig_semi, use_container_width=True)
-    except:
-        st.error("데이터 로딩 실패")
+    st.markdown('<div class="section-title">AI TRADE</div>', unsafe_allow_html=True)
+    tabs = st.tabs(["상대시총", "대만 월별 매출"])
+    
+    with tabs[0]:
+        st.markdown("#### TSMC vs 삼성전자 상대 퍼포먼스 (글로벌 반도체 패권)")
+        try:
+            semi_df = yf.download(["TSM", "005930.KS"], period="1y")["Close"]
+            ratio = (semi_df["TSM"] / semi_df["TSM"].iloc[0]) / (semi_df["005930.KS"] / semi_df["005930.KS"].iloc[0])
+            fig_semi = px.line(ratio, template=chart_template, height=350)
+            fig_semi.update_layout(yaxis_title="TSMC / 삼성전자 상대 강도", xaxis_title="")
+            st.plotly_chart(fig_semi, use_container_width=True)
+        except: st.error("상대 시총 데이터 로딩 실패")
+
+    with tabs[1]:
+        st.markdown("#### 대만 주요 IT 기업 분기별 매출 성장 (TSMC 중심)")
+        try:
+            tsm = yf.Ticker("TSM")
+            rev = tsm.quarterly_financials.loc["Total Revenue"].dropna()
+            rev = rev.sort_index()
+            fig_rev = px.bar(x=rev.index, y=rev.values, template=chart_template, height=350)
+            fig_rev.update_layout(yaxis_title="매출액 (NTD)", xaxis_title="분기")
+            st.plotly_chart(fig_rev, use_container_width=True)
+        except: st.info("재무 데이터를 불러오는 중입니다.")
 
 
 # ==========================================
-# 📡 5. 뉴스/인사이트
+# 📡 [섹터 5] 뉴스/인사이트
 # ==========================================
 elif selected_page == menus[4]:
     st.markdown('<div class="section-title">뉴스 및 이웃 블로그 인사이트</div>', unsafe_allow_html=True)
     c1, c2, c3 = st.columns(3)
-    
     def render_rss(url, limit=5):
         html = ""
         try:
@@ -329,16 +371,15 @@ elif selected_page == menus[4]:
 
 
 # ==========================================
-# 🎯 6. 관심종목
+# 🎯 [섹터 6] 관심종목
 # ==========================================
 elif selected_page == menus[5]:
     st.markdown('<div class="section-title">내 관심종목 모니터링</div>', unsafe_allow_html=True)
     my_stocks = ['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'TSLA', 'O', 'SCHD', '005930.KS', '000660.KS']
-    
     html_stock = '<div class="card-grid">'
     for t in my_stocks:
         try:
-            hist = yf.Ticker(t).history(period="2d")
+            hist = get_hist_data(t, "2d")
             if len(hist) >= 2:
                 close_tdy, close_ytd = hist['Close'].iloc[-1], hist['Close'].iloc[-2]
                 chg_pct = ((close_tdy - close_ytd) / close_ytd) * 100
@@ -352,7 +393,7 @@ elif selected_page == menus[5]:
 
 
 # ==========================================
-# 🧠 7. 마인드셋
+# 🧠 [섹터 7] 마인드셋
 # ==========================================
 elif selected_page == menus[6]:
     st.markdown('<div class="section-title">투자의 대가들</div>', unsafe_allow_html=True)

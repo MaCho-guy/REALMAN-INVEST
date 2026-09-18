@@ -81,10 +81,15 @@ if st.sidebar.button("🌞 / 🌙 라이트/다크 전환", use_container_width=
 st.sidebar.divider()
 
 menus = ["시장지표", "자금흐름", "종목/공시", "AI TRADE", "뉴스/인사이트", "관심종목", "마인드셋"]
-if "current_page" not in st.query_params:
-    st.query_params["current_page"] = menus[0]
 
-selected_page = st.sidebar.radio("MENU", menus, index=menus.index(st.query_params.get("current_page", menus[0])))
+# 주소창에 저장된 값이 현재 메뉴 리스트에 없으면 강제로 첫 번째 메뉴로 초기화하는 안전장치
+current_param = st.query_params.get("current_page", menus[0])
+if current_param not in menus:
+    current_param = menus[0]
+    st.query_params["current_page"] = current_param
+
+selected_page = st.sidebar.radio("MENU", menus, index=menus.index(current_param))
+
 if selected_page != st.query_params.get("current_page"):
     st.query_params["current_page"] = selected_page
     st.rerun()

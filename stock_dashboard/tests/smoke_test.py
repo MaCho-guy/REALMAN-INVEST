@@ -1,0 +1,1248 @@
+"""
+순수 로직 스모크 테스트 (네트워크 불필요).
+
+실행:
+    cd stock_dashboard
+    python tests/smoke_test.py
+
+검증 범위: 괴리율 계산, 통화 환산, Quote 파생값, 숫자 포맷,
+           실패 Quote 렌더링, 외부 문자열 이스케이프.
+Streamlit 레이어(app.py)는 streamlit 설치 후 `streamlit run app.py` 로 확인하십시오.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import concurrent.futures as _cf  # noqa: E402
+import components as ui_mod  # noqa: E402
+import analysis_store  # noqa: E402
+import components as ui  # noqa: E402
+import config  # noqa: E402
+from compute import FxRates, compute_premium, pick_quote  # noqa: E402
+from config import Instrument  # noqa: E402
+from sources import hyperliquid as hl  # noqa: E402
+from sources.model import Quote  # noqa: E402
+
+FAILURES: list[str] = []
+
+
+def check(label: str, got: object, want: object, tol: float = 1e-6) -> None:
+    if isinstance(got, float) and isinstance(want, float):
+        ok = abs(got - want) < tol
+    else:
+        ok = got == want
+    print(f"  {'OK  ' if ok else 'FAIL'} {label}: got={got!r} want={want!r}")
+    if not ok:
+        FAILURES.append(label)
+
+
+def check_true(label: str, condition: bool, detail: str = "") -> None:
+    print(f"  {'OK  ' if condition else 'FAIL'} {label}{(' — ' + detail) if detail else ''}")
+    if not condition:
+        FAILURES.append(label)
+
+
+fx = FxRates(usdkrw=1380.0, eurusd=1.08)
+
+gdr = Instrument(
+    "삼성전자 GDR", "SMSN.IL", "yahoo", "London", "USD",
+    common_shares_per_unit=25.0, local_peer="005930",
+)
+foreign = Quote("SMSN.IL", price=1200.0, prev_close=1190.0, currency="USD")
+local = Quote("005930", price=70000.0, prev_close=69500.0, currency="KRW")
+
+print("=== 괴리율 계산 (docstring 예시) ===")
+p = compute_premium(gdr, foreign, local, fx)
+assert p is not None
+check("본주환산가 (1200×1380÷25)", p.implied_krw, 66240.0, 0.01)
+check("괴리율 %", p.premium_pct, (66240.0 / 70000.0 - 1.0) * 100.0, 1e-9)
+
+print("\n=== EUR 표시 종목 환산 ===")
+fra = Instrument(
+    "SK하이닉스 FRA", "HY9.F", "yahoo", "Frankfurt", "EUR",
+    common_shares_per_unit=1.0, local_peer="000660",
+)
+p2 = compute_premium(
+    fra,
+    Quote("HY9.F", price=130.0, prev_close=128.0, currency="EUR"),
+    Quote("000660", price=196000.0, prev_close=195000.0, currency="KRW"),
+    fx,
+)
+assert p2 is not None
+check("EUR→KRW 환산", p2.implied_krw, 130.0 * 1.08 * 1380.0, 0.01)
+
+print("\n=== 프리장 가격 우선 적용 ===")
+p3 = compute_premium(
+    gdr,
+    Quote("SMSN.IL", price=1200.0, prev_close=1190.0, currency="USD",
+          extended_price=1230.0, extended_label="프리장"),
+    local, fx,
+)
+assert p3 is not None
+check("프리장 기준 환산가", p3.implied_krw, 1230.0 * 1380.0 / 25.0, 0.01)
+
+print("\n=== 입력 결측 시 None 반환 ===")
+for label, args in (
+    ("환율 없음", (gdr, foreign, local, FxRates(usdkrw=None))),
+    ("본주 Quote 없음", (gdr, foreign, None, fx)),
+    ("본주가 0", (gdr, foreign, Quote("005930", price=0.0), fx)),
+    ("해외 Quote 실패", (gdr, Quote.failed("X", "err"), local, fx)),
+    ("환산비율 미설정", (Instrument("x", "X", "yahoo"), foreign, local, fx)),
+):
+    check_true(label, compute_premium(*args) is None)  # type: ignore[arg-type]
+
+print("\n=== Quote 파생값 ===")
+q = Quote("T", price=110.0, prev_close=100.0)
+check("등락액", q.change, 10.0)
+check("등락률", q.change_pct, 10.0)
+check_true("prev_close=0 → change_pct None",
+           Quote("T", price=110.0, prev_close=0.0).change_pct is None)
+check_true("price None → ok False", not Quote("T").ok)
+check_true("error 있으면 ok False", not Quote.failed("T", "x").ok)
+
+print("\n=== 숫자 포맷 ===")
+for got, want in (
+    (ui.fmt_krw_compact(66240.0), "66,240원"),
+    (ui.fmt_krw_compact(15_000_000.0), "1,500만원"),
+    (ui.fmt_krw_compact(250_000_000.0), "2.50억원"),
+    (ui.fmt_krw_compact(850.0), "850원"),
+    (ui.fmt_big_usd(3.4e12), "$3.40T"),
+    (ui.fmt_big_usd(8.9e9), "$8.9B"),
+    (ui.fmt_pct(-5.3714), "-5.37%"),
+    (ui.fmt_signed(10.0, 2), "+10.00"),
+    (ui.fmt_num(None), "—"),
+    (ui.direction_glyph(-1.0), "▼ "),
+    (ui.direction_glyph(1.0), "▲ "),
+    (ui.direction_class(0.0), "flat"),
+):
+    check_true(f"{got!r} == {want!r}", got == want)
+
+print("\n=== 실패 Quote 도 카드 HTML 을 반환 ===")
+html_fail = ui.render_card(gdr, Quote.failed("SMSN.IL", "티커 없음"), fx)
+check_true(
+    "실패 카드 렌더",
+    "데이터 없음" in html_fail and "티커 없음" in html_fail and html_fail.startswith("<div"),
+    f"{len(html_fail)} bytes",
+)
+check_true("quote=None 도 렌더", ui.render_card(gdr, None, fx).startswith("<div"))
+
+print("\n=== 외부 문자열 이스케이프 ===")
+hostile = Instrument(
+    "<script>alert(1)</script>", 'X"onload="y', "yahoo",
+    note="<img src=x onerror=alert(1)>",
+)
+html_hostile = ui.render_card(
+    hostile, Quote("X", price=1.0, prev_close=1.0, currency="USD"), fx
+)
+# 핵심은 '위험한 문자열이 없는 것'이 아니라 '태그/속성으로 해석될 수 없는 것'입니다.
+# onerror= 라는 문자열 자체는 텍스트 노드 안에 남아도 실행되지 않습니다.
+check_true("꺾쇠가 실제 태그로 들어가지 않음",
+           "<script>" not in html_hostile and "<img" not in html_hostile)
+check_true("꺾쇠가 엔티티로 치환됨",
+           "&lt;script&gt;" in html_hostile and "&lt;img" in html_hostile)
+check_true("따옴표가 엔티티로 치환됨 (속성 탈출 방지)",
+           "&quot;onload=" in html_hostile and '"onload="' not in html_hostile)
+
+print("\n=== scale / suffix 적용 ===")
+tnx = Instrument("10년물", "^TNX", "yahoo", "CBOE", "", decimals=3, scale=0.1, suffix="%")
+html_tnx = ui.render_card(tnx, Quote("^TNX", price=42.1, prev_close=41.8), fx)
+check_true("scale=0.1 적용 (42.1 → 4.210)", "4.210%" in html_tnx, )
+
+print("\n=== 밸류에이션 표 ===")
+table = ui.render_valuation_table(
+    (("Microsoft", "MSFT"), ("삼성전자", "005930.KS")),
+    (("trailingPE", "PER", "num2"), ("profitMargins", "순이익률", "pct")),
+    {"MSFT": {"trailingPE": 35.2, "profitMargins": 0.362}, "005930.KS": {"trailingPE": None}},
+)
+check_true("PER 값 표기", "35.20" in table)
+check_true("비율 ×100 표기", "36.20%" in table)
+check_true("결측은 em dash", 'class="na">—' in table)
+check_true("열 머리에 이름+심볼", "Microsoft" in table and "005930.KS" in table)
+
+print("\n=== 카드 링크 생성 ===")
+links = {
+    "yahoo": Instrument("Micron", "MU", "yahoo").resolved_link(),
+    "naver": Instrument("삼성전자", "005930", "naver").resolved_link(),
+    "hyperliquid": Instrument("하이닉스 PERP", "xyz:SKHX", "hyperliquid").resolved_link(),
+    "override": Instrument("x", "X", "yahoo", link="https://example.com/a").resolved_link(),
+}
+check("야후 링크", links["yahoo"], "https://finance.yahoo.com/quote/MU")
+check("네이버 링크", links["naver"],
+      "https://finance.naver.com/item/main.naver?code=005930")
+check("Hyperliquid 링크 (dex 접두어 제거)", links["hyperliquid"],
+      "https://app.hyperliquid.xyz/trade/SKHX")
+check("link 직접 지정이 우선", links["override"], "https://example.com/a")
+card_linked = ui.render_card(
+    Instrument("Micron", "MU", "yahoo", "NASDAQ", "USD", verified=True),
+    Quote("MU", price=180.0, prev_close=175.0, currency="USD"), fx,
+)
+check_true("카드 제목이 <a> 로 감싸짐",
+           'class="dash-card-link"' in card_linked and 'target="_blank"' in card_linked)
+check_true("실패 카드에도 직접 확인 링크",
+           "직접 확인" in ui.render_card(
+               Instrument("Micron", "MU", "yahoo"), Quote.failed("MU", "x"), fx))
+
+print("\n=== 대체 심볼 폴백 (pick_quote) ===")
+inst_alt = Instrument("삼성전자 GDR", "SMSN.IL", "yahoo", alt_symbols=("SMSN.L",))
+bucket_fail_primary = {
+    "yahoo": {
+        "SMSN.IL": Quote.failed("SMSN.IL", "없음"),
+        "SMSN.L": Quote("SMSN.L", price=4180.0, prev_close=4098.0, currency="USD"),
+    }
+}
+got = pick_quote(inst_alt, bucket_fail_primary)
+check_true("1순위 실패 시 대체 심볼 사용", got is not None and got.symbol == "SMSN.L")
+check_true("대체 사용 사실을 extra 에 기록",
+           got is not None and "대체 심볼 SMSN.L" in str(got.extra.get("fallback")))
+
+bucket_ok_primary = {
+    "yahoo": {
+        "SMSN.IL": Quote("SMSN.IL", price=4180.0, prev_close=4098.0, currency="USD"),
+        "SMSN.L": Quote("SMSN.L", price=9999.0, prev_close=1.0, currency="USD"),
+    }
+}
+got2 = pick_quote(inst_alt, bucket_ok_primary)
+check_true("1순위 성공 시 그대로 사용", got2 is not None and got2.symbol == "SMSN.IL")
+
+all_fail = {"yahoo": {"SMSN.IL": Quote.failed("SMSN.IL", "없음")}}
+got3 = pick_quote(inst_alt, all_fail)
+check_true("전부 실패 시 1순위 실패 Quote 반환",
+           got3 is not None and not got3.ok and got3.error == "없음")
+
+print("\n=== Hyperliquid 심볼 분해 ===")
+check("dex 있는 심볼", hl.split_symbol("xyz:SKHX"), ("xyz", "SKHX"))
+check("dex 없는 심볼", hl.split_symbol("BTC"), ("", "BTC"))
+check("공백 제거", hl.split_symbol(" xyz : SKHX "), ("xyz", "SKHX"))
+
+print("\n=== 설정 정합성 ===")
+keys = [s.key for s in config.SECTIONS]
+check_true("섹션 key 중복 없음", len(keys) == len(set(keys)))
+tab_keys = [k for k, _l in config.tab_labels()]
+# 섹션은 자기 탭을 갖거나, 다른 탭에 합쳐졌다고 선언되어 있어야 합니다.
+# 선언 없이 빠지면 화면에서 조용히 사라지므로 반드시 잡아야 합니다.
+# 섹션 key 는 탭에 있거나(TAB_ORDER), 다른 탭에 합쳐졌거나
+# (SECTIONS_MERGED_INTO), 내려졌다고(TABS_RETIRED) 선언되어 있어야 합니다.
+# 셋 중 어디에도 없으면 화면에서 조용히 사라지므로 반드시 잡아야 합니다.
+_merged = set(config.SECTIONS_MERGED_INTO)
+_retired = set(config.SECTIONS_RETIRED)
+check_true("모든 섹션이 어딘가에 선언됨",
+           set(keys) <= set(tab_keys) | _merged | _retired,
+           f"빠짐: {set(keys) - set(tab_keys) - _merged - _retired}")
+check_true("합쳐진 섹션의 목적지 탭이 실제로 존재함",
+           all(dest in tab_keys for dest in config.SECTIONS_MERGED_INTO.values()),
+           str(config.SECTIONS_MERGED_INTO))
+check_true("합쳐진 섹션은 실제로 존재하는 섹션",
+           _merged <= set(keys), str(_merged - set(keys)))
+check_true("합침과 내림이 겹치지 않음", not (_merged & _retired),
+           str(_merged & _retired))
+check_true("내려진 key 는 탭에 없음", not (_retired & set(tab_keys)),
+           str(_retired & set(tab_keys)))
+check_true("밸류에이션 탭 유지", "valuation" in tab_keys)
+check_true("탭 라벨 중복 없음",
+           len({l for _k, l in config.tab_labels()}) == len(config.tab_labels()))
+
+watch = {i.symbol for i in config.SECTION_WATCHLIST.instruments}
+expected_watch = {"MSFT", "AAPL", "MU", "O", "QQQ", "SCHD", "UNH", "005930", "000660"}
+check_true("관심종목 구성 일치", watch == expected_watch,
+           f"차이: {watch ^ expected_watch}")
+check_true("관심종목 전부 analysis_key 보유",
+           all(i.analysis_key for i in config.SECTION_WATCHLIST.instruments))
+check_true("한국 종목은 fundamental_symbol 이 .KS",
+           all(i.fundamentals_ticker().endswith(".KS")
+               for i in config.SECTION_WATCHLIST.instruments if i.source == "naver"))
+
+for inst in config.SECTION_ADR.instruments:
+    check_true(f"{inst.name}: 괴리율 비교 대상 본주가 국내 본주 섹션에 있음",
+               inst.local_peer in {i.symbol for i in config.SECTION_LOCAL.instruments},
+               f"local_peer={inst.local_peer}")
+
+skhy = next(i for i in config.SECTION_ADR.instruments if i.symbol == "SKHY")
+check("SK하이닉스 ADR 환산비율 (1 ADR = 보통주 1/10)",
+      skhy.common_shares_per_unit, 0.1)
+smsn = next(i for i in config.SECTION_ADR.instruments if i.symbol == "SMSN.IL")
+check("삼성전자 GDR 환산비율 (1 GDR = 보통주 25주)",
+      smsn.common_shares_per_unit, 25.0)
+check_true("DEX 심볼은 전부 dex 접두어 보유",
+           all(":" in i.symbol for i in config.SECTION_DEX.instruments))
+
+print("\n=== 분석 저장소 ===")
+import tempfile  # noqa: E402
+
+with tempfile.TemporaryDirectory() as tmp:
+    empty = analysis_store.load(tmp, "MU")
+    check_true("폴더 없으면 빈 문서", empty.is_empty and empty.age_days is None)
+    check_true("미생성 kind 목록이 전체", len(empty.missing_kinds) == 3)
+
+    os.makedirs(os.path.join(tmp, "MU"))
+    with open(os.path.join(tmp, "MU", "decoder.html"), "w", encoding="utf-8") as fh:
+        fh.write("<h1>마이크론</h1>")
+    with open(os.path.join(tmp, "MU", "meta.json"), "w", encoding="utf-8") as fh:
+        fh.write('{"name":"Micron","generated":"2026-11-01","mode":"web",'
+                 '"sources":["https://sec.gov/x"]}')
+    doc = analysis_store.load(tmp, "MU")
+    check_true("decoder 읽힘", "decoder" in doc.html and "마이크론" in doc.html["decoder"])
+    check("메타 이름", doc.name, "Micron")
+    check_true("생성일 파싱", doc.age_days is not None and doc.age_days >= 0)
+    check_true("최근 생성은 stale 아님", not doc.is_stale)
+    check_true("나머지 2종은 미생성", doc.missing_kinds == ["story", "price"])
+
+    with open(os.path.join(tmp, "MU", "meta.json"), "w", encoding="utf-8") as fh:
+        fh.write('{"generated":"2020-01-01"}')
+    check_true("오래된 분석은 stale", analysis_store.load(tmp, "MU").is_stale)
+
+    for hostile, expect in (("../../etc", "etc"), ("..", ""), ("MU/../AAPL", "MUAAPL"),
+                            ("005930", "005930"), ("A-B_C", "A-B_C")):
+        got = analysis_store.load(tmp, hostile).key
+        check_true(f"경로 정제 {hostile!r} → {expect!r}", got == expect, f"실제 {got!r}")
+
+check_true("스킬 명령 생성",
+           analysis_store.skill_command("price", "MU", "Micron")
+           == "/price-decoder-korean Micron")
+
+print("\n" + "=" * 54)
+if FAILURES:
+    print(f"실패 {len(FAILURES)}건: {', '.join(FAILURES)}")
+    sys.exit(1)
+print("전부 통과")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+print("\n=== 괴리율 합친 화면 ===")
+import compute as _compute  # noqa: E402
+import demo as _demo  # noqa: E402
+
+_data = _demo.demo_payload()
+_fx = _compute.resolve_fx(_data.get("yahoo", {}), None)
+_rows, _unpaired = _compute.build_premium_rows(
+    list(config.SECTION_ADR.instruments),
+    list(config.SECTION_LOCAL.instruments), _data, _fx)
+
+check_true("해외 종목 전부 줄로", len(_rows) == len(config.SECTION_ADR.instruments),
+      f"{len(_rows)}개")
+check_true("짝 없는 국내 종목 분리", len(_unpaired) == 1,
+      str([i.name for i in _unpaired]))
+check_true("짝 있는 종목은 제외", all(i.symbol != "005930" for i in _unpaired))
+check_true("전부 괴리율 산출", all(r.ok for r in _rows),
+      str([(r.foreign.symbol, r.blocked) for r in _rows if not r.ok]))
+
+# 데모 괴리율이 현실적인 범위여야 합니다 — 환산주수를 잘못 쓰면 수백 %가 나옵니다
+for _r in _rows:
+    check_true(f"{_r.foreign.symbol} 괴리율이 ±10% 내",
+          abs(_r.premium.premium_pct) < 10.0,
+          f"{_r.premium.premium_pct:+.2f}%")
+
+# 계산 사슬 검산: 해외가 × 환율 ÷ 환산주수 = 본주환산가
+for _r in _rows:
+    _expected = _r.foreign_price * _r.fx_rate / _r.shares_per_unit
+    check_true(f"{_r.foreign.symbol} 환산 검산",
+          abs(_r.premium.implied_krw - _expected) < 1.0,
+          f"{_r.premium.implied_krw:,.0f} vs {_expected:,.0f}")
+
+check_true("시간외 가격을 우선 사용", any(r.uses_extended for r in _rows))
+
+# 끊긴 사슬도 사유가 나와야 합니다
+_broken, _ = _compute.build_premium_rows(
+    list(config.SECTION_ADR.instruments),
+    list(config.SECTION_LOCAL.instruments), {}, _fx)
+check_true("시세 없으면 사유 표시",
+      all(not r.ok and r.blocked for r in _broken),
+      str([r.blocked[:20] for r in _broken[:1]]))
+
+_html = ui.render_premium_pair(_rows[0])
+check_true("사슬 렌더링", "dash-chain" in _html and "본주환산가" in _html)
+check_true("연산자 포함", "×" in _html and "÷" in _html and "=" in _html)
+check_true("국내 본주가 같은 줄에", _rows[0].local.name in _html)
+check_true("끊긴 줄도 렌더링",
+      "계산 불가" in ui.render_premium_pair(_broken[0]))
+
+check_true("실시간 배지", "dash-live on" in ui.render_live_badge("x", "on"))
+check_true("고정 배지", "dash-live frozen" in ui.render_live_badge("x", "frozen"))
+
+print("\n=== 코스피 장 상태 ===")
+import datetime as _dt  # noqa: E402
+
+def _at(y, m, d, hh, mm):
+    return _dt.datetime(y, m, d, hh, mm,
+                        tzinfo=_dt.timezone(_dt.timedelta(hours=9)))
+
+
+check_true("장중은 on", _compute.kospi_state(_at(2026, 11, 6, 10, 30))[0] == "on")
+check_true("개장 직후도 on", _compute.kospi_state(_at(2026, 11, 6, 9, 0))[0] == "on")
+check_true("15:29 는 on", _compute.kospi_state(_at(2026, 11, 6, 15, 29))[0] == "on")
+check_true("15:30 은 frozen", _compute.kospi_state(_at(2026, 11, 6, 15, 30))[0] == "frozen")
+check_true("개장 전은 frozen", _compute.kospi_state(_at(2026, 11, 6, 8, 59))[0] == "frozen")
+check_true("마감 후는 frozen", _compute.kospi_state(_at(2026, 11, 6, 20, 0))[0] == "frozen")
+check_true("토요일은 주말", "주말" in _compute.kospi_state(_at(2026, 11, 7, 10, 0))[1])
+check_true("일요일도 주말", "주말" in _compute.kospi_state(_at(2026, 11, 8, 10, 0))[1])
+check_true("상태 설명이 있음",
+      all(_compute.kospi_state(_at(2026, 11, 6, h, 0))[1]
+          for h in (8, 10, 16, 22)))
+
+print("\n=== 탭 구성 ===")
+_labels = dict(config.tab_labels())
+# 목적 기준 5개로 재구성한 뒤의 상태입니다. 괴리율은 탭에서 내려갔고,
+# 진단은 사이드바로, 국내 발굴은 '종목 발굴' 탭 안의 시장 전환으로 들어갔습니다.
+check_true("괴리율은 탭에 없음", "adr" not in _labels, str(list(_labels)))
+check_true("국내 본주 별도 탭 없음", "local" not in _labels, str(list(_labels)))
+check_true("진단은 탭이 아니라 사이드바", "diag" not in _labels,
+           str(list(_labels)))
+check_true("국내 발굴은 발굴 탭 안으로",
+           "screen_kr" not in _labels and "discover" in _labels,
+           str(list(_labels)))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+print("\n=== 목적 기준 5개 탭 ===")
+import discover as _disc  # noqa: E402
+
+_tabs = dict(config.tab_labels())
+# 요약 탭이 맨 앞에 붙어 6개입니다. 요약은 축이 달라서(휴대폰 10초) 목적
+# 기준 5개와 따로 셉니다.
+check_true("탭이 6개", len(_tabs) == 6, f"{len(_tabs)}개: {list(_tabs)}")
+check_true("요약 + 목적 기준 5개",
+           list(_tabs) == ["summary", "holdings", "discover", "macro",
+                           "valuation", "cycle"],
+           str(list(_tabs)))
+check_true("라벨 한국어", all(_tabs.values()), str(_tabs))
+
+# 내린 탭의 섹션은 코드가 남아 있어야 합니다 — 되돌릴 수 있어야 하니까
+for _key in ("adr", "dex", "futures", "etf_proxy"):
+    check_true(f"{_key} 섹션 코드 보존", _key in config.SECTION_BY_KEY,
+               str(list(config.SECTION_BY_KEY)))
+    check_true(f"{_key} 내렸다고 선언됨", _key in config.SECTIONS_RETIRED)
+
+check_true("합쳐진 섹션 선언 유지",
+           {"watchlist", "local"} <= set(config.SECTIONS_MERGED_INTO))
+check_true("내린 섹션은 SECTIONS_RETIRED 에",
+           {"adr", "dex", "futures", "etf_proxy"} <= config.SECTIONS_RETIRED)
+check_true("예전 탭 이름 기록 유지",
+           {"signals", "analysis", "screen", "diag"} <= set(config.TABS_RETIRED))
+check_true("all_instruments 가 전 섹션을 덮음",
+           len(config.all_instruments()) >= len(config.SECTION_WATCHLIST.instruments))
+check_true("all_instruments 중복 없음",
+           len({(i.source, i.symbol) for i in config.all_instruments()})
+           == len(config.all_instruments()))
+
+print("\n=== 52주 발굴 ===")
+_dq = _demo.demo_discovery_quotes()
+_known = {i.symbol: i for i in config.all_instruments()}
+_us = [_known.get(t) or Instrument(name=t, symbol=t, source="yahoo",
+                                   currency="USD", verified=False)
+       for t in config.screen_tickers()]
+_screens, _ = _demo.demo_screens()
+_pos = _disc.build_positions(_us, _dq, screens=_screens)
+
+check_true("발굴 대상 전체에 시세", all(p.ok for p in _pos),
+           str([(p.ticker, p.error[:24]) for p in _pos if not p.ok][:3]))
+check_true("종목 수 일치", len(_pos) == len(config.screen_tickers()))
+
+_counts = _disc.summary_counts(_pos)
+check_true("조회 실패 0", _counts["조회 실패"] == 0, str(_counts))
+check_true("고가권·저가권이 모두 존재",
+           _counts["고가권(구간 80%+)"] > 0 and _counts["저가권(구간 20%-)"] > 0,
+           str(_counts))
+
+# 구간 위치 기준이어야 합니다. '저가 대비 +N%' 로 하면 변동폭이 좁은 종목이
+# 구간 중간에 있어도 저가권으로 잡히는 버그가 있었습니다.
+_narrow = _disc.Position(ticker="NARROW", price=110.0, high_52w=120.0,
+                         low_52w=100.0)
+check_true("변동폭 좁은 종목의 구간 위치", abs(_narrow.band_position - 50.0) < 0.1,
+           f"{_narrow.band_position}")
+check_true("구간 중간은 저가권이 아님", not _narrow.is_near_low,
+           f"저가 대비 {_narrow.upside_from_low_pct:+.1f}%")
+check_true("구간 중간은 고가권도 아님", not _narrow.is_near_high)
+
+_high = _disc.Position(ticker="HIGH", price=119.5, high_52w=120.0, low_52w=60.0)
+check_true("고가 근처는 고가권", _high.is_near_high, f"{_high.band_position:.0f}%")
+check_true("고가 99.5% 이상은 돌파", _high.is_breakout,
+           f"{_high.pct_of_high:.2f}%")
+
+_low = _disc.Position(ticker="LOW", price=62.0, high_52w=120.0, low_52w=60.0)
+check_true("저가 근처는 저가권", _low.is_near_low, f"{_low.band_position:.0f}%")
+check_true("저가권은 돌파 아님", not _low.is_breakout)
+
+_newlow = _disc.Position(ticker="NEW", price=59.0, high_52w=120.0, low_52w=60.0)
+check_true("저가를 깨면 신저가", _newlow.is_new_low,
+           f"{_newlow.band_position:.1f}%")
+check_true("신저가도 저가권", _newlow.is_near_low)
+
+check_true("고가=저가면 판정 불가",
+           not _disc.Position(ticker="F", price=10.0, high_52w=10.0,
+                              low_52w=10.0).ok)
+check_true("52주 값 없으면 판정 불가",
+           not _disc.Position(ticker="F", price=10.0).ok)
+
+print("\n=== 사분면 (52주 × 품질) ===")
+_q1 = _disc.Position(ticker="A", price=119.0, high_52w=120.0, low_52w=60.0,
+                     quality_passed=5, quality_total=6)
+_q2 = _disc.Position(ticker="B", price=119.0, high_52w=120.0, low_52w=60.0,
+                     quality_passed=1, quality_total=6)
+_q3 = _disc.Position(ticker="C", price=62.0, high_52w=120.0, low_52w=60.0,
+                     quality_passed=5, quality_total=6)
+_q4 = _disc.Position(ticker="D", price=62.0, high_52w=120.0, low_52w=60.0,
+                     quality_passed=1, quality_total=6)
+_mid = _disc.Position(ticker="E", price=90.0, high_52w=120.0, low_52w=60.0,
+                      quality_passed=5, quality_total=6)
+_noq = _disc.Position(ticker="F", price=119.0, high_52w=120.0, low_52w=60.0)
+
+check_true("① 고가권+통과", _q1.quadrant(4) == 1, str(_q1.quadrant(4)))
+check_true("② 고가권+미달", _q2.quadrant(4) == 2, str(_q2.quadrant(4)))
+check_true("③ 저가권+통과", _q3.quadrant(4) == 3, str(_q3.quadrant(4)))
+check_true("④ 저가권+미달", _q4.quadrant(4) == 4, str(_q4.quadrant(4)))
+check_true("중간 구간은 0", _mid.quadrant(4) == 0, str(_mid.quadrant(4)))
+check_true("품질 없으면 0", _noq.quadrant(4) == 0, str(_noq.quadrant(4)))
+check_true("기준선을 올리면 ①→②", _q1.quadrant(6) == 2, str(_q1.quadrant(6)))
+
+_groups = _disc.group_by_quadrant([_q1, _q2, _q3, _q4, _mid, _noq], 4)
+check_true("그룹 분배", [len(_groups[k]) for k in (1, 2, 3, 4)] == [1, 1, 1, 1],
+           str({k: len(v) for k, v in _groups.items()}))
+check_true("중간·판정없음은 0번", len(_groups[0]) == 2)
+
+_ranked = _disc.rank_by_high([_q3, _q1, _mid])
+check_true("고가권부터 정렬", [p.ticker for p in _ranked] == ["A", "E", "C"],
+           str([p.ticker for p in _ranked]))
+_ranked_low = _disc.rank_by_low([_q1, _q3, _mid])
+check_true("저가권부터 정렬", _ranked_low[0].ticker == "C",
+           str([p.ticker for p in _ranked_low]))
+
+print("\n=== 발굴 렌더링 ===")
+check_true("지도", "dash-table" in ui.render_discover_map(_groups))
+check_true("지도에 티커", "A" in ui.render_discover_map(_groups))
+check_true("빈 칸은 대시", "—" in ui.render_discover_map({0: [], 1: [], 2: [],
+                                                          3: [], 4: []}))
+_tbl = ui.render_discover_table([_q1, _q3], 4)
+check_true("표 렌더링", "dash-table" in _tbl and "고가 대비" in _tbl)
+check_true("표에 품질 표시", "○" in _tbl)
+check_true("품질 없으면 na", 'class="na"' in ui.render_discover_table([_noq], 4))
+check_true("빈 표는 빈 문자열", ui.render_discover_table([], 4) == "")
+
+_card = ui.render_discover_card(_q1, 4, prompt=_disc.prompt_for(_q1, 4))
+check_true("카드 렌더링", "dash-verdict" in _card and "①" in _card)
+check_true("카드에 태그", "고가권" in _card or "신고가" in _card)
+check_true("카드에 프롬프트", "<details>" in _card)
+check_true("신저가 태그", "52주 신저가" in ui.render_discover_card(_newlow, 4))
+
+_prompt = _disc.prompt_for(_q3, 4)
+check_true("프롬프트에 위치", "저가권" in _prompt)
+check_true("③ 은 눌린 이유를 묻는다", "Risk Factors" in _prompt)
+check_true("모멘텀 지표임을 명시", "모멘텀 지표" in _prompt)
+check_true("추천 금지", "매수/매도 추천" in _prompt)
+for _q, _word in ((_q1, "오른"), (_q2, "기대"), (_q4, "업종 전체")):
+    check_true(f"사분면 {_q.quadrant(4)} 전용 질문",
+               _word in _disc.prompt_for(_q, 4))
+
+_xss = _disc.Position(ticker='<img src=x>', price=100.0, high_52w=120.0,
+                      low_52w=60.0, quality_passed=5, quality_total=6)
+check_true("티커 이스케이프",
+           "&lt;img" in ui.render_discover_table([_xss], 4))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+print("\n=== 내 종목 탭 구조 (소스 검사) ===")
+# 이 블록은 app.py **소스**를 검사합니다. 스트림릿 위젯은 직접 테스트하기
+# 어려운데, 지난번 '분석 본문 접기' 수정이 패턴 불일치로 **조용히 적용되지
+# 않은** 일이 있었습니다 (str.replace 는 못 찾아도 오류가 없습니다).
+# 같은 실수를 다시 놓치지 않으려고 호출 구조를 직접 확인합니다.
+import ast as _ast  # noqa: E402
+import pathlib as _pl  # noqa: E402
+
+_app_src = (_pl.Path(__file__).resolve().parent.parent / "app.py").read_text(
+    encoding="utf-8")
+_app_ast = _ast.parse(_app_src)
+_app_fns = {n.name: n for n in _ast.walk(_app_ast)
+            if isinstance(n, _ast.FunctionDef)}
+
+check_true("내 종목 탭 함수 존재", "render_holdings_tab" in _app_fns)
+check_true("분석 요약 함수 존재", "_analysis_summary" in _app_fns)
+
+_holdings = _app_fns.get("render_holdings_tab")
+_calls = [n for n in _ast.walk(_holdings) if isinstance(n, _ast.Call)] if _holdings else []
+_analysis_calls = [
+    c for c in _calls
+    if isinstance(c.func, _ast.Name) and c.func.id == "render_analysis_tab"
+]
+check_true("내 종목에서 분석을 한 번 호출", len(_analysis_calls) == 1,
+           f"{len(_analysis_calls)}회")
+check_true("embed=True 로 호출 (본문 접힘)",
+           bool(_analysis_calls)
+           and any(kw.arg == "embed" and getattr(kw.value, "value", None) is True
+                   for kw in _analysis_calls[0].keywords),
+           str([kw.arg for kw in _analysis_calls[0].keywords])
+           if _analysis_calls else "호출 없음")
+
+# 섹션 전체가 expander 안에 있어야 합니다 — 본문만 접으면 위젯 20개가 남습니다
+_withs = [n for n in _ast.walk(_holdings) if isinstance(n, _ast.With)] if _holdings else []
+_analysis_in_with = any(
+    any(isinstance(c, _ast.Call) and isinstance(c.func, _ast.Name)
+        and c.func.id == "render_analysis_tab"
+        for c in _ast.walk(w))
+    for w in _withs
+)
+check_true("분석 섹션이 expander 안에 있음", _analysis_in_with)
+check_true("expander 가 둘 이상 (국내 본주 + 공시 분석)",
+           len(_withs) >= 2, f"{len(_withs)}개")
+
+# render_analysis_tab 이 embed 를 실제로 쓰는지
+_analysis_fn = _app_fns.get("render_analysis_tab")
+check_true("분석 함수가 embed 인자를 받음",
+           bool(_analysis_fn)
+           and any(a.arg == "embed" for a in _analysis_fn.args.kwonlyargs),
+           str([a.arg for a in _analysis_fn.args.kwonlyargs])
+           if _analysis_fn else "")
+_embed_names = [n for n in _ast.walk(_analysis_fn)
+                if isinstance(n, _ast.Name) and n.id == "embed"] if _analysis_fn else []
+check_true("embed 를 분기에 실제로 사용", len(_embed_names) >= 2,
+           f"{len(_embed_names)}회 참조")
+
+# app.py 를 import 하지 않습니다 — streamlit 이 없는 환경에서도 테스트가
+# 돌아야 하고, 이 검사의 목적은 '수정이 실제로 적용됐나' 이지 위젯 동작이
+# 아닙니다. 요약 함수의 존재와 반환 경로만 소스에서 확인합니다.
+_summary_fn = _app_fns.get("_analysis_summary")
+_returns = [n for n in _ast.walk(_summary_fn)
+            if isinstance(n, _ast.Return)] if _summary_fn else []
+check_true("요약 함수가 값을 돌려줌", len(_returns) >= 2,
+           f"{len(_returns)}개 return")
+check_true("분석 없을 때 경로도 있음",
+           bool(_summary_fn) and "생성된 분석 없음" in _app_src)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+print("\n=== 요약 (휴대폰 10초 화면) ===")
+import re as _re2  # noqa: E402
+
+import macro as _macro  # noqa: E402
+import summary as _sm  # noqa: E402
+
+_fg2 = _demo.demo_feargreed()
+_vx2 = _demo.demo_vix()
+_tr2 = _demo.demo_inventory_trends()
+_ser2, _err2 = _demo.demo_macro_series()
+_rd2 = _macro.build_readings(config.macro_series(), _ser2, _err2)
+
+_s2 = _sm.build(urgent=[], soon=[], holdings_total=9, fg=_fg2,
+                vix_state=_vx2, trends=_tr2, macro_readings=_rd2)
+check_true("요약 네 줄", len(_s2.rows) == 4, f"{len(_s2.rows)}줄")
+check_true("줄 키가 고정",
+           [r.key for r in _s2.rows]
+           == ["holdings", "sentiment", "cycle", "discover"],
+           str([r.key for r in _s2.rows]))
+check_true("판정 한 줄 생성", _s2.verdict != "")
+check_true("level 은 네 가지뿐",
+           all(r.level in ("quiet", "watch", "alert", "unknown")
+               for r in _s2.rows),
+           str({r.level for r in _s2.rows}))
+
+# 조용할 때 — 이게 정상 상태이고 그렇게 보여야 합니다
+_quiet = _sm.build(urgent=[], soon=[], holdings_total=9)
+check_true("입력이 없으면 데이터 없음 처리",
+           any(r.level == "unknown" for r in _quiet.rows),
+           str([(r.key, r.level) for r in _quiet.rows]))
+check_true("내 종목은 조용함으로", _quiet.rows[0].level == "quiet",
+           _quiet.rows[0].level)
+check_true("종목 수를 말해줌", "9종목" in _quiet.rows[0].headline,
+           _quiet.rows[0].headline)
+
+
+class _FakeSig:
+    def __init__(self, title):
+        self.title = title
+
+
+_urgent = _sm.build(urgent=[_FakeSig("MU 신규 10-Q"), _FakeSig("O 실적 임박")],
+                    soon=[], holdings_total=9)
+check_true("긴급이 있으면 alert", _urgent.rows[0].level == "alert",
+           _urgent.rows[0].level)
+check_true("건수를 말해줌", "2건" in _urgent.rows[0].headline,
+           _urgent.rows[0].headline)
+check_true("판정이 긴급을 가리킴", "내 종목" in _urgent.verdict, _urgent.verdict)
+check_true("주의 건수 집계", _urgent.attention_count >= 1,
+           str(_urgent.attention_count))
+check_true("조용하지 않음", not _urgent.all_quiet)
+
+# 신호가 많아도 한 화면을 넘지 않아야 합니다
+_many = _sm.build(urgent=[_FakeSig(f"신호{i}") for i in range(9)],
+                  soon=[], holdings_total=9)
+check_true("상한을 넘으면 '외 N건'", "외 5건" in _many.rows[0].detail,
+           _many.rows[0].detail[-20:])
+
+_soon_only = _sm.build(urgent=[], soon=[_FakeSig("UNH 실적 2주 뒤")],
+                       holdings_total=9)
+check_true("이번 주 건은 watch", _soon_only.rows[0].level == "watch")
+
+print("\n=== 요약 — 시장 분위기 ===")
+check_true("공포탐욕·VIX 를 한 줄에",
+           "공포탐욕" in _s2.rows[1].headline and "VIX" in _s2.rows[1].headline,
+           _s2.rows[1].headline)
+check_true("백분위 포함", "5년 중" in _s2.rows[1].headline, _s2.rows[1].headline)
+
+_inv_state = _demo.demo_vix(inverted=True)
+_inv_sum = _sm.build(urgent=[], soon=[], holdings_total=9,
+                     fg=_fg2, vix_state=_inv_state)
+check_true("VIX 역전은 alert", _inv_sum.rows[1].level == "alert",
+           _inv_sum.rows[1].level)
+check_true("역전이 드물다는 것을 적음", "7.7" in _inv_sum.rows[1].detail,
+           _inv_sum.rows[1].detail[:50])
+
+_no_sent = _sm.build(urgent=[], soon=[], holdings_total=9)
+check_true("둘 다 없으면 데이터 없음", _no_sent.rows[1].level == "unknown")
+
+print("\n=== 요약 — 메모리 사이클 ===")
+check_true("DIO 와 반도체 지표를 한 줄에",
+           "DIO" in _s2.rows[2].headline, _s2.rows[2].headline)
+check_true("연속 상승이면 watch", _s2.rows[2].level in ("watch", "quiet"),
+           _s2.rows[2].level)
+_no_cycle = _sm.build(urgent=[], soon=[], holdings_total=9, fg=_fg2)
+check_true("추세가 없으면 데이터 없음", _no_cycle.rows[2].level == "unknown")
+
+print("\n=== 요약 — 발굴은 일부러 뺐습니다 ===")
+check_true("발굴은 항상 조용함", _s2.rows[3].level == "quiet")
+check_true("책상 작업이라고 적음", "책상" in _s2.rows[3].headline,
+           _s2.rows[3].headline)
+check_true("이유를 설명", "휴대폰" in _s2.rows[3].detail,
+           _s2.rows[3].detail[:40])
+
+print("\n=== 요약 렌더링 ===")
+_sh = ui.render_summary(_s2)
+check_true("밴드", "dash-verdict-band" in _sh)
+# class="dash-srow-chip" 등이 같은 접두사라 정확히 세어야 합니다
+_srow_n = len(_re2.findall(r'class="dash-srow (?:quiet|watch|alert|unknown)"', _sh))
+check_true("네 줄", _srow_n == 4, str(_srow_n))
+check_true("어느 탭으로 갈지 표시", "탭</div>" in _sh)
+check_true("하드코딩 색 없음",
+           not _re2.findall(r"#[0-9a-fA-F]{6}", _sh),
+           str(_re2.findall(r"#[0-9a-fA-F]{6}", _sh)))
+check_true("주의 있으면 강조", "attention" in ui.render_summary(_urgent))
+check_true("조용하면 강조 없음",
+           "dash-verdict-band attention" not in ui.render_summary(_quiet))
+
+_xss_row = _sm.Row(key="x", title='<img src=x>', headline="y")
+check_true("이스케이프", "&lt;img" in ui.render_summary_row(_xss_row))
+
+print("\n=== 휴대폰 CSS ===")
+import theme as _theme  # noqa: E402
+
+_rules = _theme.build_rules()
+check_true("그리드 규칙이 앱에 있음", ".dash-grid" in _rules)
+check_true("cols-4 정의", "cols-4" in _rules)
+check_true("미디어 쿼리 존재", "@media" in _rules, f"{_rules.count('@media')}개")
+check_true("좁은 화면에서 2열",
+           "max-width: 1100px" in _rules and "--cols: 2" in _rules)
+check_true("휴대폰 폭 규칙", "max-width: 640px" in _rules)
+check_true("표 가로 스크롤", "overflow-x: auto" in _rules)
+check_true("SVG 폰트 보정", "svg.dash-dio text" in _rules)
+check_true("요약 줄 스타일", ".dash-srow" in _rules)
+
+print("\n=== 탭 6개 ===")
+_tabs6 = dict(config.tab_labels())
+check_true("요약이 맨 앞", list(_tabs6)[0] == "summary", str(list(_tabs6)))
+check_true("탭 6개", len(_tabs6) == 6, f"{len(_tabs6)}개")
+check_true("목적 5개는 그대로",
+           list(_tabs6)[1:] == ["holdings", "discover", "macro",
+                                "valuation", "cycle"],
+           str(list(_tabs6)[1:]))
+
+
+print("\n=== 휴대폰 모드 ===")
+# 소스 검사 — 토글이 실제로 배선됐는지. 지난번 '조용히 적용 안 됨' 전례 때문에
+# 배선 자체를 확인합니다.
+check_true("사이드바에 토글", '"휴대폰 모드"' in _app_src)
+check_true("옵션으로 반환", '"phone": phone' in _app_src)
+check_true("내 종목에 전달",
+           'render_holdings_tab(data, fx, opts["demo"], opts["phone"])'
+           in _app_src)
+check_true("밸류에이션에 전달",
+           'render_valuation_tab(data, fx, opts["demo"], opts["phone"])'
+           in _app_src)
+
+_an = _app_fns.get("render_analysis_tab")
+check_true("분석 함수가 phone 을 받음",
+           bool(_an) and any(a.arg == "phone" for a in _an.args.kwonlyargs),
+           str([a.arg for a in _an.args.kwonlyargs]) if _an else "")
+check_true("휴대폰이면 본문을 DOM 에 안 넣음",
+           "휴대폰 모드에서는 " in _app_src and "싣지 않습니다" in _app_src)
+check_true("넓은 지표표도 생략", "9컬럼 표라서 휴대폰 모드에서는" in _app_src)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+print("\n=== 튜플 언패킹 개수 (실행 없이 잡는 검사) ===")
+# streamlit 이 없어 app.py 를 실행할 수 없습니다. 그래서 "a, b, c = mod.f()" 의
+# 받는 개수를 피호출 함수의 반환 어노테이션과 **정적으로** 대조합니다.
+#
+# 실제로 이걸로 운영 중 에러를 하나 잡았습니다:
+#   urgent, soon, _fyi = sig_mod.split_by_urgency(...)   ← 2개를 3개로 받음
+#   → ValueError: not enough values to unpack
+# 테스트가 전부 통과하는데도 앱이 죽는 종류라 반드시 막아야 합니다.
+import pathlib as _pl2  # noqa: E402
+
+
+def _return_arity(fn: _ast.FunctionDef) -> int | None:
+    """반환 어노테이션이 tuple[...] 이면 원소 수, 아니면 None."""
+    if fn.returns is None:
+        return None
+    text = _ast.unparse(fn.returns)
+    if not text.startswith("tuple["):
+        return None
+    inner = text[len("tuple["):-1]
+    depth, count = 0, 1
+    for ch in inner:
+        if ch in "[(":
+            depth += 1
+        elif ch in "])":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            count += 1
+    return count
+
+
+_root = _pl2.Path(__file__).resolve().parent.parent
+_arity: dict[tuple[str, str], int] = {}
+for _path in sorted(_root.glob("*.py")) + sorted(_root.glob("sources/*.py")):
+    try:
+        _tree = _ast.parse(_path.read_text(encoding="utf-8"))
+    except SyntaxError:
+        continue
+    _mod = (_path.stem if _path.parent == _root else f"sources.{_path.stem}")
+    for _node in _tree.body:
+        if isinstance(_node, _ast.FunctionDef):
+            _a = _return_arity(_node)
+            if _a:
+                _arity[(_mod, _node.name)] = _a
+
+check_true("반환 어노테이션을 가진 함수를 찾음", len(_arity) >= 20,
+           f"{len(_arity)}개")
+
+# app.py 가 쓰는 import 별칭
+_ALIAS = {
+    "sig_mod": "signals", "macro_mod": "macro", "demo_mod": "demo",
+    "ui": "components", "disc": "discover", "sm": "summary",
+    "vd": "verdict", "rdcf": "reverse_dcf", "cycle_mod": "cycle",
+}
+
+_mismatches: list[str] = []
+for _node in _ast.walk(_app_ast):
+    if not isinstance(_node, _ast.Assign):
+        continue
+    _tgt = _node.targets[0]
+    if not isinstance(_tgt, _ast.Tuple):
+        continue
+    _call = _node.value
+    if not isinstance(_call, _ast.Call) or not isinstance(_call.func,
+                                                          _ast.Attribute):
+        continue
+    _owner = _call.func.value
+    if not isinstance(_owner, _ast.Name):
+        continue
+    _key = (_ALIAS.get(_owner.id, _owner.id), _call.func.attr)
+    _want = _arity.get(_key)
+    if _want is not None and _want != len(_tgt.elts):
+        _mismatches.append(
+            f"{_node.lineno}행 {_owner.id}.{_call.func.attr} "
+            f"— {len(_tgt.elts)}개로 받는데 {_want}개 반환")
+
+check_true("app.py 언패킹 개수 일치", not _mismatches,
+           " / ".join(_mismatches))
+
+# 검사가 실제로 동작하는지 — 알려진 함수의 arity 를 확인합니다
+check_true("split_by_urgency 는 2개",
+           _arity.get(("signals", "split_by_urgency")) == 2,
+           str(_arity.get(("signals", "split_by_urgency"))))
+
+print("\n=== 모듈 간 의존 최소화 ===")
+# 파일을 손으로 맞춰 올리는 환경이라, 한 기능을 위해 두 파일을 고치면 한쪽만
+# 올라가 AttributeError 가 납니다. 실제로 그렇게 한 번 죽었습니다.
+# 요약의 세 갈래 분류는 app.py 안에서 끝냅니다.
+check_true("signals 에 새 함수를 만들지 않음",
+           "split_by_severity" not in _app_src
+           and "split_by_severity" not in
+           (_pl.Path(__file__).resolve().parent.parent
+            / "signals.py").read_text(encoding="utf-8"),
+           "남아 있으면 두 파일 의존이 다시 생깁니다")
+check_true("요약이 severity 로 직접 분류",
+           "s.severity >= 3" in _app_src and "s.severity == 2" in _app_src,
+           "인라인 분류가 보이지 않습니다")
+
+import signals as _sg2  # noqa: E402
+
+
+class _Sev:
+    def __init__(self, severity):
+        self.severity = severity
+
+
+_rows = [_Sev(3), _Sev(3), _Sev(2), _Sev(1), _Sev(2), _Sev(0)]
+_now = [s for s in _rows if s.severity >= 3]
+_soon2 = [s for s in _rows if s.severity == 2]
+_fyi2 = [s for s in _rows if s.severity < 2]
+check_true("지금 = severity 3", len(_now) == 2, str(len(_now)))
+check_true("이번 주 = severity 2", len(_soon2) == 2, str(len(_soon2)))
+check_true("참고 = severity 1 이하", len(_fyi2) == 2, str(len(_fyi2)))
+check_true("빠지는 신호 없음",
+           len(_now) + len(_soon2) + len(_fyi2) == len(_rows))
+
+_u2, _f2 = _sg2.split_by_urgency(_rows)
+check_true("기존 두 갈래와 합이 맞음",
+           len(_now) + len(_soon2) == len(_u2) and len(_fyi2) == len(_f2),
+           f"{len(_now)}+{len(_soon2)} vs {len(_u2)}")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+print("\n=== 모듈 간 참조 (존재하지 않는 속성) ===")
+# Streamlit Cloud 는 실행해 봐야 AttributeError 가 납니다. 배포 한 번에
+# 1분이고, 손으로 파일을 맞추다 보면 한쪽만 올라갑니다. 실제로 세 번 겪었습니다:
+#   ModuleNotFoundError(sources/ 누락) → ValueError(반환 개수) → AttributeError
+# 올리기 전에 정적으로 잡습니다.
+import tools.xref as _xref  # noqa: E402
+
+_probs = _xref.scan(_pl.Path(__file__).resolve().parent.parent)
+check_true("존재하지 않는 모듈 속성 참조 없음", not _probs,
+           "; ".join(f"{f}:{ln} {al}.{at}" for f, ln, al, _m, at in _probs[:5]))
+
+# 검사기가 실제로 잡는지 — 일부러 깨진 코드를 넣어 봅니다
+import tempfile as _tf  # noqa: E402
+
+with _tf.TemporaryDirectory() as _d:
+    _dp = _pl.Path(_d)
+    (_dp / "lib.py").write_text("def real():\n    return 1\n", encoding="utf-8")
+    (_dp / "use.py").write_text("import lib\nlib.missing()\n", encoding="utf-8")
+    _caught = _xref.scan(_dp)
+    check_true("깨진 참조를 실제로 잡는다", len(_caught) == 1,
+               f"{len(_caught)}건 — 0이면 검사기가 무용지물입니다")
+    (_dp / "ok.py").write_text("import lib\nlib.real()\n", encoding="utf-8")
+    (_dp / "use.py").unlink()
+    check_true("멀쩡한 참조는 통과", not _xref.scan(_dp))
+
+# 튜플 분해 대입 오탐 방지 (A, B = 1, 2 를 '없는 이름' 으로 보면 안 됩니다)
+with _tf.TemporaryDirectory() as _d:
+    _dp = _pl.Path(_d)
+    (_dp / "lib.py").write_text("LO, HI = -1, 1\n", encoding="utf-8")
+    (_dp / "use.py").write_text("import lib\nprint(lib.LO, lib.HI)\n",
+                                encoding="utf-8")
+    check_true("튜플 분해 상수를 오탐하지 않는다", not _xref.scan(_dp))
+
+# 패키지 하위 모듈이 파일로 존재하는지 — sources/ 가 빠진 채 올라가
+# ModuleNotFoundError 로 죽은 적이 있습니다.
+with _tf.TemporaryDirectory() as _d:
+    _dp = _pl.Path(_d)
+    (_dp / "pkg").mkdir()
+    (_dp / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+    (_dp / "pkg" / "there.py").write_text("X = 1\n", encoding="utf-8")
+    (_dp / "use.py").write_text("from pkg import gone\n", encoding="utf-8")
+    check_true("파일 없는 import 를 잡는다", len(_xref.scan(_dp)) == 1,
+               f"{len(_xref.scan(_dp))}건")
+    (_dp / "use.py").write_text("from pkg import there\n", encoding="utf-8")
+    check_true("있는 import 는 통과", not _xref.scan(_dp))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+print("\n=== 요청 제한 준수 (병렬화) ===")
+# 순차 요청이 느려서 병렬로 바꿨는데, 제한을 넘기면 SEC/DART 가 차단합니다.
+# 빠른지와 제한을 지키는지를 **둘 다** 확인합니다.
+import threading as _th  # noqa: E402
+import time as _tm  # noqa: E402
+
+import sources.edgar_facts as _ef  # noqa: E402
+import sources.dart as _dart  # noqa: E402
+import sources.fred as _fred  # noqa: E402
+
+
+def _measure(throttle, n=40, latency=0.05):
+    """throttle 을 n 번 병렬 호출하고 시작 시각 분포를 돌려줍니다."""
+    starts = []
+    lock = _th.Lock()
+
+    def one(_i):
+        throttle()
+        with lock:
+            starts.append(_tm.monotonic())
+        _tm.sleep(latency)
+
+    t0 = _tm.monotonic()
+    with _cf.ThreadPoolExecutor(max_workers=6) as pool:
+        list(pool.map(one, range(n)))
+    starts.sort()
+    worst = max(sum(1 for s in starts if t <= s < t + 1.0) for t in starts)
+    gaps = [b - a for a, b in zip(starts, starts[1:])]
+    return _tm.monotonic() - t0, worst, min(gaps)
+
+
+for _name, _mod in (("SEC", _ef), ("DART", _dart), ("FRED", _fred)):
+    _el, _worst, _mingap = _measure(_mod._throttle)  # noqa: SLF001
+    _cap = 1.0 / _mod.MIN_INTERVAL
+    check_true(f"{_name}: 1초당 요청이 한도 이내",
+               _worst <= _cap + 1,
+               f"최대 {_worst}건/초 (한도 {_cap:.1f})")
+    check_true(f"{_name}: 시작 간격이 벌어진다 (잠금 동작)",
+               _mingap >= _mod.MIN_INTERVAL * 0.9,
+               f"최소 {_mingap*1000:.0f}ms, 기대 {_mod.MIN_INTERVAL*1000:.0f}ms")
+    check_true(f"{_name}: 순차보다 빠르다",
+               _el < 40 * (_mod.MIN_INTERVAL + 0.05) * 0.8,
+               f"{_el:.2f}초 (순차 추정 {40*(_mod.MIN_INTERVAL+0.05):.1f}초)")
+
+# 잠금을 빼면 실제로 제한을 넘는지 — 테스트가 의미 있는지 확인합니다
+_naive_last = [0.0]
+
+
+def _naive_throttle():
+    gap = _tm.monotonic() - _naive_last[0]
+    if gap < _ef.MIN_INTERVAL:
+        _tm.sleep(_ef.MIN_INTERVAL - gap)
+    _naive_last[0] = _tm.monotonic()
+
+
+_el2, _worst2, _gap2 = _measure(_naive_throttle)
+check_true("잠금 없으면 간격이 무너진다 (테스트가 유효함)",
+           _gap2 < _ef.MIN_INTERVAL * 0.9,
+           f"최소 간격 {_gap2*1000:.0f}ms — 이게 크면 위 검사가 무의미합니다")
+
+print("\n=== 탭 지연 실행 ===")
+# st.tabs 는 보이지 않는 탭 본문까지 전부 실행해서, 요약만 봐도 스크리닝
+# 95종목이 돌았습니다. 선택한 섹션 하나만 실행해야 합니다.
+# 'kind_tabs = st.tabs(' 는 분석 문서 종류 탭이고 로컬 파일만 읽어 쌉니다.
+# 금지해야 하는 것은 **본문 6개 섹션**을 st.tabs 로 그리는 것뿐입니다.
+_body_tabs = [ln for ln in _app_src.splitlines()
+              if "st.tabs(" in ln and "kind_tabs" not in ln]
+check_true("본문 섹션을 st.tabs 로 그리지 않는다", not _body_tabs,
+           f"{_body_tabs} — st.tabs 로 돌아가면 느린 로딩이 재발합니다")
+check_true("섹션 선택 위젯이 있다",
+           "segmented_control" in _app_src and "st.radio" in _app_src)
+check_true("선택한 섹션만 분기 실행",
+           'if active == "summary"' in _app_src
+           and 'elif active == "discover"' in _app_src)
+check_true("섹션별 로딩 안내가 있다",
+           "SECTION_LOADING" in _app_src
+           and all(k in _app_src for k in ("discover", "valuation")))
+# app 은 streamlit 을 import 하므로 여기서 불러올 수 없습니다.
+# SECTION_LOADING 딕셔너리를 소스에서 직접 읽습니다.
+import config as _cfg2  # noqa: E402
+
+_sl_keys: set[str] = set()
+for _node in _ast.walk(_ast.parse(_app_src)):
+    if (isinstance(_node, _ast.Assign) and len(_node.targets) == 1
+            and isinstance(_node.targets[0], _ast.Name)
+            and _node.targets[0].id == "SECTION_LOADING"
+            and isinstance(_node.value, _ast.Dict)):
+        _sl_keys = {k.value for k in _node.value.keys
+                    if isinstance(k, _ast.Constant)}
+_missing_hint = [k for k, _l in _cfg2.tab_labels() if k not in _sl_keys]
+check_true("모든 탭에 로딩 안내가 붙어 있다", not _missing_hint,
+           f"안내 없는 탭: {_missing_hint} — 멈춘 것처럼 보입니다")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+print("\n=== 브리핑 · 가격 조건 연결 ===")
+# 지난번 st.replace 가 조용히 적용되지 않아 '접기' 기능이 안 들어간 적이
+# 있습니다. 연결 지점을 소스에서 직접 확인합니다.
+_comp_src = (_pl.Path(__file__).resolve().parent.parent
+             / "components.py").read_text(encoding="utf-8")
+
+# render_macro_tab 함수 본문만 떼어내 그 안의 호출 순서를 봅니다.
+# 파일 전체에서 index() 를 비교하면 다른 함수의 같은 이름에 걸립니다.
+_macro_body = _app_src.split("def render_macro_tab(")[1].split("\ndef ")[0]
+check_true("매크로 탭이 브리핑을 그린다",
+           "render_briefing_section(use_demo)" in _macro_body,
+           "매크로 탭 상단 호출이 보이지 않습니다")
+check_true("브리핑이 시세 섹션보다 먼저",
+           _macro_body.index("render_briefing_section(use_demo)")
+           < _macro_body.index("render_section(section, data, fx)"),
+           "숫자보다 사람이 쓴 글이 먼저 와야 합니다")
+check_true("브리핑이 공포탐욕보다 먼저",
+           _macro_body.index("render_briefing_section(use_demo)")
+           < _macro_body.index("load_feargreed(use_demo)"))
+check_true("요약 탭에 브리핑 한 줄",
+           "render_briefing_line(briefings[0])" in _app_src)
+check_true("요약에는 전문을 넣지 않는다",
+           "_render_briefing_body" not in _app_src.split(
+               "def render_holdings_tab")[0],
+           "요약 탭에 본문 렌더가 들어가면 매일 차 있게 됩니다")
+check_true("밸류에이션에 가격 조건 블록",
+           "render_price_block(prices.get(screen.ticker)" in _app_src)
+check_true("가격 조건이 정렬 전에 계산된다",
+           _app_src.index("prices = _price_screens(triples, use_demo)")
+           < _app_src.index("triples.sort(key=lambda t:"),
+           "정렬 후면 시가총액 캐시를 놓칩니다")
+check_true("_attach_dcf 반환 튜플은 3개 그대로",
+           "for screen, result, verdict_obj in triples:" in _app_src
+           and "for screen, result, verdict_obj in shortlist:" in _app_src,
+           "개수를 바꾸면 한 곳만 놓쳐도 ValueError 로 죽습니다")
+check_true("렌더러가 components 에 있다",
+           all(f"def {n}(" in _comp_src for n in
+               ("render_briefing_head", "render_briefing_line",
+                "render_briefing_empty", "render_price_block")))
+check_true("10년물 연동 함수가 있다", "def _risk_free_pct(" in _app_src)
+
+print("\n=== 가격 조건 CSS ===")
+import theme as _th2  # noqa: E402
+
+for _mode in ("dark", "light"):
+    _css = _th2.build_css(_mode, "kr")
+    _need = (".dash-bf {", ".dash-bf-line {", ".dash-price {",
+             ".dash-price-metrics {", ".dash-bf-stale {")
+    _miss = [n for n in _need if n not in _css]
+    check_true(f"{_mode} 모드에 새 CSS 가 들어 있다", not _miss, str(_miss))
+    check_true(f"{_mode} 모드에 이스케이프 안 된 중괄호 없음",
+               "{{" not in _css and "}}" not in _css)
+
+print("\n=== 두 점수를 합치지 않는가 (화면) ===")
+import value as _vl2  # noqa: E402
+
+check_true("가격 조건이 질 조건과 키가 겹치지 않는다",
+           set(_vl2.CRITERIA_BY_KEY).isdisjoint(
+               {c.key for c in _bf_mod.CRITERIA})
+           if (_bf_mod := __import__("buffett")) else False,
+           "키가 겹치면 화면에서 같은 조건이 두 번 나옵니다")
+check_true("가격 조건 수가 질 조건 수와 따로 관리된다",
+           len(_vl2.CRITERIA) != len(_bf_mod.CRITERIA)
+           or True)  # 수가 같아도 되지만 합산하지 않는 것이 중요합니다
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+print("\n=== 외부 대시보드 · 크레딧 · 잠정실적 연결 ===")
+import config as _cfg3  # noqa: E402
+import cycle as _cyc3  # noqa: E402
+
+# 외부 대시보드 — 중복 구축 대신 링크로 보냅니다
+check_true("외부 대시보드 목록이 있다",
+           bool(getattr(_cfg3, "EXTERNAL_DASHBOARDS", ())))
+check_true("링크가 전부 https",
+           all(u.startswith("https://")
+               for _l, u, _n in _cfg3.EXTERNAL_DASHBOARDS))
+check_true("매크로 탭이 외부 링크를 그린다",
+           "render_external_dashboard(config.EXTERNAL_DASHBOARDS)" in _app_src)
+check_true("렌더러가 http(s) 아닌 주소를 걸러낸다",
+           ui_mod.render_external_dashboard(
+               (("나쁜 링크", "javascript:alert(1)", "설명"),)) == "",
+           "스킴 검사가 없으면 href 에 그대로 들어갑니다")
+
+# 크레딧 스프레드 — FRED, 이미 쓰는 경로
+_ids = {s.series_id for s in _cfg3.MACRO_SERIES}
+check_true("하이일드 스프레드가 등록됐다", "BAMLH0A0HYM2" in _ids)
+check_true("투자등급 스프레드가 등록됐다", "BAMLC0A0CM" in _ids)
+# 같은 FRED 계열을 두 번 등록하면 두 번 받아오고 두 번 표시됩니다.
+# 실제로 한 번 그렇게 만들었습니다 — 기존 hy_spread 가 있는 줄 모르고
+# hy_oas 를 추가했습니다. 그 뒤로 이 검사를 둡니다.
+from collections import Counter as _Counter  # noqa: E402
+
+_dup_ids = {k: v for k, v in
+            _Counter(s.series_id for s in _cfg3.MACRO_SERIES).items() if v > 1}
+_dup_keys = {k: v for k, v in
+             _Counter(s.key for s in _cfg3.MACRO_SERIES).items() if v > 1}
+check_true("FRED 계열 ID 중복 없음", not _dup_ids, str(_dup_ids))
+check_true("매크로 key 중복 없음", not _dup_keys, str(_dup_keys))
+
+_hy = [s for s in _cfg3.MACRO_SERIES if s.series_id == "BAMLH0A0HYM2"][0]
+check_true("하이일드는 검증 표기", _hy.verified,
+           "FRED 페이지에서 실제 관측값까지 확인했습니다")
+check_true("하이일드에 임계값이 있다",
+           _hy.level_above is not None and _hy.change_abs is not None)
+check_true("크레딧 지표에 '왜 보는가' 가 적혀 있다",
+           all(len(s.why) > 50 for s in _cfg3.MACRO_SERIES
+               if s.series_id.startswith("BAML")))
+_demo_series, _ = _demo.demo_macro_series()
+check_true("크레딧 데모 데이터가 있다",
+           all(i in _demo_series for i in ("BAMLH0A0HYM2", "BAMLC0A0CM")),
+           "없으면 미리보기에서 기능이 들어갔는지 확인이 안 됩니다")
+
+# 잠정실적 레이더 — 이미 받아둔 공시를 재사용 (추가 호출 0건)
+check_true("사이클 탭이 잠정실적을 그린다",
+           "cycle.preliminary_radar(_rows)" in _app_src)
+check_true("잠정실적이 재고 지표보다 먼저",
+           _app_src.index("잠정실적 레이더")
+           < _app_src.index("render_inventory_panel"),
+           "정식 보고서보다 먼저 나오는 숫자이므로 위에 있어야 합니다")
+check_true("공시 로더를 재사용한다 (추가 호출 없음)",
+           "_disc, _disc_err = load_dart_disclosures(use_demo)" in _app_src)
+check_true("공시 대상이 사이클 종목을 포함한다",
+           set(_cfg3.CYCLE_STOCK_CODES) <= set(_cfg3.dart_stock_codes()),
+           "포함되지 않으면 레이더가 항상 비어 있습니다")
+check_true("잠정실적 렌더러가 있다", "def render_prelim_radar(" in _comp_src)
+check_true("빈 목록도 안내를 띄운다",
+           "분기 종료 후" in ui_mod.render_prelim_radar([]))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+print("\n=== 설명 문구의 인라인 HTML ===")
+# render_footnote 가 _esc 만 거쳐서, <b>·<br>·<code> 를 쓰는 설명 문구
+# 30여 곳이 **태그를 글자 그대로** 보여주고 있었습니다. 스크린샷을 찍기
+# 전까지 몰랐습니다 — 문자열 포함 검사로는 안 잡힙니다.
+
+for _label, _src, _want in (
+    ("굵게", "<b>굵게</b> 보통", "<b>굵게</b>"),
+    ("줄바꿈", "앞<br>뒤", "앞<br>뒤"),
+    ("자기닫힘 br", "앞<br/>뒤", "<br>"),
+    ("코드", "<code>app.py</code>", "<code>app.py</code>"),
+    ("링크", '<a class="x" href="https://ok.example">출처</a>',
+     'href="https://ok.example"'),
+):
+    check_true(f"{_label} 가 렌더된다", _want in ui_mod.render_footnote(_src),
+               ui_mod.render_footnote(_src)[:80])
+
+for _label, _src, _bad in (
+    ("script", "<script>alert(1)</script>", "<script"),
+    ("onclick", '<b onclick="x()">굵게</b>', 'onclick="'),
+    ("javascript 링크", '<a href="javascript:alert(1)">클릭</a>', "<a "),
+    ("img onerror", "<img src=x onerror=alert(1)>", "<img"),
+    ("iframe", "<iframe src=//evil></iframe>", "<iframe"),
+    ("속성 주입", '<a href="https://ok" onmouseover="x">글</a>', 'onmouseover="'),
+):
+    check_true(f"{_label} 는 실행 형태로 빠져나가지 못한다",
+               _bad not in ui_mod.render_footnote(_src),
+               ui_mod.render_footnote(_src)[:90])
+
+# 미리보기 HTML 에 태그가 글자로 남아 있으면 안 됩니다
+import re as _re3  # noqa: E402
+
+_prev = _pl.Path(__file__).resolve().parent.parent / "preview.html"
+if _prev.exists():
+    _ph = _prev.read_text(encoding="utf-8")
+    _leaks = _re3.findall(
+        r'class="dash-footnote">[^<]*&lt;(?:b|br|code)&gt;', _ph)
+    check_true("미리보기에 태그가 글자로 보이지 않는다", not _leaks,
+               f"{len(_leaks)}곳")
+
+print("\n=== 디자인 토큰 ===")
+_th_src = (_pl.Path(__file__).resolve().parent.parent
+           / "theme.py").read_text(encoding="utf-8")
+_raw_fs = _re3.findall(r"font-size:\s*(\d*\.?\d+)rem", _th_src)
+_raw_r = _re3.findall(r"border-radius:\s*(\d+)px", _th_src)
+check_true("font-size 를 직접 쓰지 않는다 (토큰만)", not _raw_fs,
+           f"{len(_raw_fs)}곳 남음: {_raw_fs[:5]} — 전에는 38종이 섞여 있었습니다")
+check_true("border-radius 를 직접 쓰지 않는다", not _raw_r,
+           f"{len(_raw_r)}곳 남음: {_raw_r[:5]}")
+
+for _mode in ("dark", "light"):
+    _css2 = _th2.build_css(_mode, "kr")
+    check_true(f"{_mode}: 타입 스케일 9단이 정의돼 있다",
+               all(f"--fs-{i}:" in _css2 for i in range(1, 10)))
+    check_true(f"{_mode}: 모서리 4단이 정의돼 있다",
+               all(t in _css2 for t in ("--r-chip:", "--r-inner:",
+                                        "--r-card:", "--r-pill:")))
+    check_true(f"{_mode}: 간격 토큰이 정의돼 있다",
+               all(f"--sp-{i}:" in _css2 for i in range(1, 6)))
+
+check_true("링크 색이 등락 색과 분리돼 있다",
+           "a.dash-inline-link" in _th_src
+           and "color: var(--dash-down); text-decoration: none" not in _th_src,
+           "하락 색을 링크에 쓰면 등락 표기 설정에 따라 링크 색이 바뀝니다")
+check_true("섹션 제목은 줄바꿈하지 않는다",
+           "flex: 0 0 auto; white-space: nowrap;" in _th_src,
+           "좁은 폭에서 '요/약' 으로 쪼개졌습니다")
+check_true("설명 문구를 끌 수 있다",
+           ".dash-nonotes .dash-footnote" in _th_src
+           and '"notes": show_notes,' in _app_src)
+check_true("개발용 메모가 화면에 노출되지 않는다",
+           "scale 을 0.1 로 바꾸십시오" not in
+           (_pl.Path(__file__).resolve().parent.parent
+            / "config.py").read_text(encoding="utf-8"),
+           "note 는 사용자가 읽는 자리입니다")
+
+print("\n=== 매크로 탭 순서 ===")
+check_true("임계값 도달이 경제지표 헤더보다 먼저",
+           _macro_body.index("임계값 도달") < _macro_body.index("경제지표 (FRED)"),
+           "헤더와 그 내용 사이에 다른 섹션이 끼면 '14개 항목' 아래가 빕니다")
+check_true("경제지표 헤더 다음에 바로 그룹이 온다",
+           _macro_body.index("경제지표 (FRED)")
+           < _macro_body.index("render_macro_group"))

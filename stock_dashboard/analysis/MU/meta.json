@@ -1,0 +1,15 @@
+{
+  "name": "Micron Technology (MU)",
+  "generated": "2026-11-05",
+  "mode": "web",
+  "sources": [
+    "https://investors.micron.com/news/press-release/2026/Micron-Technology-Inc--Reports-Record-Fiscal-Fourth-Quarter-and-Full-Year-2026-Results/default.aspx",
+    "https://s25.q4cdn.com/621799436/files/doc_financials/2026/q4/Q4-FY26-Prepared-Remarks.pdf",
+    "https://investors.micron.com/news/press-release/2025/Micron-Technology-Inc--Reports-Results-for-the-Fourth-Quarter-and-Full-Year-of-Fiscal-2025-09-23-2025/default.aspx",
+    "https://s25.q4cdn.com/621799436/files/doc_events/2026/06/2026-Q3-10-Q-Risk-Factors.pdf",
+    "https://gloom.sh/stocks/mu/risk-factors/2026",
+    "https://finance.yahoo.com/quote/MU/analysis/",
+    "https://stockanalysis.com/stocks/mu/market-cap/"
+  ],
+  "note": "웹검색 기반. 10-K/10-Q PDF 를 업로드하면 페이지 출처까지 명시된 정밀 분석으로 재생성 가능합니다. 역DCF 계산 스크립트는 같은 폴더의 reverse_dcf.py 입니다."
+}

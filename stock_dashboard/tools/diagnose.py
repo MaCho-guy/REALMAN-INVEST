@@ -517,6 +517,12 @@ def main(argv: list[str]) -> int:
         except Exception as exc:  # noqa: BLE001
             print(f"\n스크리너 진단 중 예외: {type(exc).__name__}: {exc}")
 
+    if only_fred or not picked:
+        try:
+            diagnose_fred_extra()
+        except Exception as exc:  # noqa: BLE001
+            print(f"\n추가 계열 진단 중 예외: {type(exc).__name__}: {exc}")
+
     if only_codes or not picked:
         try:
             diagnose_kr_codes()
@@ -663,9 +669,18 @@ def diagnose_fred_key() -> None:
     print(f"  길이 {len(key)}자 · 끝 4자리 …{key[-4:]}")
     problem = fred.key_problem()
     if problem:
-        print(f"  ✗ 형식 문제: {problem}")
-        print("  → 따옴표·공백이 섞였는지 확인하십시오. Secrets 값의 "
-              "따옴표는 TOML 문법이라 값에 포함되지 않아야 합니다.")
+        print("  ✗ 형식 문제:")
+        for line in textwrap.wrap(problem, width=72):
+            print(f"      {line}")
+        # 무엇이 들어 있는지 **가린 채로** 모양만 보여줍니다. 길이만으로는
+        # 어디가 잘렸는지 감이 안 옵니다.
+        shape = "".join("9" if c.isdigit() else
+                        ("a" if c.islower() else
+                         ("A" if c.isupper() else "·")) for c in key)
+        print(f"      모양: {shape}  (a=소문자 9=숫자 A=대문자 ·=기타)")
+        print("      정상: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa (32칸, "
+              "소문자·숫자만)")
+        print("  → 발급 페이지: https://fredaccount.stlouisfed.org/apikeys")
         return
     print("  ✓ 형식은 정상입니다 (소문자 영숫자 32자)")
 
@@ -707,3 +722,90 @@ def diagnose_fred_key() -> None:
     print("  → 키가 정상 동작합니다. 매크로·물가·유동성이 모두 "
           "채워져야 합니다. 그래도 비면 화면 위쪽 '캐시 비우고 다시 "
           "불러오기' 를 누르십시오.")
+
+
+def diagnose_fred_extra() -> None:
+    """매크로 14계열 **밖의** FRED 계열 — 물가·유동성·한국.
+
+    `diagnose_fred` 는 MACRO_SERIES 만 봅니다. 2026-11-11 에 물가 6 ·
+    유동성 6 · 한국 6 계열을 새로 넣었는데 그쪽은 확인할 길이 없었습니다.
+
+    **유동성은 단위까지 봅니다.** FRED 는 WALCL 을 백만 달러로,
+    역레포·TGA 를 십억 달러로 줍니다. 그냥 빼면 1000배 틀린 숫자가
+    나오는데 화면에는 그럴듯해 보입니다. 받은 값의 크기를 찍어서
+    config 에 적은 단위가 맞는지 눈으로 확인하게 합니다.
+    """
+    import config
+    from sources import fred
+
+    print("[FRED 추가 계열 — 물가 · 유동성 · 한국]")
+    if not fred.api_key():
+        print("  건너뜀 — FRED_API_KEY 가 없습니다.")
+        return
+
+    groups = [
+        ("물가", [(sid, label) for sid, label, _sa
+                 in config.INFLATION_SERIES]),
+        ("유동성(순유동성 계산에 쓰임)",
+         [(sid, label) for _k, sid, label, _u in config.LIQUIDITY_SERIES]),
+        ("유동성(참고)",
+         [(row[0], row[1]) for row in config.LIQUIDITY_EXTRA]),
+        ("한국", list(config.KR_MACRO_SERIES)),
+    ]
+    units = {sid: u for _k, sid, _l, u in config.LIQUIDITY_SERIES}
+    units.update({row[0]: row[2] for row in config.LIQUIDITY_EXTRA})
+    ranges = {k: None for k, _s, _l, _u in config.LIQUIDITY_SERIES}
+    ranges.update({row[0]: (row[4], row[5]) for row in config.LIQUIDITY_EXTRA})
+
+    ok_ids, bad_ids = [], []
+    for title, items in groups:
+        print(f"\n  ── {title} ──")
+        ids = [sid for sid, _l in items]
+        series, errors = fred.fetch_many(ids, years=3)
+        for sid, label in items:
+            ser = series.get(sid)
+            if ser is None or not ser.observations:
+                why = (errors.get(sid) or "관측치 없음")
+                bad_ids.append(sid)
+                print(f"  ✗ {sid:18s} {label}")
+                for line in textwrap.wrap(why, width=66):
+                    print(f"       {line}")
+                continue
+            ok_ids.append(sid)
+            last = ser.observations[-1]
+            extra = ""
+            if sid in units:
+                scaled = _to_billions(last.value, units[sid])
+                extra = (f"  →  {scaled:,.0f}십억 "
+                         f"(config 단위 '{units[sid]}')")
+                rng = ranges.get(sid)
+                if rng and not (rng[0] <= scaled <= rng[1]):
+                    fits = [n for n, m in
+                            (("billions", 1.0), ("millions", 1e-3),
+                             ("hundred_millions", 0.1),
+                             ("thousands", 1e-6), ("units", 1e-9))
+                            if rng[0] <= last.value * m <= rng[1]]
+                    extra += ("  ✗ 범위 "
+                              f"{rng[0]:,.0f}~{rng[1]:,.0f} 밖")
+                    if fits:
+                        extra += f" → '{fits[0]}' 이 맞습니다"
+            print(f"  ✓ {sid:18s} {len(ser.observations):4d}개 · "
+                  f"최신 {last.date} = {last.value:,.4g}{extra}")
+
+    print("\n  [단위 점검] ← 숫자 크기가 말이 되는지 **눈으로** 보십시오")
+    print("    연준 총자산(WALCL)  6,000~7,000십억 달러 근처여야 합니다")
+    print("    역레포(RRPONTSYD)   0~1,000십억 달러")
+    print("    재무부 계정(WTREGEN) 300~1,000십억 달러")
+    print("    벗어나면 config.LIQUIDITY_SERIES 의 단위가 틀린 것입니다 —")
+    print("    화면은 숫자를 내지 않고 '단위가 이상합니다' 라고 적습니다.")
+
+    print(f"\n  정상 {len(ok_ids)} · 실패 {len(bad_ids)}")
+    if bad_ids:
+        print(f"  실패한 ID: {', '.join(bad_ids)}")
+        print("  → config.py 에서 해당 줄을 지우거나 올바른 ID 로 "
+              "고치십시오. 한국 계열은 OECD 경유라 중단된 것이 많습니다.")
+
+
+def _to_billions(value: float, unit: str) -> float:
+    return value * {"billions": 1.0, "millions": 0.001,
+                    "thousands": 1e-6, "units": 1e-9}.get(unit, 1.0)

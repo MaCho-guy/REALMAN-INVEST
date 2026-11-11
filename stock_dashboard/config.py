@@ -408,13 +408,13 @@ MACRO_SERIES: tuple[MacroSeries, ...] = (
     ),
     MacroSeries(
         "ust2", "미국 2년 국채 금리", "DGS2", "rates", "%",
-        mode="level", decimals=2, period_days=1,
+        mode="level", decimals=2, period_days=1, verified=True,
         why="연준 정책 기대를 가장 직접 반영합니다. 10년물보다 먼저 움직입니다.",
         change_abs=0.50, change_periods=20,
     ),
     MacroSeries(
         "curve", "10년-2년 스프레드", "T10Y2Y", "rates", "%p",
-        mode="level", decimals=2, period_days=1,
+        mode="level", decimals=2, period_days=1, verified=True,
         why="마이너스는 장단기 금리 역전입니다. 역전 진입도 신호지만 "
             "**역전에서 플러스로 되돌아올 때**가 역사적으로 더 중요한 국면이었습니다. "
             "부호가 바뀔 때만 알립니다.",
@@ -441,7 +441,7 @@ MACRO_SERIES: tuple[MacroSeries, ...] = (
     ),
     MacroSeries(
         "ig_oas", "투자등급 스프레드 (IG OAS)", "BAMLC0A0CM", "rates", "%p",
-        mode="level", decimals=2, period_days=1,
+        mode="level", decimals=2, period_days=1, verified=True,
         why="투자등급 회사채의 국채 대비 스프레드입니다. 하이일드와 같이 보면 "
             "위험이 **등급 전반으로 번지는지** 투기등급에 국한되는지 구분됩니다. "
             "둘이 같이 벌어질 때가 더 넓은 신용 긴축입니다.<br>"
@@ -462,13 +462,13 @@ MACRO_SERIES: tuple[MacroSeries, ...] = (
     ),
     MacroSeries(
         "core_cpi", "코어 CPI (전년대비)", "CPILFESL", "inflation", "%",
-        mode="yoy", decimals=1, period_days=30,
+        mode="yoy", decimals=1, period_days=30, verified=True,
         why="에너지·식품을 뺀 추세 물가입니다. 헤드라인보다 금리 경로에 더 영향을 줍니다.",
         change_abs=0.3,
     ),
     MacroSeries(
         "core_pce", "코어 PCE (전년대비)", "PCEPILFE", "inflation", "%",
-        mode="yoy", decimals=1, period_days=30,
+        mode="yoy", decimals=1, period_days=30, verified=True,
         why="**연준이 공식 목표(2%)로 삼는 지표**입니다. CPI 보다 늦게 나오지만 "
             "정책 판단에는 이쪽이 쓰입니다.",
         level_above=2.5, change_abs=0.2,
@@ -476,7 +476,7 @@ MACRO_SERIES: tuple[MacroSeries, ...] = (
     ),
     MacroSeries(
         "breakeven", "5년후 5년 기대인플레", "T5YIFR", "inflation", "%",
-        mode="level", decimals=2, period_days=1,
+        mode="level", decimals=2, period_days=1, verified=True,
         why="시장이 보는 장기 기대인플레입니다. 2% 근처를 벗어나면 "
             "연준의 신뢰도 문제로 번질 수 있어 따로 봅니다.",
         level_above=2.5, level_below=1.8,
@@ -485,7 +485,7 @@ MACRO_SERIES: tuple[MacroSeries, ...] = (
     # ── 고용·경기 ─────────────────────────────────────────────────────────
     MacroSeries(
         "claims", "주간 신규 실업수당 청구", "ICSA", "labor", "건",
-        mode="level", decimals=0, period_days=7,
+        mode="level", decimals=0, period_days=7, verified=True,
         why="**주간으로 나오는 가장 빠른 경기 지표**입니다. 월간 고용지표보다 "
             "3~6주 앞섭니다. 4주 평균 대비 급증이 신호입니다.",
         pct_vs_mean=15.0, mean_periods=4,
@@ -1165,14 +1165,28 @@ INFLATION_SERIES: tuple[tuple[str, str, bool], ...] = (
 LIQUIDITY_SERIES: tuple[tuple[str, str, str, str], ...] = (
     ("fed_assets", "WALCL", "연준 총자산", "millions"),
     ("rrp", "RRPONTSYD", "역레포 (ON RRP)", "billions"),
-    ("tga", "WTREGEN", "재무부 일반계정 (TGA)", "billions"),
+    # 2026-11-11 실측으로 고쳤습니다. billions 로 읽으니 957,175십억
+    # 달러(= 95경 7천조)가 나왔고 단위 검사가 잡았습니다. millions 로
+    # 읽으면 957십억 달러로 정상입니다. WALCL 과 같은 H.4.1 자료라
+    # 단위도 같았던 것인데, 제가 역레포와 묶어서 billions 로 적었습니다.
+    ("tga", "WTREGEN", "재무부 일반계정 (TGA)", "millions"),
 )
 
 #: 참고용 유동성 계열 — 순유동성 계산에는 안 들어갑니다.
-LIQUIDITY_EXTRA: tuple[tuple[str, str, str], ...] = (
-    ("M2SL", "미국 M2 통화량", "billions"),
-    ("ECBASSETSW", "ECB 총자산", "millions"),
-    ("JPNASSETS", "일본은행 총자산", "units"),
+#: (계열ID, 이름, 단위, 통화, 정상범위 하한, 상한)
+#:
+#: **범위를 같이 적는 이유.** TGA 단위를 틀려서 95경 달러가 나온 적이
+#: 있습니다. 참고 계열에는 검사가 없어서 틀려도 조용히 지나갑니다.
+#: 범위를 적어 두면 화면이 "단위가 이상합니다" 라고 말하고 숫자를
+#: 내지 않습니다. 범위는 현지통화 **십억 단위** 기준입니다.
+LIQUIDITY_EXTRA: tuple[tuple[str, str, str, str, float, float], ...] = (
+    ("M2SL", "미국 M2 통화량", "billions", "달러", 15_000, 35_000),
+    ("ECBASSETSW", "ECB 총자산", "millions", "유로", 3_000, 12_000),
+    # 일본은행 자산은 FRED 가 '1억 엔' 단위로 줍니다 — 미확인입니다.
+    # 700조 엔 근처가 정상이므로 범위를 그렇게 잡아 두고, 벗어나면
+    # 화면이 숫자 대신 사유를 적습니다. 진단으로 확인한 뒤 고치십시오.
+    ("JPNASSETS", "일본은행 총자산", "hundred_millions", "엔",
+     300_000, 1_200_000),
 )
 
 #: 한국 경제지표. **전부 미검증입니다** — FRED 의 한국 계열은 OECD

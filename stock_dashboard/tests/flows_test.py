@@ -112,7 +112,7 @@ wrong = lq.Component("fed_assets", "연준 총자산", raw=6_600_000,
 bad = lq.net_liquidity(wrong, rrp, tga)
 check("단위가 틀리면 계산을 거부한다", not bad.ok)
 check("왜 거부했는지 적는다", "단위" in bad.error, bad.error[:70])
-check("상식 범위를 말해준다", "상식 범위" in bad.error)
+check("정상 범위를 말해준다", "정상 범위" in bad.error, bad.error[:80])
 tiny = lq.Component("fed_assets", "연준 총자산", raw=6.6, unit="billions")
 check("너무 작아도 잡는다", not lq.net_liquidity(tiny, rrp, tga).ok)
 check("정상 범위는 통과", fed.sanity() == "", fed.sanity())
@@ -286,6 +286,82 @@ check("DART 이름과 맞춰본다",
 check("진단 패널에 등록됐다", '"diagnose_kr_codes"' in _app,
       "이름 문자열로 등록합니다 — 직접 참조하면 파일이 낡았을 때 "
       "앱 전체가 죽습니다")
+
+print("\n=== FRED 계열 검증 상태 ===")
+# 2026-11-11 실측으로 매크로 14계열이 전부 확인됐습니다. '미검증' 표시를
+# 남겨 두면 다음에 또 같은 진단을 돌리게 됩니다.
+check("매크로 계열에 미검증이 없다",
+      all(sp.verified for sp in config.MACRO_SERIES),
+      str([sp.series_id for sp in config.MACRO_SERIES if not sp.verified]))
+
+_fred_src = pathlib.Path("sources/fred.py").read_text(encoding="utf-8")
+check("키가 있으면 막힌 호스트로 내려가지 않는다",
+      "return _fetch_via_api(series_id, key, start)" in _fred_src,
+      "fred.stlouisfed.org 는 이 환경에서 8초 타임아웃입니다 — "
+      "계열마다 8초씩 버릴 이유가 없습니다")
+_body = _fred_src.split("def fetch_series")[1].split("\ndef ")[0]
+check("CSV 는 키가 없을 때만",
+      _body.index("CSV_URL") > _body.index("_fetch_via_api"))
+
+_diag2 = pathlib.Path("tools/diagnose.py").read_text(encoding="utf-8")
+check("추가 계열 진단이 있다", "def diagnose_fred_extra" in _diag2)
+check("유동성 단위를 숫자로 보여준다", "_to_billions" in _diag2,
+      "단위가 틀리면 1000배 어긋나는데 화면에는 그럴듯해 보입니다")
+from tools.diagnose import _to_billions as _tb  # noqa: E402
+check("백만 → 십억 변환", abs(_tb(6_600_000, "millions") - 6600) < 1)
+check("십억은 그대로", abs(_tb(120, "billions") - 120) < 0.01)
+check("원 단위 → 십억", abs(_tb(7.41e12, "units") - 7410) < 1)
+_app2 = pathlib.Path("app.py").read_text(encoding="utf-8")
+check("진단 패널에 등록됐다", '"diagnose_fred_extra"' in _app2)
+
+print("\n=== 단위를 틀렸을 때 (2026-11-11 실제 사례) ===")
+# TGA 를 billions 로 적었더니 957,175십억 달러(= 95경)가 나왔습니다.
+# 검사가 잡아서 숫자를 내지 않았습니다. 여기서는 (1) 다시 안 틀리는지
+# (2) 틀렸을 때 **어느 단위가 맞는지까지** 말해 주는지를 봅니다.
+_tga_unit = {sid: u for _k, sid, _l, u in config.LIQUIDITY_SERIES}["WTREGEN"]
+check("TGA 단위가 millions 로 고쳐졌다", _tga_unit == "millions",
+      f"'{_tga_unit}' — billions 로 읽으면 1000배 틀립니다")
+_wal = {sid: u for _k, sid, _l, u in config.LIQUIDITY_SERIES}["WALCL"]
+check("WALCL 도 millions", _wal == "millions", _wal)
+_rrp = {sid: u for _k, sid, _l, u in config.LIQUIDITY_SERIES}["RRPONTSYD"]
+check("역레포는 billions 그대로", _rrp == "billions",
+      f"{_rrp} — 실측에서 범위 검사를 통과했습니다")
+
+_bad = lq.Component("tga", "TGA", raw=957_175, unit="billions")
+_msg = _bad.sanity()
+check("틀린 단위를 잡는다", bool(_msg))
+check("맞는 단위를 짚어 준다", "'millions' 로 읽으면" in _msg, _msg[-70:])
+check("고칠 곳을 알려준다", "config" in _msg)
+_fixed = lq.Component("tga", "TGA", raw=957_175, unit="millions")
+check("고친 단위는 통과", _fixed.sanity() == "", _fixed.sanity())
+check("값이 맞다", abs(_fixed.billions - 957.175) < 0.01,
+      f"{_fixed.billions:,.3f}")
+
+print("\n=== 참고 계열에도 검사가 붙었다 ===")
+check("참고 계열에 범위가 있다",
+      all(len(row) == 6 for row in config.LIQUIDITY_EXTRA),
+      "범위가 없으면 단위가 틀려도 조용히 이상한 숫자가 나갑니다")
+for _sid, _lab, _u, _cur, _lo, _hi in config.LIQUIDITY_EXTRA:
+    check(f"{_sid} 범위가 말이 된다", 0 < _lo < _hi, f"{_lo}~{_hi}")
+    check(f"{_sid} 통화가 적혀 있다", bool(_cur), _cur)
+_yen = lq.Component("JPNASSETS", "일본은행", raw=7_420_000,
+                    unit="hundred_millions", currency="엔",
+                    sane_range=(300_000, 1_200_000))
+check("1억 단위 배율이 있다", "hundred_millions" in lq.SCALE)
+check("엔화도 범위 안", _yen.sanity() == "", _yen.sanity()[:80])
+check("742조 엔으로 읽힌다", abs(_yen.billions / 1000 - 742) < 1,
+      f"{_yen.billions / 1000:,.1f}조")
+_yen_bad = lq.Component("JPNASSETS", "일본은행", raw=7_420_000,
+                        unit="units", currency="엔",
+                        sane_range=(300_000, 1_200_000))
+check("단위를 틀리면 참고 계열도 잡힌다", bool(_yen_bad.sanity()))
+check("참고 계열도 맞는 단위를 짚는다",
+      "hundred_millions" in _yen_bad.suggest_unit(),
+      _yen_bad.suggest_unit())
+
+_app3 = pathlib.Path("app.py").read_text(encoding="utf-8")
+check("화면이 참고 계열 단위를 검사한다", "problem = c.sanity()" in _app3)
+check("이상하면 숫자 대신 사유", "단위 확인 필요" in _app3)
 
 print("\n" + "=" * 54)
 if FAILURES:

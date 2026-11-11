@@ -384,7 +384,7 @@ def load_liquidity(use_demo: bool, key_fp: str = ""):
     if use_demo:
         return demo_mod.demo_liquidity()
     ids = [sid for _k, sid, _l, _u in config.LIQUIDITY_SERIES]
-    ids += [sid for sid, _l, _u in config.LIQUIDITY_EXTRA]
+    ids += [row[0] for row in config.LIQUIDITY_EXTRA]
     series, errors = fred.fetch_many(ids, years=2)
 
     def comp(key, sid, label, unit):
@@ -405,18 +405,24 @@ def load_liquidity(use_demo: bool, key_fp: str = ""):
              for k, sid, lab, u in config.LIQUIDITY_SERIES]
     nl = liquidity.net_liquidity(*parts)
 
+    # 참고 계열도 **단위를 검사합니다.** 전에는 검사 없이 그대로 찍어서,
+    # 단위가 틀리면 조용히 이상한 숫자가 나갔습니다 (TGA 가 그랬습니다).
     extra = []
-    for sid, label, unit in config.LIQUIDITY_EXTRA:
+    for sid, label, unit, currency, lo, hi in config.LIQUIDITY_EXTRA:
         ser = series.get(sid)
         if ser is None or not ser.observations:
-            extra.append((label, "—", errors.get(sid, "받지 못함")[:40]))
+            extra.append((label, "—", (errors.get(sid) or "받지 못함")[:44]))
             continue
+        obs = ser.observations[-1]
         c = liquidity.Component(key=sid, label=label, unit=unit,
-                                raw=ser.observations[-1].value)
-        b = c.billions
-        extra.append((label,
-                      "—" if b is None else f"{b / 1000:,.2f}조 (현지통화)",
-                      ser.observations[-1].date.isoformat()))
+                                raw=obs.value, currency=currency,
+                                sane_range=(lo, hi))
+        problem = c.sanity()
+        if problem:
+            extra.append((label, "— (단위 확인 필요)", problem[:120]))
+            continue
+        extra.append((label, f"{c.billions / 1000:,.2f}조 {currency}",
+                      obs.date.isoformat()))
     return nl, extra
 
 
@@ -1364,6 +1370,10 @@ def render_diag_panel() -> None:
         ("fred", "경제지표 계열 확인", "diagnose_fred",
          f"FRED 계열 {len(config.MACRO_SERIES)}개가 실제로 받아지는지. "
          "연결 자체도 먼저 시험합니다. 키 불필요."),
+        ("fredx", "FRED 추가 계열 확인", "diagnose_fred_extra",
+         "물가 6 · 유동성 6 · 한국 6 계열. 매크로 14개와 **다른 계열**이라 "
+         "따로 봐야 합니다. 유동성은 받은 값의 크기까지 찍어서 단위가 "
+         "맞는지 확인합니다 — 틀리면 1000배 어긋납니다. **인증키 필요.**"),
         ("screen", "미국 스크리너 확인", "diagnose_screen",
          "companyfacts 에서 계정이 잡히는지 (앞 8개 기업). 키 불필요."),
         ("xbrl", "재고 지표 확인 (미국)", "diagnose_xbrl",

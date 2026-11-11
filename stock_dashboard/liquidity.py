@@ -42,6 +42,7 @@ SCALE = {
     "millions": 0.001,
     "thousands": 0.000_001,
     "units": 0.000_000_001,
+    "hundred_millions": 0.1,      # 1억 단위 (일본은행 자료)
 }
 
 #: 상식 범위 (십억 달러). 2026년 기준으로 연준 총자산은 수조 달러,
@@ -84,19 +85,51 @@ class Component:
         a, b = self.billions, self.prev_billions
         return None if (a is None or b is None) else a - b
 
+    #: 이 구성요소의 정상 범위 (현지통화 십억 단위). 비우면 SANE 을 봅니다.
+    sane_range: tuple[float, float] | None = None
+    currency: str = "달러"
+
+    def _range(self) -> tuple[float, float] | None:
+        return self.sane_range or SANE.get(self.key)
+
+    def suggest_unit(self) -> str:
+        """지금 값이 어느 단위면 정상 범위에 들어가는지 **계산해서**
+        알려줍니다.
+
+        "단위가 틀린 것 같습니다" 까지만 말하면 어느 단위로 고쳐야 할지는
+        다시 찾아봐야 합니다. 배수가 1000 단위로 떨어지는 문제라 기계가
+        맞혀 줄 수 있습니다 — 실제로 TGA 를 billions 로 적어 95경 달러가
+        나왔을 때, millions 로 읽으면 맞는다는 걸 바로 알 수 있었습니다.
+        """
+        rng = self._range()
+        if self.raw is None or rng is None:
+            return ""
+        lo, hi = rng
+        fits = [name for name, mul in SCALE.items()
+                if lo <= self.raw * mul <= hi]
+        if not fits or self.unit in fits:
+            return ""
+        best = fits[0]
+        return (f"'{best}' 로 읽으면 "
+                f"{self.raw * SCALE[best]:,.0f}십억 이 되어 범위에 "
+                f"들어갑니다 — config 의 단위를 '{best}' 로 고치십시오.")
+
     def sanity(self) -> str:
         """단위가 말이 되는지. 문제 없으면 빈 문자열."""
         v = self.billions
         if v is None:
             return ""
-        lo, hi = SANE.get(self.key, (None, None))
-        if lo is None:
+        rng = self._range()
+        if rng is None:
             return ""
+        lo, hi = rng
         if not (lo <= v <= hi):
-            return (f"{self.label} 이 {v:,.0f}십억 달러로 계산됐습니다 — "
-                    f"상식 범위({lo:,.0f}~{hi:,.0f})를 벗어납니다. "
-                    f"FRED 계열 단위('{self.unit}')가 틀렸을 가능성이 "
-                    "큽니다.")
+            tip = self.suggest_unit()
+            return (f"{self.label} 이 {v:,.0f}십억 {self.currency}로 "
+                    f"계산됐습니다 — 정상 범위({lo:,.0f}~{hi:,.0f})를 "
+                    f"벗어납니다. FRED 계열 단위('{self.unit}')가 "
+                    "틀렸습니다."
+                    + (f" {tip}" if tip else ""))
         return ""
 
 

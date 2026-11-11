@@ -173,15 +173,37 @@ def _fetch_one(symbol: str) -> Quote:
     )
 
 
-def fetch_quotes(symbols: list[str]) -> dict[str, Quote]:
-    """심볼 목록을 병렬 조회합니다."""
+def _fetch_light(symbol: str) -> Quote:
+    """가격과 전일 종가만 — 일봉 5일 한 번.
+
+    .info 는 종목 하나에 상세정보 수십 항목(요청 여러 번)을 받아 오는
+    무거운 호출입니다. 지수·환율·금리·선물은 가격과 전일 종가면 충분해서
+    일봉 요청 하나로 줄입니다. 실패하면 원래 방식(_fetch_one)으로 받습니다.
+    프리·애프터장 가격과 장 상태는 이 경로에서 나오지 않습니다.
+    """
+    yf = _import_yfinance()
+    price, prev = _from_history(yf.Ticker(symbol))
+    if price is None:
+        return _fetch_one(symbol)
+    return Quote(symbol=symbol, price=price, prev_close=prev,
+                 status=MarketStatus.UNKNOWN, extra={"light": True})
+
+
+def fetch_quotes(symbols: list[str], *, light: tuple[str, ...] | set = ()
+                 ) -> dict[str, Quote]:
+    """심볼 목록을 병렬 조회합니다.
+
+    light 에 든 심볼은 가격만 가볍게 받습니다 (_fetch_light). 관심종목처럼
+    프리장 가격 · 52주 고저 · 실적 발표일이 필요한 것은 넣지 마십시오.
+    """
     unique = list(dict.fromkeys(s for s in symbols if s))
     if not unique:
         return {}
+    light = set(light or ())
 
     def safe(sym: str) -> Quote:
         try:
-            return _fetch_one(sym)
+            return _fetch_light(sym) if sym in light else _fetch_one(sym)
         except Exception as exc:  # noqa: BLE001
             return Quote.failed(sym, f"조회 중 예외: {exc}")
 
@@ -313,6 +335,98 @@ def fetch_closes(symbols: list[str], *, period: str = "1y",
             if closes:
                 out[sym] = closes
                 volumes[sym] = vols
+            if err:
+                errors[sym] = err
+    return out, errors
+
+
+def fetch_ohlc(symbols: list[str], *, period: str = "1y"
+               ) -> tuple[dict[str, dict[str, list[float]]], dict[str, str]]:
+    """심볼마다 일봉 고가·저가·종가. 차트 조건(일목·CCI·DMI)용.
+
+    반환: ({심볼: {"high","low","close","volume"}}, {심볼: 오류})
+
+    **수정주가를 쓰지 않습니다** (auto_adjust=False). 수정주가는 종가만이
+    아니라 고가·저가도 배당만큼 깎는데, 차트 지표는 HTS 에 보이는 가격
+    으로 계산하는 것이 관행이라 화면의 숫자가 HTS 와 맞아야 합니다.
+    액면분할은 야후가 이 설정에서도 반영합니다.
+    """
+    yf = _import_yfinance()
+    unique = list(dict.fromkeys(s for s in symbols if s))
+    out: dict[str, dict[str, list[float]]] = {}
+    errors: dict[str, str] = {}
+
+    def one(sym: str):
+        try:
+            hist = yf.Ticker(sym).history(period=period, interval="1d",
+                                          auto_adjust=False)
+            if hist is None or hist.empty or "Close" not in hist:
+                return sym, None, "일봉이 비어 있습니다."
+            d: dict[str, list[float]] = {"high": [], "low": [], "close": [],
+                                         "volume": []}
+            vols = (hist["Volume"].tolist() if "Volume" in hist
+                    else [0.0] * len(hist))
+            for hi, lo, cl, vo in zip(hist["High"].tolist(), hist["Low"].tolist(),
+                                      hist["Close"].tolist(), vols):
+                if cl is None or cl != cl or cl <= 0:
+                    continue
+                hi = cl if (hi is None or hi != hi or hi <= 0) else hi
+                lo = cl if (lo is None or lo != lo or lo <= 0) else lo
+                d["high"].append(max(float(hi), float(cl)))
+                d["low"].append(min(float(lo), float(cl)))
+                d["close"].append(float(cl))
+                d["volume"].append(0.0 if (vo is None or vo != vo) else float(vo))
+            return sym, (d if d["close"] else None), (
+                "" if d["close"] else "유효한 종가가 없습니다.")
+        except Exception as exc:  # noqa: BLE001
+            return sym, None, f"{type(exc).__name__}: {exc}"
+
+    if not unique:
+        return out, errors
+    with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(unique))) as pool:
+        for sym, d, err in pool.map(one, unique):
+            if d:
+                out[sym] = d
+            if err:
+                errors[sym] = err
+    return out, errors
+
+
+def fetch_daily_bars(symbols: list[str], *, period: str = "1mo"
+                     ) -> tuple[dict[str, list[tuple[str, float]]], dict[str, str]]:
+    """심볼마다 (거래일, 종가) 목록 — 전일 장 브리핑용.
+
+    날짜는 **거래소 현지 날짜**입니다 (야후가 봉마다 거래소 시간대로 줍니다).
+    '마지막으로 끝난 거래일' 을 가리려면 날짜가 꼭 있어야 해서,
+    종가만 주는 fetch_closes 와 따로 둡니다.
+    """
+    yf = _import_yfinance()
+    unique = list(dict.fromkeys(s for s in symbols if s))
+    out: dict[str, list[tuple[str, float]]] = {}
+    errors: dict[str, str] = {}
+
+    def one(sym: str):
+        try:
+            hist = yf.Ticker(sym).history(period=period, interval="1d",
+                                          auto_adjust=False)
+            if hist is None or hist.empty or "Close" not in hist:
+                return sym, [], "일봉이 비어 있습니다."
+            bars = []
+            for ts, cl in zip(hist.index, hist["Close"].tolist()):
+                if cl is None or cl != cl or cl <= 0:
+                    continue
+                day = ts.date().isoformat() if hasattr(ts, "date") else str(ts)[:10]
+                bars.append((day, float(cl)))
+            return sym, bars, "" if bars else "유효한 종가가 없습니다."
+        except Exception as exc:  # noqa: BLE001
+            return sym, [], f"{type(exc).__name__}: {exc}"
+
+    if not unique:
+        return out, errors
+    with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(unique))) as pool:
+        for sym, bars, err in pool.map(one, unique):
+            if bars:
+                out[sym] = bars
             if err:
                 errors[sym] = err
     return out, errors

@@ -359,6 +359,63 @@ def value_hits(rows: list[ValueRow], *, min_pass: int = 2) -> list[Hit]:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# 걸러진 단계 — '0건' 일 때 어디서 막혔는지
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# 2026-11-11 "한국 종목발굴이 0". 0 건은 두 가지로 읽힙니다 — 데이터를
+# 못 받았거나, 받았는데 기준이 엄격했거나. 화면이 둘을 구분하지 않으면
+# 사용자는 고장인지 시장이 조용한 건지 알 수 없습니다. 단계마다 몇
+# 종목이 남는지 숫자로 보여 줍니다.
+
+@dataclass
+class FunnelStep:
+    label: str
+    count: int
+    note: str = ""        # 이 단계에서 많이 빠졌다면 왜인지
+
+
+def vol_funnel(n_candidates: int, profiles: list[VolProfile],
+               contraction_max: float = CONTRACTION_MAX,
+               near_high_pct: float = NEAR_HIGH_PCT) -> list[FunnelStep]:
+    got = [p for p in profiles if p.bars > 0]
+    usable = [p for p in profiles if p.ok]
+    liquid = [p for p in usable if p.liquid]
+    no_vol = [p for p in usable if p.turnover is None]
+    high = [p for p in liquid if (p.pct_of_high or 0) >= near_high_pct]
+    both = [p for p in high
+            if p.contraction is not None and p.contraction <= contraction_max]
+    steps = [
+        FunnelStep("후보", n_candidates),
+        FunnelStep("일봉 받음", len(got),
+                   "" if len(got) >= n_candidates * 0.8
+                   else "데이터 출처 문제 — 아래 오류를 보십시오"),
+        FunnelStep(f"{MIN_BARS}일 이상", len(usable)),
+        FunnelStep(f"거래대금 {MIN_TURNOVER / 1e8:.0f}억↑", len(liquid),
+                   f"거래량을 못 받은 종목 {len(no_vol)}개"
+                   if no_vol else ""),
+        FunnelStep(f"52주 고가 {near_high_pct:.0f}%↑", len(high)),
+        FunnelStep(f"수축비 {contraction_max:.2f}↓", len(both)),
+    ]
+    return steps
+
+
+def value_funnel(rows: list[ValueRow], min_pass: int = 2) -> list[FunnelStep]:
+    ok = [r for r in rows if not r.error]
+    any_val = [r for r in ok if r.total and any(
+        v != "unknown" for _l, v, _d in r.checks())]
+    one = [r for r in ok if r.passed >= 1]
+    hit = [r for r in ok if r.passed >= min_pass]
+    return [
+        FunnelStep("후보", len(rows)),
+        FunnelStep("지표 받음", len(any_val),
+                   "" if len(any_val) >= len(rows) * 0.8 or not rows
+                   else "데이터 출처 문제 — 아래 오류를 보십시오"),
+        FunnelStep("1개 이상 통과", len(one)),
+        FunnelStep(f"{min_pass}개 이상 통과", len(hit)),
+    ]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # 야후 심볼
 # ──────────────────────────────────────────────────────────────────────────────
 

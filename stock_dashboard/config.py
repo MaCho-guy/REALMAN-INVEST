@@ -918,11 +918,14 @@ TAB_ORDER: tuple[str, ...] = (
     "holdings",     # 내가 가진 종목 — 변화 감지 + 시세 + 공시 분석
     "discover",     # 종목 발굴 — 미국 버핏식 / 한국 변동성·밸류
     "valuation",    # 걸러낸 종목 밸류에이션 — 역DCF + 사분면
+    "chart",        # 차트 조건 — 일목 양운 · CCI · MACD · DMI (일봉)
     "sector_heat",  # 한국 — 섹터 온도 (KODEX 업종 ETF)
+    "research",     # 한국 — 증권사 산업분석 리포트 목록 (업종별)
     "kr_flows",     # 한국 — 섹터 뉴스 · 주요 공시 · 경제지표
     "macro",        # 미국 중심 매크로 — 금리·환율·원자재·VIX·FRED
     "us_flows",     # 미국 — 물가 속도 · 글로벌 유동성
     "cycle",        # 메모리 사이클 — 한·미 3사를 같이 봐야 하는 화면
+    "calendar",     # 주요 일정 — FOMC·금통위·지표 발표·만기·휴장·실적
 )
 
 #: 탭에서 내린 섹션들. **코드는 그대로 남아 있습니다** — 아래 목록에서
@@ -979,15 +982,15 @@ SECTIONS_MERGED_INTO: dict[str, str] = {
 MARKET_TABS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
     "kr": (
         ("오늘", ("summary", "holdings")),
-        ("찾기", ("discover", "valuation")),
-        ("한국 시장", ("sector_heat", "kr_flows")),
-        ("공통", ("macro", "cycle")),
+        ("찾기", ("discover", "valuation", "chart")),
+        ("한국 시장", ("sector_heat", "research", "kr_flows")),
+        ("공통", ("calendar", "macro", "cycle")),
     ),
     "us": (
         ("오늘", ("summary", "holdings")),
-        ("찾기", ("discover", "valuation")),
+        ("찾기", ("discover", "valuation", "chart")),
         ("미국 시장", ("macro", "us_flows")),
-        ("공통", ("cycle",)),
+        ("공통", ("calendar", "cycle")),
     ),
 }
 
@@ -1004,8 +1007,93 @@ SPECIAL_TAB_LABELS = {
     "kr_flows": "뉴스 · 공시 · 지표",
     "us_flows": "물가 · 유동성",
     "valuation": "밸류에이션",
+    "chart": "차트 조건",
+    "research": "산업 리포트",
+    "calendar": "주요 일정",
     "cycle": "메모리 사이클",
 }
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 전일 장 브리핑 · 산업 리포트
+# ──────────────────────────────────────────────────────────────────────────────
+
+#: 미국 업종 ETF (SPDR 11개 섹터). 전일 브리핑의 '업종' 줄에 씁니다.
+US_SECTOR_ETFS: tuple[tuple[str, str], ...] = (
+    ("XLK", "기술"), ("XLC", "커뮤니케이션"), ("XLY", "경기소비재"),
+    ("XLP", "필수소비재"), ("XLF", "금융"), ("XLV", "헬스케어"),
+    ("XLI", "산업재"), ("XLE", "에너지"), ("XLB", "소재"),
+    ("XLU", "유틸리티"), ("XLRE", "부동산"),
+)
+
+#: 시장별 브리핑 정의. cutoff = 현지 마감 + 10분 (이 시각 전에는 오늘 봉을
+#: '끝난 날' 로 치지 않습니다). news = (키, 이름, 검색어) — 마감 기사 제목용.
+DAILY_BRIEF = {
+    "kr": {
+        "title": "한국장", "tz": "Asia/Seoul", "cutoff": (15, 40),
+        "indices": (("^KS11", "코스피"), ("^KQ11", "코스닥")),
+        "extras": (("KRW=X", "원/달러", "pct"),),
+        "news": ("kr_close", "한국장 마감", "코스피 코스닥 마감 시황"),
+    },
+    "us": {
+        "title": "미국장", "tz": "America/New_York", "cutoff": (16, 10),
+        "indices": (("^GSPC", "S&P 500"), ("^IXIC", "나스닥"),
+                    ("^DJI", "다우"), ("^SOX", "필라델피아 반도체")),
+        "extras": (("^TNX", "미 10년물", "rate"), ("^VIX", "VIX", "pct"),
+                   ("CL=F", "WTI", "pct")),
+        "news": ("us_close", "미국장 마감", "뉴욕증시 마감 나스닥 S&P500"),
+    },
+}
+
+#: 산업 리포트를 몇 쪽 받을지 (쪽당 30건 안팎).
+RESEARCH_PAGES = 3
+
+
+def daily_brief_spec(market: str) -> dict:
+    """DAILY_BRIEF 에 업종 ETF 와 보유 종목(야후 심볼)을 채워 돌려줍니다."""
+    spec = dict(DAILY_BRIEF[market])
+    if market == "kr":
+        spec["sectors"] = tuple(
+            (f"{s[0]}.KS", s[1]) for s in KR_SECTOR_ETFS
+            if not (len(s) > 3 and s[3]) and s[0] != "229200")
+        kq = kosdaq_codes()
+        spec["holdings"] = tuple(
+            (f"{i.symbol}.{'KQ' if i.symbol in kq else 'KS'}", i.name)
+            for i in SECTION_WATCHLIST.instruments if i.source == "naver")
+    else:
+        spec["sectors"] = tuple(US_SECTOR_ETFS)
+        spec["holdings"] = tuple(
+            (i.symbol, i.name) for i in SECTION_WATCHLIST.instruments
+            if i.source == "yahoo")
+    return spec
+
+
+def daily_brief_symbols(market: str) -> list[str]:
+    spec = daily_brief_spec(market)
+    out = [s for s, _l in spec["indices"]] + [s for s, _l, _k in spec["extras"]]
+    out += [s for s, _l in spec["sectors"]] + [s for s, _l in spec["holdings"]]
+    return list(dict.fromkeys(out))
+
+
+def chart_candidates(market: str) -> list[tuple[str, str]]:
+    """차트 조건을 볼 종목 (코드/티커, 이름).
+
+    한국: 국내 스크리너 후보 전부 (코스피 + 코스닥, 관심종목 포함).
+    미국: 관심종목(ETF 포함 — 차트 지표는 ETF 에도 의미가 있습니다) +
+          버핏식 스크리너 후보. 관심종목이 앞에 옵니다.
+    """
+    if market == "kr":
+        return list(screen_kr_candidates())
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for inst in SECTION_WATCHLIST.instruments:
+        if inst.source == "yahoo" and inst.symbol not in seen:
+            seen.add(inst.symbol)
+            out.append((inst.symbol, inst.name))
+    for tk in SCREEN_CANDIDATES:
+        if tk not in seen:
+            seen.add(tk)
+            out.append((tk, tk))
+    return out
 
 
 def cycle_instruments() -> list[Instrument]:
@@ -1077,9 +1165,103 @@ def all_instruments() -> list[Instrument]:
     return out
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# 시장 띠 — 모든 화면 맨 위의 숫자 6개
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# 2026-11-11 "허접하고 획일적". 어느 화면이든 첫 줄이 설명 문단이나 같은
+# 모양의 카드였고, **지금 시장이 어떤가**를 숫자로 보여주는 자리가 없었습니다.
+# 참고한 대시보드(모닝 브리프·주식봇)는 모두 맨 위에 지수·환율·선물을 큰
+# 숫자로 둡니다. 시장마다 6개 — 그 이상이면 첫 줄이 안 읽힙니다.
+
+#: 다른 섹션에 없는 지수. 시세 받기에만 쓰고 카드로는 그리지 않습니다.
+STRIP_EXTRA = (
+    Instrument("코스피", "^KS11", "yahoo", "KRX", "KRW", decimals=2),
+    Instrument("코스닥", "^KQ11", "yahoo", "KRX", "KRW", decimals=2),
+)
+
+#: (심볼, 띠에 쓸 짧은 이름). 심볼은 섹션이나 STRIP_EXTRA 에 있어야 합니다.
+MARKET_STRIP = {
+    "kr": (("^KS11", "코스피"), ("^KQ11", "코스닥"),
+           ("xyz:KR200", "코스피200 야간"), ("KRW=X", "원/달러"),
+           ("NQ=F", "나스닥100 선물"), ("^TNX", "미 10년물")),
+    "us": (("ES=F", "S&P 500 선물"), ("NQ=F", "나스닥100 선물"),
+           ("^TNX", "미 10년물"), ("DX-Y.NYB", "달러 인덱스"),
+           ("^VIX", "VIX"), ("CL=F", "WTI")),
+}
+
+
+def strip_instruments(market: str) -> list[tuple[Instrument, str]]:
+    """시장 띠에 그릴 (종목, 짧은 이름). 정의가 없는 심볼은 건너뜁니다."""
+    by_sym: dict[str, Instrument] = {}
+    for section in SECTIONS:
+        for inst in section.instruments:
+            by_sym.setdefault(inst.symbol, inst)
+    for inst in STRIP_EXTRA:
+        by_sym.setdefault(inst.symbol, inst)
+    out = []
+    for sym, label in MARKET_STRIP.get(market, ()):
+        if sym in by_sym:
+            out.append((by_sym[sym], label))
+    return out
+
+
+def live_symbols(source: str) -> list[str]:
+    """**화면에 실제로 보이는** 종목의 심볼만 — 시세 받기에 씁니다.
+
+    2026-11-11: 탭에서 내려간 구역(ADR · DEX · 선물 · ETF 프록시, 위
+    SECTIONS_RETIRED)의 시세 약 20개를 아직도 1분마다 받고 있었습니다.
+    야후는 종목마다 요청이 따로 나가서, 안 보이는 숫자를 받느라 화면이
+    기다렸습니다. 시장 띠에 쓰는 것(선물 2개 · 코스피200 야간)만 남깁니다.
+    """
+    seen: list[str] = []
+
+    def add(inst) -> None:
+        if inst.source != source:
+            return
+        for sym in (inst.symbol, *inst.alt_symbols):
+            if sym not in seen:
+                seen.append(sym)
+        if source == "naver" and inst.local_peer and inst.local_peer not in seen:
+            seen.append(inst.local_peer)
+
+    for section in SECTIONS:
+        if section.key in SECTIONS_RETIRED:
+            continue
+        for inst in section.instruments:
+            add(inst)
+    for m in MARKETS:
+        for inst, _label in strip_instruments(m):
+            add(inst)
+    # 보유 평가(Secrets 의 PORTFOLIO)에 적힌 종목 — 관심종목에 없어도 시세가 필요
+    try:
+        import portfolio  # noqa: PLC0415
+        for sym in portfolio.symbols(portfolio.load()[0], source):
+            if sym not in seen:
+                seen.append(sym)
+    except Exception:  # noqa: BLE001
+        pass
+    if source == "yahoo":
+        for fx in ("KRW=X", "EURUSD=X"):
+            if fx not in seen:
+                seen.append(fx)
+    return seen
+
+
+def light_yahoo_symbols() -> list[str]:
+    """가격만 있으면 되는 야후 심볼 — 관심종목이 아닌 것 전부.
+
+    관심종목은 변화 감지가 프리장 가격 · 52주 고저 · 실적 발표일을 써서
+    상세정보(.info)가 필요합니다. 지수 · 환율 · 금리 · 선물은 아닙니다.
+    """
+    rich = {s for i in SECTION_WATCHLIST.instruments if i.source == "yahoo"
+            for s in (i.symbol, *i.alt_symbols)}
+    return [s for s in live_symbols("yahoo") if s not in rich]
+
+
 def all_yahoo_symbols() -> list[str]:
     """야후로 조회할 모든 심볼 (대체 심볼 포함, 환율 포함)."""
-    seen: list[str] = []
+    seen: list[str] = [i.symbol for i in STRIP_EXTRA if i.source == "yahoo"]
     for section in SECTIONS:
         for inst in section.instruments:
             if inst.source != "yahoo":

@@ -23,7 +23,38 @@ from concurrent.futures import ThreadPoolExecutor
 
 import streamlit as st
 
-import swr
+
+def _missing_files() -> list[str]:
+    """BUILD.json 에 있는데 서버에 없는 .py 파일.
+
+    모듈 하나가 빠지면 아래 import 에서 바로 죽고, 스트림릿 클라우드는 오류
+    내용을 가립니다('redacted'). 그래서 import **전에** 파일 목록부터 대조해
+    무엇이 빠졌는지 화면에 적고 멈춥니다. BUILD.json 이 없으면 검사를
+    건너뜁니다 (그때는 원래 오류가 그대로 납니다).
+    """
+    import json  # noqa: PLC0415
+
+    base = os.path.dirname(os.path.abspath(__file__))
+    try:
+        with open(os.path.join(base, "BUILD.json"), encoding="utf-8") as fh:
+            names = list(json.load(fh))
+    except Exception:  # noqa: BLE001
+        return []
+    return sorted(n for n in names if n.endswith(".py")
+                  and not os.path.exists(os.path.join(base, n)))
+
+
+_MISSING = _missing_files()
+if _MISSING:
+    st.error(
+        "**올라가지 않은 파일이 있어 앱을 시작할 수 없습니다.**\n\n"
+        + "\n".join(f"- `{n}`" for n in _MISSING)
+        + "\n\n받은 **전체 패키지 zip** 을 `stock_dashboard/` 에 풀어 "
+          "통째로 덮어쓰십시오. 파일 하나만 빠져도 그 파일을 쓰는 모든 "
+          "화면이 멈춥니다.")
+    st.stop()
+
+import swr  # noqa: E402
 
 import brief
 import buildstamp

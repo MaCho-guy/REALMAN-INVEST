@@ -483,3 +483,43 @@ def fetch_many(series_ids: list[str], *, years: int = 4,
             else:
                 errors[sid] = err or "알 수 없는 오류"
     return out, errors
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 발표 일정 — 주요 일정(calendar_events) 용
+# ──────────────────────────────────────────────────────────────────────────────
+
+RELEASES_DATES_URL = "https://api.stlouisfed.org/fred/releases/dates"
+
+
+def fetch_release_dates(days: int = 60) -> dict:
+    """앞으로 days 일 동안의 모든 발표 일정 (요청 한 번).
+
+    include_release_dates_with_no_data=true 여야 **아직 자료가 없는 미래
+    발표일**이 나옵니다. 해석은 calendar_events.parse_fred_dates 가 합니다.
+    키가 없으면 FredError — 이 엔드포인트는 키 없는 CSV 경로가 없습니다.
+    """
+    key = api_key()
+    if not key:
+        raise FredError("발표 일정은 FRED 인증키가 있어야 받을 수 있습니다.")
+    today = dt.date.today()
+    params = {
+        "api_key": key, "file_type": "json",
+        "realtime_start": today.isoformat(),
+        "realtime_end": (today + dt.timedelta(days=days)).isoformat(),
+        "include_release_dates_with_no_data": "true",
+        "order_by": "release_date", "sort_order": "asc", "limit": 1000,
+    }
+    try:
+        resp = requests.get(
+            RELEASES_DATES_URL, params=params, timeout=API_TIMEOUT,
+            headers={"User-Agent": "stock-dashboard/1.0 (personal research)"},
+        )
+        if resp.status_code != 200:
+            body = resp.text.strip().replace(key, "…키…")[:200]
+            raise FredError(f"발표 일정: FRED API HTTP {resp.status_code} — {body}")
+        return resp.json()
+    except FredError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise FredError(f"발표 일정: FRED API 실패 — {type(exc).__name__}") from exc

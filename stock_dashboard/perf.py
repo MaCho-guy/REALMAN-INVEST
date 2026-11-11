@@ -79,7 +79,7 @@ class RunLog:
 
 def run_parallel(calls: dict[str, Callable[[], object]], log: RunLog | None = None,
                  initializer: Callable[[], None] | None = None,
-                 max_workers: int = 8) -> dict[str, object]:
+                 max_workers: int = 12) -> dict[str, object]:
     """이름 → 인자 없는 함수. 동시에 실행하고 {이름: 결과} 를 돌려줍니다.
 
     실패한 항목은 결과에서 빠집니다 — 호출한 쪽이 평소처럼 다시 부르면

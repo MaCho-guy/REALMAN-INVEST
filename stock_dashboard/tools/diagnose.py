@@ -809,3 +809,146 @@ def diagnose_fred_extra() -> None:
 def _to_billions(value: float, unit: str) -> float:
     return value * {"billions": 1.0, "millions": 0.001,
                     "thousands": 1e-6, "units": 1e-9}.get(unit, 1.0)
+
+
+def diagnose_kr_sources() -> None:
+    """국내 스크리너·밸류에이션의 데이터 출처가 이 서버에서 닿는지.
+
+    2026-11-11: 한국 종목발굴 0건 + DART 고유번호 실패. 출처 셋을 한 번에
+    봅니다 — 네이버 일봉, 네이버 투자지표, DART(작은 요청 → 큰 ZIP 순서).
+    작은 요청은 되는데 ZIP 만 안 되면 '내려받기 시간' 문제, 둘 다 안
+    되면 '연결 자체' 문제입니다.
+    """
+    import time as _t
+    import requests as _rq
+    from sources import naver as _nv
+
+    head("국내 데이터 출처")
+    code = "005930"
+
+    t0 = _t.perf_counter()
+    closes, vols, err = _nv.fetch_daily(code, 300)
+    dt_ = _t.perf_counter() - t0
+    if closes:
+        print(f"네이버 일봉   ✓ {len(closes)}개 · 마지막 종가 {closes[-1]:,.0f} · "
+              f"거래량 {vols[-1]:,.0f} · {dt_:.1f}초")
+    else:
+        print(f"네이버 일봉   ✗ {err} · {dt_:.1f}초")
+
+    t0 = _t.perf_counter()
+    val = _nv.fetch_valuation(code)
+    dt_ = _t.perf_counter() - t0
+    if not val.get("error"):
+        print(f"네이버 지표   ✓ PER {val.get('per')} · PBR {val.get('pbr')} · "
+              f"배당 {val.get('div_yield')}% · {dt_:.1f}초")
+    else:
+        print(f"네이버 지표   ✗ {val.get('error')} · {dt_:.1f}초")
+
+    ok, msg = dart.key_status()
+    print(f"\nDART 인증키: {msg}")
+    if not ok:
+        return
+    # 작은 요청 — 공시 목록 1건
+    t0 = _t.perf_counter()
+    try:
+        r = _rq.get(f"{dart.BASE}/list.json",
+                    params={"crtfc_key": dart.api_key(), "page_count": 1},
+                    timeout=(10, 20))
+        print(f"DART 작은 요청 (list.json) ✓ HTTP {r.status_code} · "
+              f"{_t.perf_counter() - t0:.1f}초")
+    except Exception as exc:  # noqa: BLE001
+        print(f"DART 작은 요청 (list.json) ✗ {dart._describe(exc)} · "
+              f"{_t.perf_counter() - t0:.1f}초")
+    # 큰 ZIP
+    t0 = _t.perf_counter()
+    try:
+        m = dart._fetch_corp_codes_remote()
+        print(f"DART 고유번호 ZIP          ✓ 상장사 {len(m):,}개 · "
+              f"{_t.perf_counter() - t0:.1f}초")
+        dart._write_corp_cache(m)
+        print("  → 서버 임시 폴더에 저장했습니다 (7일 동안 다시 받지 않음)")
+    except Exception as exc:  # noqa: BLE001
+        print(f"DART 고유번호 ZIP          ✗ {exc} · "
+              f"{_t.perf_counter() - t0:.1f}초")
+        print("\n읽는 법: 작은 요청 ✓ + ZIP ✗ → 내려받기가 느린 것 (재시도·"
+              "저장으로 완화). 둘 다 ✗ 이고 '연결 시간 초과' → 이 서버(미국)"
+              "에서 DART 에 닿지 않는 것. 그 경우 국내 재무는 DART 대신 다른 "
+              "출처가 필요합니다.")
+
+
+def diagnose_filings() -> None:
+    """시장 공시 — 유형 필터가 먹는지, 무엇이 분류되고 무엇이 빠지는지."""
+    import collections as _co
+    import datetime as _dt
+    from sources import dart as _d
+
+    head("시장 공시 (DART list.json · 유형별)")
+    ok, why = _d.key_status()
+    if not ok:
+        print(f"  키 없음 — {why}")
+        return
+    today = _dt.date.today()
+    begin = (today - _dt.timedelta(days=2)).strftime("%Y%m%d")
+    for ty, name, _pages in _d.SCAN_PAGES:
+        try:
+            payload = _d._get("list.json", {
+                "bgn_de": begin, "end_de": today.strftime("%Y%m%d"),
+                "pblntf_ty": ty, "page_no": "1", "page_count": "100",
+                "sort": "date", "sort_mth": "desc"})
+        except Exception as exc:  # noqa: BLE001
+            print(f"\n{name}({ty}): 실패 — {type(exc).__name__}: {exc}")
+            continue
+        rows = [r for r in (payload.get("list") or []) if isinstance(r, dict)]
+        cls = _co.Counter(str(r.get("corp_cls") or "?") for r in rows)
+        hit = _co.Counter()
+        miss = _co.Counter()
+        for r in rows:
+            if str(r.get("corp_cls") or "") not in ("Y", "K"):
+                continue
+            t = str(r.get("report_nm") or "")
+            k = _d.classify_detail(t)
+            if k:
+                hit[f"{k.group}/{k.label}"] += 1
+            else:
+                miss[t.split("(")[0].strip()[:30]] += 1
+        print(f"\n{name}({ty}): 1쪽 {len(rows)}건 · 전체 "
+              f"{payload.get('total_count', '?')}건 / {payload.get('total_page', '?')}쪽"
+              f" · 시장 {dict(cls)}")
+        print("  분류됨: " + (", ".join(f"{k} {n}" for k, n in hit.most_common(12))
+                            or "없음"))
+        print("  빠진 제목 상위 (이 중 봐야 할 게 있으면 알려 주십시오):")
+        for t, n in miss.most_common(12):
+            print(f"    {n:>3}  {t}")
+
+
+def diagnose_research() -> None:
+    """네이버 증권 리서치 목록 — 받아지는지, 줄이 제대로 읽히는지."""
+    import requests as _rq
+    from sources import research as _rs
+
+    head("리서치 목록 (네이버 증권)")
+    for kind, name in (("industry", "산업분석"), ("market", "시황정보")):
+        url = _rs.BASE + _rs.LISTS[kind]
+        try:
+            r = _rq.get(url, params={"page": 1}, headers=_rs.HEADERS,
+                        timeout=_rs.TIMEOUT)
+            print(f"\n{name}: HTTP {r.status_code} · {len(r.content):,} bytes · "
+                  f"encoding {r.encoding} / {r.apparent_encoding}")
+            enc = (r.encoding or "").lower()
+            if enc in ("", "iso-8859-1"):
+                r.encoding = r.apparent_encoding or "euc-kr"
+            items = _rs.parse_list(r.text, kind)
+            print(f"  읽은 줄: {len(items)}건 · <tr> {r.text.count('<tr')}개 · "
+                  f"'_read.naver' {r.text.count('_read.naver')}회 · "
+                  f"'.pdf' {r.text.count('.pdf')}회")
+            for it in items[:4]:
+                print(f"  {it.date or '날짜?'} | {it.category or '-'} | "
+                      f"{it.title[:36]} | {it.broker or '증권사?'} | "
+                      f"{'PDF' if it.pdf else 'PDF 없음'}")
+            if not items:
+                print("  → 한 줄도 못 읽었습니다. 아래 원문 앞부분을 보내 주십시오:")
+                body = r.text
+                i = body.find("<table")
+                print(textwrap.indent(body[max(i, 0):max(i, 0) + 900], "    "))
+        except Exception as exc:  # noqa: BLE001
+            print(f"\n{name}: 요청 실패 — {type(exc).__name__}: {exc}")

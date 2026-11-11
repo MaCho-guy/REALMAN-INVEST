@@ -372,6 +372,66 @@ def build_rules() -> str:
   .dash-sig-chip.week {{ color:var(--dash-badge-pre); }}
   .dash-sig-chip.fyi  {{ color:var(--dash-ink-muted); }}
 
+  /* 시장 공시 — 묶음별 색. 상승·하락 색(빨강·파랑)과 겹치지 않게
+     경고만 진한 적색, 나머지는 채도를 낮춘 서로 다른 색상(hue)으로. */
+  .dash-fk {{
+    display:inline-block; font-size: var(--fs-2); font-weight:650;
+    padding:2px 8px; border-radius: var(--r-pill); white-space:nowrap;
+    color:var(--fk-ink); background:var(--fk-bg); font-family:{FONT_STACK};
+  }}
+  .dash-fk-sub {{
+    display:block; margin-top:3px; font-size: var(--fs-2);
+    color:var(--dash-ink-2); white-space:nowrap;
+  }}
+  .dash-fk-risk, .dash-fc-risk       {{ --fk-ink:#a3221a; --fk-bg:#fbe9e7; }}
+  .dash-fk-earn, .dash-fc-earn       {{ --fk-ink:#1f3a5f; --fk-bg:#e6ecf4; }}
+  .dash-fk-dilute, .dash-fc-dilute   {{ --fk-ink:#93520a; --fk-bg:#fbf0de; }}
+  .dash-fk-return, .dash-fc-return   {{ --fk-ink:#1b6b45; --fk-bg:#e3f2ea; }}
+  .dash-fk-owner, .dash-fc-owner     {{ --fk-ink:#5d3a91; --fk-bg:#efe9f7; }}
+  .dash-fk-biz, .dash-fc-biz         {{ --fk-ink:#0e6470; --fk-bg:#e2f1f3; }}
+  .dash-fk-neutral, .dash-fc-neutral {{ --fk-ink:#535b66; --fk-bg:#edeff2; }}
+
+  .dash-fc-grid {{
+    display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr));
+    gap:8px; margin:0 0 12px 0; font-family:{FONT_STACK};
+  }}
+  .dash-fc {{
+    background:var(--dash-surface); border:1px solid var(--dash-border);
+    border-left:4px solid var(--fk-ink); border-radius: var(--r-card);
+    padding:8px 10px;
+  }}
+  .dash-fc.dim {{ opacity:.45; }}
+  .dash-fc-head {{
+    display:flex; justify-content:space-between; align-items:baseline;
+    font-size: var(--fs-3); color:var(--fk-ink); font-weight:650;
+  }}
+  .dash-fc-head b {{ font-size: var(--fs-5); font-variant-numeric: tabular-nums; }}
+  .dash-fc-sub {{
+    margin-top:3px; font-size: var(--fs-2); color:var(--dash-ink-2);
+    line-height:1.45;
+  }}
+  table.dash-table.dash-fl td, table.dash-table.dash-fl th {{
+    vertical-align: top; text-align:left; }}
+  table.dash-table.dash-fl td:last-child {{ white-space: normal; min-width: 240px; }}
+  .dash-fl .dash-fl-type {{ white-space:nowrap; }}
+  .dash-fl-mkt {{ font-size: var(--fs-2); color:var(--dash-ink-muted); margin-top:2px; }}
+  .dash-fl-star {{ color:#b7791f; }}
+  .dash-fl-flag {{
+    display:inline-block; margin-left:6px; font-size: var(--fs-1, 11px);
+    padding:0 6px; border:1px solid var(--dash-border); border-radius: var(--r-pill);
+    color:var(--dash-ink-2); vertical-align:1px;
+  }}
+  .dash-fl-filer {{ font-size: var(--fs-2); color:var(--dash-ink-muted); margin-top:2px; }}
+  .dash-fg-wrap {{ display:grid; gap:12px; font-family:{FONT_STACK}; }}
+  .dash-fg ul {{ margin:6px 0 0 0; padding-left:18px; }}
+  .dash-fg li {{ font-size: var(--fs-3); color:var(--dash-ink-2); line-height:1.55;
+                 margin:2px 0; }}
+  .dash-fg li b {{ color:var(--dash-ink); }}
+  @media (max-width: 640px) {{
+    .dash-fc-grid {{ grid-template-columns:repeat(2, 1fr); }}
+    .dash-fl .dash-fl-type {{ white-space:normal; }}
+  }}
+
   .dash-sig-empty {{
     border:1px solid var(--dash-border); border-radius: var(--r-card);
     padding:22px 20px; text-align:center;
@@ -1215,6 +1275,390 @@ def build_rules() -> str:
     }}
   }}
 
+  .dash-empty-reason {{
+    border: 1px solid var(--dash-border); border-left: 3px solid var(--dash-badge-error);
+    background: var(--dash-surface); border-radius: var(--r-inner);
+    padding: var(--sp-3) var(--sp-3); font-size: var(--fs-3); color: var(--dash-ink);
+    margin: var(--sp-2) 0;
+  }}
+  .dash-empty-reason ul {{ margin: var(--sp-2) 0 0; padding-left: 1.2em; }}
+  .dash-empty-reason li {{ margin: 3px 0; word-break: break-word; color: var(--dash-ink-2); }}
+
+  /* ── 시장 띠 ──────────────────────────────────────────────────────── */
+  /* 카드가 아니라 한 장의 띠. 칸 사이 세로선, 큰 숫자, 작은 이름. */
+  .dash-mstrip {{
+    display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
+    background: var(--dash-surface); border: 1px solid var(--dash-border);
+    border-radius: var(--r-card); margin: 0 0 var(--sp-4);
+    overflow: hidden;
+  }}
+  .ms-cell {{ padding: 10px 14px 11px; border-left: 1px solid var(--dash-divider);
+             min-width: 0; }}
+  .ms-cell:first-child {{ border-left: none; }}
+  .ms-label {{ font-size: var(--fs-2); color: var(--dash-ink-muted);
+              white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+  .ms-val {{ font-size: var(--fs-7); font-weight: 750; color: var(--dash-ink);
+            font-variant-numeric: tabular-nums; letter-spacing: -0.01em;
+            line-height: 1.25; white-space: nowrap; }}
+  .ms-chg {{ font-size: var(--fs-3); font-weight: 650;
+            font-variant-numeric: tabular-nums; }}
+  .ms-chg.up {{ color: var(--dash-up); }}
+  .ms-chg.down {{ color: var(--dash-down); }}
+  .ms-chg.flat {{ color: var(--dash-ink-muted); }}
+  @media (max-width: 760px) {{
+    .dash-mstrip {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
+    .ms-cell:nth-child(4) {{ border-left: none; }}
+    .ms-cell:nth-child(n+4) {{ border-top: 1px solid var(--dash-divider); }}
+    .ms-val {{ font-size: var(--fs-6); }}
+  }}
+
+  /* ── 요약 상태판 ──────────────────────────────────────────────────── */
+  .dash-sgrid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 8px; margin-bottom: var(--sp-3); }}
+  .dash-sgrid .dash-srow {{ margin-bottom: 0; }}
+  .dash-sgrid .dash-srow.quiet, .dash-sgrid .dash-srow.unknown {{ background: transparent; }}
+  .dash-sgrid .dash-srow.quiet .dash-srow-head {{ color: var(--dash-ink-2);
+                                               font-weight: 550; }}
+  .dash-sgrid .dash-srow.alert {{ border-left: 3px solid var(--dash-up); }}
+  .dash-sgrid .dash-srow.watch {{ border-left: 3px solid var(--dash-accent); }}
+  @media (max-width: 760px) {{
+    .dash-sgrid {{ grid-template-columns: 1fr; }}
+  }}
+
+  /* ── 섹터 막대 ────────────────────────────────────────────────────── */
+  .dash-sbars {{ background: var(--dash-surface); border: 1px solid var(--dash-border);
+                border-radius: var(--r-card); padding: 12px 14px; margin: 0 0 var(--sp-3); }}
+  .sb-head {{ font-size: var(--fs-2); color: var(--dash-ink-muted);
+             margin-bottom: var(--sp-2); }}
+  .sb-row {{ display: grid; grid-template-columns: 92px 1fr 64px; gap: 10px;
+            align-items: center; padding: 3px 0; }}
+  .sb-name {{ font-size: var(--fs-3); color: var(--dash-ink); white-space: nowrap;
+             overflow: hidden; text-overflow: ellipsis; }}
+  .sb-track {{ position: relative; height: 12px; }}
+  .sb-zero {{ position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px;
+             background: var(--dash-border); }}
+  .sb-bar {{ position: absolute; top: 2px; bottom: 2px; border-radius: var(--r-chip); }}
+  .sb-bar.up {{ background: var(--dash-up); }}
+  .sb-bar.down {{ background: var(--dash-down); }}
+  .sb-bar.flat {{ background: var(--dash-ink-muted); }}
+  .sb-val {{ font-size: var(--fs-3); font-weight: 650; text-align: right;
+            font-variant-numeric: tabular-nums; }}
+  .sb-val.up {{ color: var(--dash-up); }}
+  .sb-val.down {{ color: var(--dash-down); }}
+
+  /* ── 통과 종목 비교표 ───────────────────────────────────────────── */
+  .dash-htable-wrap {{ overflow-x: auto; margin: 0 0 var(--sp-3);
+    background: var(--dash-surface); border: 1px solid var(--dash-border);
+    border-radius: var(--r-card); }}
+  .dash-htable {{ width: 100%; border-collapse: collapse; font-size: var(--fs-3);
+                 font-variant-numeric: tabular-nums; }}
+  .dash-htable th {{ text-align: right; font-weight: 600; font-size: var(--fs-2);
+    color: var(--dash-ink-muted); padding: 8px 12px; white-space: nowrap;
+    border-bottom: 1px solid var(--dash-border); background: var(--dash-raised); }}
+  .dash-htable td {{ text-align: right; padding: 8px 12px; white-space: nowrap;
+    border-bottom: 1px solid var(--dash-divider); color: var(--dash-ink); }}
+  .dash-htable tr:last-child td {{ border-bottom: none; }}
+  .dash-htable th:nth-child(2), .dash-htable td.ht-name {{ text-align: left; }}
+  .dash-htable td.ht-name span {{ color: var(--dash-ink-muted); margin-left: 6px;
+                                  font-size: var(--fs-2); }}
+  .dash-htable .ht-rank {{ text-align: center; color: var(--dash-ink-muted); width: 32px; }}
+
+  /* ── 보유 종목 표 ─────────────────────────────────────────────────── */
+  .dash-hold td.hd-name {{ text-align: left; font-weight: 650; }}
+  .dash-hold td.hd-name a {{ color: var(--dash-ink); text-decoration: none; }}
+  .dash-hold td.hd-name a:hover {{ text-decoration: underline; }}
+  .dash-hold td.hd-name span {{ color: var(--dash-ink-muted); font-weight: 400;
+                               margin-left: 6px; font-size: var(--fs-2); }}
+  .dash-hold th:first-child {{ text-align: left; }}
+  .dash-hold th:nth-child(2) {{ text-align: right; }}
+  .dash-hold td.hd-num {{ font-size: var(--fs-4); }}
+  .dash-hold td.up, .dash-hold .hd-ext .up {{ color: var(--dash-up); }}
+  .dash-hold td.down, .dash-hold .hd-ext .down {{ color: var(--dash-down); }}
+  .dash-hold .hd-ext {{ display: block; font-size: var(--fs-1); color: var(--dash-ink-muted); }}
+  .dash-hold td.hd-sigs {{ text-align: right; }}
+  .hd-sig {{ display: inline-block; font-size: var(--fs-1); font-weight: 650;
+            padding: 2px 8px; border-radius: var(--r-pill); margin-left: 4px;
+            border: 1px solid var(--dash-border); color: var(--dash-ink-muted); }}
+  .hd-sig.now {{ border-color: var(--dash-up); color: var(--dash-up); }}
+  .hd-sig.soon {{ border-color: var(--dash-accent); color: var(--dash-accent); }}
+
+  .dash-table th.mk, .dash-table td.mk {{ text-align: center !important;
+    min-width: 64px; white-space: normal; }}
+  .dash-table th.mk {{ font-size: var(--fs-1); line-height: 1.3; vertical-align: bottom; }}
+
+  /* ── 차트 조건 ────────────────────────────────────────────────────── */
+  .dash-cc {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+             gap: 8px; margin: var(--sp-2) 0 var(--sp-2); }}
+  .cc-cell {{ background: var(--dash-surface); border: 1px solid var(--dash-border);
+             border-radius: var(--r-inner); padding: 10px 12px; min-width: 0; }}
+  .cc-name {{ font-size: var(--fs-3); font-weight: 700; color: var(--dash-ink); }}
+  .cc-n {{ font-size: var(--fs-7); font-weight: 750; color: var(--dash-ink);
+          font-variant-numeric: tabular-nums; line-height: 1.2; }}
+  .cc-n span {{ font-size: var(--fs-2); font-weight: 500; color: var(--dash-ink-muted);
+               margin-left: 4px; }}
+  .cc-bar {{ height: 4px; background: var(--dash-raised); border-radius: var(--r-chip);
+            margin: 4px 0 6px; overflow: hidden; }}
+  .cc-bar i {{ display: block; height: 100%; background: var(--dash-accent); }}
+  .cc-rule {{ font-size: var(--fs-1); color: var(--dash-ink-muted); line-height: 1.4; }}
+  .cc-miss {{ font-size: var(--fs-2); color: var(--dash-ink-muted);
+             margin: 0 0 var(--sp-2); }}
+  @media (max-width: 760px) {{
+    .dash-cc {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+  }}
+  .dash-ctable td {{ text-align: left; }}
+  /* 조건이 일곱이라 칸 여백을 줄입니다 — 넓은 화면에서 가로 스크롤 없이 */
+  .dash-ctable th, .dash-ctable td {{ padding-left: 8px; padding-right: 8px; }}
+  .dash-ctable .ht-rank {{ width: 24px; }}
+  /* 값은 한 줄, 상태 이름(아랫줄)만 필요하면 줄바꿈 */
+  .dash-ctable td.ct-yes span, .dash-ctable td.ct-no span, .dash-ctable td.ct-na span {{
+    white-space: normal; max-width: 96px; line-height: 1.3; }}
+  .dash-ctable th {{ white-space: normal; line-height: 1.3; }}
+  .dash-ctable th {{ text-align: left; }}
+  .dash-ctable td span {{ display: block; font-size: var(--fs-1);
+                         color: var(--dash-ink-muted); }}
+  .dash-ctable td.ht-name span {{ display: inline; }}
+  .dash-ctable .ct-mark {{ display: inline-block; width: 1.1em;
+                          color: var(--dash-ink-muted); font-weight: 400; }}
+  .dash-ctable td.ct-yes {{
+    background: color-mix(in srgb, var(--dash-accent) 9%, var(--dash-surface));
+    font-weight: 650; }}
+  .dash-ctable td.ct-yes .ct-mark {{ color: var(--dash-accent); }}
+  .dash-ctable td.ct-no {{ color: var(--dash-ink-2); }}
+  .dash-ctable td.ct-na {{ color: var(--dash-ink-muted); }}
+  .dash-ctable td.ct-met {{ font-weight: 700; white-space: nowrap; }}
+  .ct-star {{ font-style: normal; color: var(--dash-accent); margin-right: 4px; }}
+  .ct-dots {{ display: inline-flex !important; gap: 3px; margin-right: 7px;
+             vertical-align: middle; }}
+  .ct-dots i {{ width: 7px; height: 7px; border-radius: 50%;
+               border: 1px solid var(--dash-ink-muted); display: block; }}
+  .ct-dots i.on {{ background: var(--dash-accent); border-color: var(--dash-accent); }}
+
+  .dash-cdetail {{ padding: 2px 0 4px; }}
+  .dash-cloud {{ width: 100%; height: 170px; display: block;
+                background: var(--dash-surface); border: 1px solid var(--dash-divider);
+                border-radius: var(--r-inner); }}
+  .dash-cloud .cl-bull {{ fill: color-mix(in srgb, var(--dash-up) 22%, transparent); }}
+  .dash-cloud .cl-bear {{ fill: color-mix(in srgb, var(--dash-down) 22%, transparent); }}
+  .dash-cloud .cl-price {{ fill: none; stroke: var(--dash-ink); stroke-width: 1.6;
+                          vector-effect: non-scaling-stroke; }}
+  .dash-cloud-wrap {{ position: relative; }}
+  .dash-cloud-wrap .cl-lab {{ position: absolute; right: 6px;
+    transform: translateY(-50%); font-size: var(--fs-1); color: var(--dash-ink);
+    font-weight: 650; font-variant-numeric: tabular-nums;
+    background: var(--dash-surface); padding: 0 3px; }}
+  .cd-legend {{ display: flex; gap: 14px; flex-wrap: wrap; font-size: var(--fs-1);
+               color: var(--dash-ink-muted); margin: 5px 0 var(--sp-2); }}
+  .cd-legend span::before {{ content: ""; display: inline-block; width: 10px;
+    height: 10px; margin-right: 5px; vertical-align: -1px; border-radius: var(--r-chip); }}
+  .cd-legend .lg-price::before {{ height: 2px; vertical-align: 3px; background: var(--dash-ink); }}
+  .cd-legend .lg-bull::before {{ background: color-mix(in srgb, var(--dash-up) 35%, transparent); }}
+  .cd-legend .lg-bear::before {{ background: color-mix(in srgb, var(--dash-down) 35%, transparent); }}
+  .cd-legend span:last-child::before {{ display: none; }}
+  .cd-row {{ display: grid; grid-template-columns: 96px 150px 1fr; gap: 4px 10px;
+            padding: 7px 0; border-top: 1px solid var(--dash-divider);
+            font-size: var(--fs-3); align-items: baseline; }}
+  .cd-name {{ font-weight: 700; color: var(--dash-ink); }}
+  .cd-verdict {{ font-size: var(--fs-2); color: var(--dash-ink-muted); }}
+  .cd-yes .cd-verdict {{ color: var(--dash-accent); font-weight: 700; }}
+  .cd-val {{ color: var(--dash-ink); font-variant-numeric: tabular-nums; }}
+  .cd-rule {{ grid-column: 3; font-size: var(--fs-1); color: var(--dash-ink-muted); }}
+  @media (max-width: 640px) {{
+    .cd-row {{ grid-template-columns: 84px 1fr; }}
+    .cd-val, .cd-rule {{ grid-column: 1 / -1; }}
+  }}
+
+  /* ── 매크로: 시세 표 · 임계값 목록 · 지표 표 ───────────────────────── */
+  .dash-qt td.qt-err {{ text-align: right; color: var(--dash-ink-muted);
+                       font-size: var(--fs-2); white-space: normal; }}
+  .dash-qt td.flat {{ color: var(--dash-ink-muted); }}
+
+  .dash-tlist {{ background: var(--dash-surface); border: 1px solid var(--dash-border);
+                border-radius: var(--r-card); margin: 0 0 var(--sp-2); overflow: hidden; }}
+  .tl-row {{ display: grid; grid-template-columns: 70px 1fr auto; gap: 12px;
+            align-items: start; padding: 10px 14px;
+            border-top: 1px solid var(--dash-divider);
+            border-left: 3px solid transparent; }}
+  .tl-row:first-child {{ border-top: none; }}
+  .tl-row.now {{ border-left-color: var(--dash-up); }}
+  .tl-row .dash-sig-chip {{ justify-self: start; white-space: nowrap; }}
+  .tl-title {{ font-size: var(--fs-4); font-weight: 650; color: var(--dash-ink);
+              line-height: 1.4; }}
+  .tl-detail {{ font-size: var(--fs-2); color: var(--dash-ink-2); margin-top: 1px; }}
+  .tl-tag {{ font-size: var(--fs-1); color: var(--dash-ink-muted); white-space: nowrap;
+            padding-top: 3px; }}
+  @media (max-width: 640px) {{
+    .tl-row {{ grid-template-columns: 66px 1fr; gap: 8px; }}
+    .tl-tag {{ grid-column: 2; padding-top: 0; }}
+  }}
+
+  .dash-mt th, .dash-mt td {{ text-align: left; }}
+  .dash-mt th:nth-child(2), .dash-mt td.mt-val,
+  .dash-mt th:nth-child(5), .dash-mt td.mt-obs {{ text-align: right; }}
+  .dash-mt tr.mt-group td {{ background: var(--dash-raised);
+    padding: 7px 12px; border-bottom: 1px solid var(--dash-border);
+    font-size: var(--fs-3); color: var(--dash-ink); white-space: normal; }}
+  .dash-mt tr.mt-group td span {{ color: var(--dash-ink-muted); font-size: var(--fs-2);
+                                 margin-left: 8px; }}
+  .dash-mt td.mt-name b {{ font-weight: 650; }}
+  .dash-mt td.mt-name span {{ display: block; font-size: var(--fs-1);
+                             color: var(--dash-ink-muted); }}
+  .dash-mt td.mt-val {{ font-size: var(--fs-5); font-weight: 700; }}
+  .dash-mt td.mt-delta {{ color: var(--dash-ink-2); }}
+  .dash-mt td.mt-spark svg {{ display: block; }}
+  .dash-mt td.mt-obs {{ color: var(--dash-ink-2); font-size: var(--fs-2); }}
+  .dash-mt td.mt-obs span {{ display: block; color: var(--dash-ink-muted);
+                            font-size: var(--fs-1); }}
+  .dash-mt td.mt-obs span.late {{ color: var(--dash-badge-error); font-weight: 650; }}
+  .dash-mt tr.mt-hit td:first-child {{ box-shadow: inset 3px 0 0 var(--dash-accent); }}
+  .mt-flag, .mt-unv {{ font-style: normal; font-size: var(--fs-1); font-weight: 650;
+    margin-left: 7px; padding: 1px 7px; border-radius: var(--r-pill);
+    border: 1px solid var(--dash-accent); color: var(--dash-accent); }}
+  .mt-unv {{ border-color: var(--dash-border); color: var(--dash-ink-muted); }}
+  .dash-mt tr.mt-err td {{ color: var(--dash-ink-muted); white-space: normal; }}
+  .dash-mt tr.mt-why td {{ white-space: normal; font-size: var(--fs-2);
+    color: var(--dash-ink-2); line-height: 1.55; padding-top: 0;
+    border-bottom: 1px solid var(--dash-divider); }}
+
+  /* 심리 두 칸 (프리뷰용 — 앱은 st.columns 가 같은 일을 합니다) */
+  .dash-two {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+              gap: 16px; align-items: start; }}
+  @media (max-width: 900px) {{ .dash-two {{ grid-template-columns: 1fr; }} }}
+
+  /* ── 전일 장 브리핑 ───────────────────────────────────────────────── */
+  .dash-db {{ background: var(--dash-surface); border: 1px solid var(--dash-border);
+             border-radius: var(--r-card); padding: 12px 14px; margin: 0 0 var(--sp-3); }}
+  .db-head {{ display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+             margin-bottom: var(--sp-2); }}
+  .db-head b {{ font-size: var(--fs-5); color: var(--dash-ink); }}
+  .db-head span {{ font-size: var(--fs-2); color: var(--dash-ink-muted); }}
+  .db-head .db-live {{ color: var(--dash-accent); font-weight: 650; }}
+  .db-cells {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+              gap: 0; border: 1px solid var(--dash-divider); border-radius: var(--r-inner);
+              margin-bottom: var(--sp-2); overflow: hidden; }}
+  .db-cell {{ padding: 8px 12px; border-left: 1px solid var(--dash-divider); }}
+  .db-cell:first-child {{ border-left: none; }}
+  .db-l {{ font-size: var(--fs-1); color: var(--dash-ink-muted); }}
+  .db-v {{ font-size: var(--fs-5); font-weight: 750; color: var(--dash-ink);
+          font-variant-numeric: tabular-nums; }}
+  .db-c {{ font-size: var(--fs-3); font-weight: 650; font-variant-numeric: tabular-nums; }}
+  .db-c.up {{ color: var(--dash-up); }} .db-c.down {{ color: var(--dash-down); }}
+  .db-c.flat {{ color: var(--dash-ink-muted); }}
+  .db-line {{ display: grid; grid-template-columns: 78px 1fr; gap: 10px;
+             padding: 5px 0; font-size: var(--fs-3); color: var(--dash-ink);
+             line-height: 1.55; border-top: 1px solid var(--dash-divider); }}
+  .db-line span {{ color: var(--dash-ink-muted); font-size: var(--fs-2); }}
+  .db-miss, .db-err {{ font-size: var(--fs-2); color: var(--dash-ink-muted);
+                      margin-top: var(--sp-1); }}
+  .db-rep {{ border-top: 1px solid var(--dash-divider); margin-top: var(--sp-2);
+            padding-top: var(--sp-2); }}
+  .db-rep-h {{ font-size: var(--fs-2); font-weight: 700; color: var(--dash-ink-2); }}
+  .db-rep ul {{ margin: 4px 0 0; padding-left: 1.2em; font-size: var(--fs-3); }}
+  .db-rep li {{ margin: 3px 0; }}
+  .db-rep li span {{ font-size: var(--fs-1); color: var(--dash-ink-muted); }}
+
+  /* ── 산업 리포트 ──────────────────────────────────────────────────── */
+  .dash-rc {{ background: var(--dash-surface); border: 1px solid var(--dash-border);
+             border-radius: var(--r-card); padding: 10px 14px; margin: 0 0 var(--sp-3); }}
+  .rc-row {{ display: grid; grid-template-columns: 110px 1fr 34px; gap: 10px;
+            align-items: center; padding: 3px 0; }}
+  .rc-name {{ font-size: var(--fs-3); color: var(--dash-ink); white-space: nowrap;
+             overflow: hidden; text-overflow: ellipsis; }}
+  .rc-track {{ height: 10px; background: var(--dash-raised); border-radius: var(--r-chip);
+              overflow: hidden; }}
+  .rc-track i {{ display: block; height: 100%; background: var(--dash-accent); }}
+  .rc-n {{ font-size: var(--fs-3); font-weight: 700; text-align: right;
+          font-variant-numeric: tabular-nums; }}
+  .dash-rt th, .dash-rt td {{ text-align: left; }}
+  .dash-rt td.rt-title {{ white-space: normal; min-width: 220px; line-height: 1.45; }}
+  .dash-rt td.rt-date, .dash-rt td.rt-broker, .dash-rt td.rt-cat {{
+    color: var(--dash-ink-2); font-size: var(--fs-2); }}
+  .rt-pdf {{ font-size: var(--fs-1); color: var(--dash-ink-muted);
+            border: 1px solid var(--dash-border); border-radius: var(--r-chip);
+            padding: 0 4px; margin-left: 4px; }}
+
+  /* ── 보유 평가 ────────────────────────────────────────────────────── */
+  .dash-pf {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+             gap: 8px; margin: 0 0 var(--sp-2); }}
+  .pf-kpi {{ background: var(--dash-surface); border: 1px solid var(--dash-border);
+            border-radius: var(--r-inner); padding: 10px 14px; }}
+  .pf-l {{ font-size: var(--fs-2); color: var(--dash-ink-muted); }}
+  .pf-v {{ font-size: var(--fs-7); font-weight: 750; color: var(--dash-ink);
+          font-variant-numeric: tabular-nums; }}
+  .pf-s {{ font-size: var(--fs-2); color: var(--dash-ink-2); font-variant-numeric: tabular-nums; }}
+  .pf-v.up, .pf-s.up, .pf-sub.up {{ color: var(--dash-up); }}
+  .pf-v.down, .pf-s.down, .pf-sub.down {{ color: var(--dash-down); }}
+  .pf-sub {{ display: block; font-size: var(--fs-1); }}
+  .dash-pft td.pf-w {{ min-width: 110px; position: relative; text-align: right; }}
+  .dash-pft td.pf-w i {{ position: absolute; left: 12px; top: 50%; height: 8px;
+    margin-top: -4px; max-width: calc(100% - 64px); background: var(--dash-accent);
+    border-radius: var(--r-chip); opacity: .75; }}
+  .dash-pft td.pf-w span {{ font-variant-numeric: tabular-nums; }}
+  .dash-hold td.hd-chart {{ font-size: var(--fs-2); color: var(--dash-ink-2);
+    white-space: normal; min-width: 160px; line-height: 1.45; text-align: left; }}
+
+  /* ── 주요 일정 ────────────────────────────────────────────────────── */
+  .dash-cal {{ background: var(--dash-surface); border: 1px solid var(--dash-border);
+              border-radius: var(--r-card); margin: 0 0 var(--sp-3); overflow: hidden; }}
+  .cal-day {{ display: grid; grid-template-columns: 78px 1fr; gap: 10px;
+             padding: 9px 14px; border-top: 1px solid var(--dash-divider); }}
+  .cal-day:first-child {{ border-top: none; }}
+  .cal-date b {{ font-size: var(--fs-5); color: var(--dash-ink); margin-right: 4px; }}
+  .cal-date span {{ font-size: var(--fs-2); color: var(--dash-ink-muted); }}
+  .cal-date em {{ display: block; font-style: normal; font-size: var(--fs-1);
+                 color: var(--dash-ink-muted); }}
+  .cal-row {{ display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px;
+             padding: 2px 0; font-size: var(--fs-3); }}
+  .cal-row.cal-other {{ opacity: .55; }}
+  .cal-row.cal-imp .cal-t, .cal-c.cal-imp .cal-t {{ font-weight: 750; }}
+  .cal-t {{ color: var(--dash-ink); }}
+  .cal-t i {{ font-style: normal; font-size: var(--fs-1); color: var(--dash-ink-muted);
+             border: 1px solid var(--dash-border); border-radius: var(--r-chip);
+             padding: 0 4px; }}
+  .cal-n {{ font-size: var(--fs-2); color: var(--dash-ink-muted); }}
+  .cal-mk {{ font-size: var(--fs-1); font-weight: 700; padding: 1px 6px;
+            border-radius: var(--r-pill); border: 1px solid var(--dash-border);
+            color: var(--dash-ink-2); white-space: nowrap; }}
+  .cal-k {{ font-size: var(--fs-1); color: var(--dash-ink-muted); white-space: nowrap;
+           min-width: 44px; }}
+  .cal-k.policy {{ color: var(--dash-accent); font-weight: 700; }}
+  .dash-calc {{ background: var(--dash-surface); border: 1px solid var(--dash-border);
+               border-radius: var(--r-card); padding: 6px 14px; margin: 0 0 var(--sp-3); }}
+  .cal-c {{ display: grid; grid-template-columns: 52px 44px 1fr auto; gap: 8px;
+           align-items: baseline; padding: 5px 0; font-size: var(--fs-3);
+           border-top: 1px solid var(--dash-divider); }}
+  .cal-c:first-child {{ border-top: none; }}
+  .cal-d {{ font-weight: 750; color: var(--dash-accent); font-variant-numeric: tabular-nums; }}
+  @media (max-width: 640px) {{
+    .cal-c {{ grid-template-columns: 48px 40px 1fr; }}
+    .cal-c .cal-n {{ grid-column: 3; }}
+    .cal-day {{ grid-template-columns: 58px 1fr; }}
+  }}
+
+  /* ── 걸러진 단계 ──────────────────────────────────────────────────── */
+  .dash-funnel {{ margin: var(--sp-2) 0 var(--sp-4); }}
+  .fn-title {{ font-size: var(--fs-2); color: var(--dash-ink-muted);
+              margin-bottom: var(--sp-1); }}
+  .fn-row {{ display: flex; align-items: stretch; flex-wrap: wrap; gap: 4px; }}
+  .fn-step {{
+    flex: 1 1 88px; min-width: 84px;
+    background: var(--dash-surface); border: 1px solid var(--dash-border);
+    border-radius: var(--r-inner); padding: 8px 10px;
+  }}
+  .fn-n {{ font-size: var(--fs-7); font-weight: 750; line-height: 1.1;
+          font-variant-numeric: tabular-nums; color: var(--dash-ink); }}
+  .fn-l {{ font-size: var(--fs-2); color: var(--dash-ink-2); margin-top: 2px; }}
+  .fn-note {{ font-size: var(--fs-1); color: var(--dash-ink-muted); margin-top: 4px; }}
+  .fn-arrow {{ align-self: center; color: var(--dash-ink-muted);
+              font-size: var(--fs-6); padding: 0 1px; }}
+  .fn-worst {{ border-color: var(--dash-accent);
+              box-shadow: inset 0 -3px 0 var(--dash-accent); }}
+  .fn-zero .fn-n {{ color: var(--dash-ink-muted); }}
+  .fn-errs {{ margin-top: var(--sp-2); font-size: var(--fs-2);
+             color: var(--dash-ink-2); }}
+  .fn-errs summary {{ cursor: pointer; }}
+  .fn-errs ul {{ margin: var(--sp-1) 0 0; padding-left: 1.2em; }}
+  .fn-errs li {{ margin: 2px 0; word-break: break-all; }}
+
   /* ── 국내 스크리너 ────────────────────────────────────────────────── */
   .dash-scr-head {{
     display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
@@ -1492,7 +1936,10 @@ def build_rules() -> str:
   }}
 
   /* ── 가격 조건 ────────────────────────────────────────────────────── */
-  .dash-price {{
+  /* 2026-11-11: 이 상자가 .dash-price 라는 이름을 시세 카드의 가격 숫자와
+     같이 써서, **모든 시세 카드의 숫자에 회색 상자가 씌워졌습니다.**
+     카드가 투박해 보이던 원인 중 하나입니다. 이름을 나눴습니다. */
+  .dash-pricecond {{
     border: 1px solid var(--dash-border); border-radius: var(--r-card);
     background: var(--dash-raised); padding: 11px 13px; margin-top: 8px;
   }}

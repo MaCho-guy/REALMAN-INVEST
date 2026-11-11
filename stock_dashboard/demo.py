@@ -19,6 +19,8 @@ from sources.model import MarketStatus, Quote
 
 #: 데모에서 사용할 기준 가격. 심볼 해시로 결정되므로 실행마다 동일합니다.
 _BASE_HINTS: dict[str, float] = {
+    "^KS11": 2650.0, "^KQ11": 760.0, "^GSPC": 6050.0, "^IXIC": 20100.0,
+    "^DJI": 44200.0, "^SOX": 5150.0,
     "KRW=X": 1380.0,
     "EURUSD=X": 1.08,
     "^TNX": 4.21,
@@ -117,6 +119,8 @@ def demo_payload() -> dict[str, dict[str, Quote]]:
             # 1순위 심볼만 채웁니다. 대체 심볼을 비워 둬서 폴백 경로도 데모에서 확인됩니다.
             yahoo_quotes[inst.symbol] = _fake(inst.symbol, inst.currency or "USD", status)
 
+    for inst in config.STRIP_EXTRA:
+        yahoo_quotes[inst.symbol] = _fake(inst.symbol, inst.currency, MarketStatus.REGULAR)
     yahoo_quotes["KRW=X"] = _fake("KRW=X", "KRW", MarketStatus.REGULAR)
     yahoo_quotes["EURUSD=X"] = _fake("EURUSD=X", "USD", MarketStatus.REGULAR)
 
@@ -1132,22 +1136,50 @@ def demo_sector_news(sectors):
 
 
 def demo_market_filings():
+    """시장 공시 데모 — 묶음·시장·꼬리표가 고루 나오게. 회사·제목은 실제
+    양식을 흉내 냈을 뿐 실제 공시가 아닙니다 (접수번호도 지어낸 것)."""
     import sources.dart as _dart  # noqa: PLC0415
 
     rows = [
-        ("2026-11-11", "삼성전자", "005930", "영업(잠정)실적(공정공시)", "실적"),
-        ("2026-11-11", "에코프로비엠", "247540", "단일판매ㆍ공급계약체결", "계약"),
-        ("2026-11-10", "SK하이닉스", "000660", "자기주식취득결정", "주주환원"),
-        ("2026-11-10", "알테오젠", "196170", "전환사채권발행결정", "자본조달"),
-        ("2026-11-10", "현대차", "005380", "현금ㆍ현물배당결정", "주주환원"),
-        ("2026-11-09", "(데모) 어떤기업", "000000", "최대주주변경", "지배구조"),
-        ("2026-11-09", "(데모) 다른기업", "111111", "불성실공시법인지정", "경고"),
+        # (날짜, 회사, 코드, 제목, 시장, rm, 제출인)
+        ("2026-11-11", "삼성전자", "005930", "연결재무제표기준영업(잠정)실적(공정공시)", "Y", "유", ""),
+        ("2026-11-11", "에코프로비엠", "247540", "단일판매ㆍ공급계약체결", "K", "코", ""),
+        ("2026-11-11", "(데모) 바이오A", "222222", "기술이전계약체결", "K", "코", ""),
+        ("2026-11-11", "(데모) 코스닥B", "333333", "[기재정정]전환사채권발행결정", "K", "", ""),
+        ("2026-11-11", "(데모) 코스닥C", "444444", "전환가액의조정", "K", "", ""),
+        ("2026-11-11", "(데모) 코스닥D", "555555", "기타시장안내(조회공시요구)", "K", "코", "코스닥시장본부"),
+        ("2026-11-10", "SK하이닉스", "000660", "주요사항보고서(자기주식취득결정)", "Y", "", ""),
+        ("2026-11-10", "알테오젠", "196170", "주식등의대량보유상황보고서(일반)", "K", "", "(데모) 어떤자산운용"),
+        ("2026-11-10", "현대차", "005380", "현금ㆍ현물배당결정", "Y", "유", ""),
+        ("2026-11-10", "(데모) 코스피E", "666666", "주요사항보고서(유상증자결정)", "Y", "", ""),
+        ("2026-11-10", "(데모) 코스피F", "777777", "단일판매ㆍ공급계약체결(자회사의주요경영사항)", "Y", "유", ""),
+        ("2026-11-09", "(데모) 어떤기업", "000000", "최대주주변경을수반하는주식양수도계약체결", "K", "코", ""),
+        ("2026-11-09", "(데모) 다른기업", "111111", "불성실공시법인지정", "K", "코", "코스닥시장본부"),
+        ("2026-11-09", "(데모) 코스피G", "888888", "자기주식취득신탁계약체결결정", "Y", "유", ""),
+        ("2026-11-09", "(데모) 코스닥H", "999999", "무상증자결정", "K", "코", ""),
+        ("2026-11-08", "(데모) 코스피I", "121212", "회사분할결정", "Y", "유", ""),
+        ("2026-11-08", "(데모) 코스닥J", "131313", "매출액또는손익구조30%(대규모법인은15%)이상변경", "K", "코", ""),
+        ("2026-11-08", "(데모) 코스닥K", "141414", "전환청구권행사", "K", "코", ""),
     ]
-    return [
-        _dart.MarketFiling(date=d, corp_name=n, stock_code=c,
-                           title=t, kind=k, rcept_no=f"2026111{i:07d}")
-        for i, (d, n, c, t, k) in enumerate(rows)
-    ]
+    out = []
+    for i, (d, n, c, t, cls, rm, filer) in enumerate(rows):
+        kind = _dart.classify_detail(t)
+        out.append(_dart.MarketFiling(
+            date=d, corp_name=n, stock_code=c, title=t,
+            kind=kind.group if kind else "", rcept_no=f"2026111{i:07d}",
+            sub=kind.label if kind else "", market=_dart._MARKET_OF[cls],
+            flags=_dart.title_flags(t, rm), filer=filer))
+    _dart._sort_filings(out)
+    return out
+
+
+def demo_filing_scan():
+    import sources.dart as _dart  # noqa: PLC0415
+
+    filings = demo_market_filings()
+    return _dart.FilingScan(
+        filings=filings, scanned=1240, begin="2026-11-06",
+        gaps=["거래소공시는 11-08 이후만 훑었습니다 (6쪽 한도)"])
 
 
 def demo_sector_heat(specs):
@@ -1172,3 +1204,106 @@ def demo_sector_heat(specs):
     if len(specs) > 6:
         names[specs[6][0]] = "(데모) TIGER 화장품"
     return sector_heat.build(specs, closes, names)
+
+
+def demo_chart_ohlc(candidates):
+    """차트 조건용 가짜 일봉 (고·저·종). ({코드: {...}}, {코드: 오류})
+
+    종목마다 모양을 다르게 줍니다 — 꾸준한 상승, 상승 뒤 눌림, 하락, 횡보.
+    '상승 뒤 눌림' 이 있어야 양운 + CCI 과매도 조합이 화면에 실제로 잡힙니다.
+    """
+    out, errors = {}, {}
+    for idx, (code, _name) in enumerate(candidates):
+        rnd = random.Random(f"chart-{code}")
+        shape = idx % 5
+        price = 40_000.0 + rnd.uniform(0, 60_000)
+        hs, ls, cs, vs = [], [], [], []
+        base_vol = rnd.uniform(50_000, 500_000)
+        n = 280
+        for day in range(n):
+            if shape == 0:                       # 꾸준한 상승
+                drift = 0.0020
+            elif shape == 1:                     # 상승 뒤 최근 눌림
+                drift = 0.0030 if day < n - 9 else -0.016
+            elif shape == 2:                     # 하락
+                drift = -0.0018
+            elif shape == 3:                     # 하락하다 최근 반등
+                drift = -0.0020 if day < n - 14 else 0.012
+            else:                                # 횡보
+                drift = 0.0
+            price *= math.exp(rnd.gauss(drift, 0.014))
+            hi = price * (1 + abs(rnd.gauss(0, 0.007)))
+            lo = price * (1 - abs(rnd.gauss(0, 0.007)))
+            hs.append(hi), ls.append(lo), cs.append(price)
+            # 최근 며칠은 몇 종목만 거래량이 늘게 — '거래량 동반' 이 화면에 보이도록
+            surge = 2.2 if (idx % 3 == 0 and day >= n - 2) else 1.0
+            vs.append(base_vol * rnd.uniform(0.7, 1.3) * surge)
+        if idx % 13 == 9:                        # 몇 종목은 일부러 실패
+            errors[code] = "(데모) 네이버 일봉 요청 실패: ReadTimeout → 야후도 비었음"
+            continue
+        if idx % 17 == 11:                       # 신규 상장
+            hs, ls, cs, vs = hs[-70:], ls[-70:], cs[-70:], vs[-70:]
+        out[code] = {"high": hs, "low": ls, "close": cs, "volume": vs}
+    return out, errors
+
+
+def demo_daily_bars(market: str, today: str | None = None):
+    """전일 브리핑용 가짜 일봉 — {심볼: [(날짜, 종가)]}. 평일 22개, 오늘까지."""
+    import datetime as _dt
+
+    end = _dt.date.fromisoformat(today) if today else _dt.date.today()
+    days: list[str] = []
+    d = end
+    while len(days) < 22:
+        if d.weekday() < 5:
+            days.append(d.isoformat())
+        d -= _dt.timedelta(days=1)
+    days.reverse()
+    out = {}
+    for sym in config.daily_brief_symbols(market):
+        rnd = random.Random(f"brief-{sym}")
+        price = _BASE_HINTS.get(sym, 50.0 + rnd.uniform(0, 400))
+        bars = []
+        for day in days:
+            price *= math.exp(rnd.gauss(0.0004, 0.012))
+            bars.append((day, price))
+        out[sym] = bars
+    return out, {}
+
+
+def demo_research():
+    """리포트 목록 가짜 데이터 — (산업분석, 시황정보). 제목은 전부 지어낸 것."""
+    from sources.research import Report  # noqa: PLC0415
+
+    cats = ["반도체", "반도체", "반도체", "자동차", "자동차", "은행", "조선",
+            "조선", "제약", "2차전지", "유틸리티", "반도체", "건설", "게임"]
+    brokers = ["(데모)A증권", "(데모)B투자증권", "(데모)C증권"]
+    ind = [Report(kind="industry", category=c,
+                  title=f"(데모) {c} 산업 점검 {i + 1}",
+                  broker=brokers[i % 3],
+                  date=f"2026-11-{11 - i // 4:02d}",
+                  url="https://example.com/read", pdf="https://example.com/r.pdf")
+           for i, c in enumerate(cats)]
+    mk = [Report(kind="market", title=f"(데모) 모닝 브리프 {i + 1}",
+                 broker=brokers[i % 3], date=f"2026-11-{11 - i // 2:02d}",
+                 url="https://example.com/read", pdf="https://example.com/m.pdf")
+          for i in range(5)]
+    return ind, mk
+
+
+def demo_fred_release_dates(today=None):
+    """FRED releases/dates 모양의 가짜 응답 — 날짜는 지어낸 것입니다."""
+    import datetime as _dt
+
+    import calendar_events as ce  # noqa: PLC0415
+
+    base = today or _dt.date.today()
+    rows = []
+    for i, (rid, name, key, _imp) in enumerate(ce.FRED_RELEASES):
+        for k in range(2):
+            d = base + _dt.timedelta(days=3 + i * 4 + k * 30)
+            while d.weekday() >= 5:          # 발표는 평일
+                d += _dt.timedelta(days=1)
+            rows.append({"release_id": rid, "release_name": f"(데모) {key.title()}",
+                         "date": d.isoformat()})
+    return {"release_dates": rows}

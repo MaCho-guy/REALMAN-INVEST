@@ -1143,7 +1143,9 @@ def render_screen_table(screens, criteria) -> str:
     """전체 요약 표 — 어느 기업이 어느 기준에서 걸렸나 한눈에."""
     if not screens:
         return ""
-    header = "".join(f"<th>{_esc(c.name.replace(' 꾸준히', '').replace('가', ''))}</th>"
+    # 기준 이름이 길어서 열마다 폭이 들쭉날쭉했고, 표시(○·×)가 제목과
+    # 어긋나 보였습니다. 제목과 표시를 모두 가운데로 맞춥니다.
+    header = "".join(f"<th class='mk'>{_esc(c.name.replace(' 꾸준히', '').replace('가', ''))}</th>"
                      for c in criteria)
     rows = []
     for s in screens:
@@ -1151,7 +1153,7 @@ def render_screen_table(screens, criteria) -> str:
             continue
         cells = []
         for check in s.checks:
-            cls = {"pass": "", "fail": "na", "unknown": "na"}[check.verdict]
+            cls = {"pass": "mk", "fail": "mk na", "unknown": "mk na"}[check.verdict]
             cells.append(f'<td class="{cls}">{_MARK[check.verdict]}</td>')
         rows.append(
             f"<tr><td>{_esc(s.ticker)}</td>"
@@ -1776,10 +1778,46 @@ def render_summary_row(row) -> str:
 
 
 def render_summary(summary) -> str:
+    """판정 한 줄 + **두 칸 상태판**. 전에는 같은 모양 카드가 세로로 네 장
+    쌓여 있어서 무엇이 급한지가 위치로 드러나지 않았습니다. 이제 확인할
+    것(alert·watch)이 앞에 오고, 조용한 칸은 흐리게 둡니다."""
+    order = {"alert": 0, "watch": 1}
+    rows = sorted(summary.rows, key=lambda r: order.get(r.level, 2))
     return (
         render_summary_band(summary)
-        + "".join(render_summary_row(r) for r in summary.rows)
+        + '<div class="dash-sgrid">'
+        + "".join(render_summary_row(r) for r in rows)
+        + "</div>"
     )
+
+
+def render_sector_bars(rows, n: int = 4) -> str:
+    """섹터 온도 요약 — 기준선 대비 1개월, 강한 n개 · 약한 n개를 막대로.
+
+    0 을 가운데 둔 **양방향 막대**입니다. 숫자 열만 있으면 크기 비교가
+    눈에 안 들어옵니다. 막대 길이는 이 묶음의 최댓값 기준이라 다른 날과
+    길이를 비교하면 안 됩니다 — 그래서 숫자를 막대 끝에 같이 적습니다.
+    """
+    usable = [r for r in rows or [] if getattr(r, "ok", False)
+              and not getattr(r, "benchmark", False) and r.rel_1m is not None]
+    if not usable:
+        return ""
+    usable.sort(key=lambda r: -r.rel_1m)
+    pick = usable[:n] + [r for r in usable[-n:] if r not in usable[:n]]
+    top = max(abs(r.rel_1m) for r in pick) or 1.0
+    lines = []
+    for r in pick:
+        w = abs(r.rel_1m) / top * 50.0
+        cls = direction_class(r.rel_1m)
+        side = (f'left:50%;width:{w:.1f}%' if r.rel_1m >= 0
+                else f'left:{50 - w:.1f}%;width:{w:.1f}%')
+        lines.append(
+            f'<div class="sb-row"><div class="sb-name">{_esc(r.label)}</div>'
+            f'<div class="sb-track"><div class="sb-zero"></div>'
+            f'<div class="sb-bar {cls}" style="{side}"></div></div>'
+            f'<div class="sb-val {cls}">{r.rel_1m:+.1f}%p</div></div>')
+    return ('<div class="dash-sbars"><div class="sb-head">섹터 온도 · 1개월, '
+            'KODEX 200 대비</div>' + "".join(lines) + "</div>")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1932,7 +1970,7 @@ def render_price_block(price, *, show_source: bool = False,
             f"{cells}</div>"
         )
 
-    return (f'<div class="dash-price">{head}'
+    return (f'<div class="dash-pricecond">{head}'
             f'<div class="dash-screen-checks">{checks}</div>'
             f"{metrics_block}</div>")
 
@@ -2383,44 +2421,117 @@ def render_sector_news(sectors, headlines: dict, errors: dict) -> str:
     return f'<div class="dash-sectors">{"".join(blocks)}</div>'
 
 
-_FILING_CLASS = {
-    "실적": "now", "경고": "now", "자본조달": "soon",
-    "지배구조": "soon", "주주환원": "fyi", "계약": "fyi",
+def _filing_type_cell(f) -> str:
+    tone = getattr(f, "tone", "neutral") or "neutral"
+    sub = getattr(f, "sub", "") or ""
+    return (f"<span class='dash-fk dash-fk-{_esc(tone)}'>{_esc(f.kind)}</span>"
+            + (f"<span class='dash-fk-sub'>{_esc(sub)}</span>"
+               if sub and sub != f.kind else ""))
+
+
+def render_filing_counts(counts, active=()) -> str:
+    """묶음별 건수 + 세부 유형 분해. counts 는 dart.count_filings() 결과."""
+    if not counts:
+        return ""
+    active = set(active or ())
+    cells = []
+    for group, n, subs in counts:
+        tone = _FILING_TONE.get(group, "neutral")
+        detail = " · ".join(f"{_esc(s)} {c}" for s, c in subs[:5])
+        if len(subs) > 5:
+            detail += f" · 외 {sum(c for _s, c in subs[5:])}"
+        dim = " dim" if active and group not in active else ""
+        cells.append(
+            f"<div class='dash-fc dash-fc-{tone}{dim}'>"
+            f"<div class='dash-fc-head'><span>{_esc(group)}</span>"
+            f"<b>{n}</b></div>"
+            f"<div class='dash-fc-sub'>{detail}</div></div>")
+    return f"<div class='dash-fc-grid'>{''.join(cells)}</div>"
+
+
+#: dart.GROUP_TONE 과 같은 값 — components 가 sources 를 import 하지 않게 복사.
+_FILING_TONE = {
+    "경고": "risk", "실적": "earn", "희석·물량": "dilute",
+    "주주환원": "return", "지분·M&A": "owner", "사업·계약": "biz",
+    "주식수 변동": "neutral", "일정·IR": "neutral",
 }
 
 
-def render_market_filings(filings: list, error: str = "") -> str:
-    """시장 전체 주요 공시."""
+def render_market_filings(filings: list, error: str = "", *,
+                          held=None, scan=None, limit: int = 120) -> str:
+    """시장 전체 주요 공시 — 세부 유형·시장·꼬리표까지."""
     if error:
         return render_footnote(f"<b>공시를 받지 못했습니다.</b> {_esc(error)}")
+    held = set(held or ())
+    gaps = list(getattr(scan, "gaps", None) or [])
     if not filings:
         return render_footnote(
-            "<b>최근 주요 공시가 없습니다.</b> 전체 공시가 없다는 뜻이 "
-            "아니라, 추려내는 유형(실적·증자·자사주·최대주주변경 등)에 "
-            "해당하는 것이 없다는 뜻입니다.")
-    rows = "".join(
-        "<tr>"
-        f"<td class='meta'>{_esc(f.date)}</td>"
-        f"<td><span class='dash-sig-chip "
-        f"{_FILING_CLASS.get(f.kind, 'fyi')}'>{_esc(f.kind)}</span></td>"
-        f"<td class='name'>{_esc(f.corp_name)}</td>"
-        "<td>"
-        + (f'<a class="dash-inline-link" href="{_esc(f.url)}" target="_blank" '
-           f'rel="noopener noreferrer">{_esc(f.title)}</a>'
-           if f.url else _esc(f.title))
-        + "</td></tr>"
-        for f in filings
-    )
+            "<b>조건에 맞는 공시가 없습니다.</b> 전체 공시가 없다는 뜻이 "
+            "아니라, 추려내는 유형(실적·증자·자사주·최대주주변경 등)이나 "
+            "고른 필터에 해당하는 것이 없다는 뜻입니다."
+            + (" " + _esc(" / ".join(gaps)) if gaps else ""))
+    shown = filings[:limit]
+    rows = []
+    for f in shown:
+        star = (" <span class='dash-fl-star' title='보유·관심 종목'>★</span>"
+                if f.stock_code and f.stock_code in held else "")
+        flags = "".join(f"<span class='dash-fl-flag'>{_esc(x)}</span>"
+                        for x in getattr(f, "flags", ()) or ())
+        filer = getattr(f, "filer", "") or ""
+        who = (f"<div class='dash-fl-filer'>제출 {_esc(filer)}</div>"
+               if filer and filer != f.corp_name else "")
+        title = (f'<a class="dash-inline-link" href="{_esc(f.url)}" '
+                 f'target="_blank" rel="noopener noreferrer">{_esc(f.title)}</a>'
+                 if f.url else _esc(f.title))
+        market = getattr(f, "market", "") or ""
+        rows.append(
+            "<tr>"
+            f"<td class='meta'>{_esc(f.date[5:] if len(f.date) == 10 else f.date)}"
+            + (f"<div class='dash-fl-mkt'>{_esc(market)}</div>" if market else "")
+            + "</td>"
+            f"<td class='dash-fl-type'>{_filing_type_cell(f)}</td>"
+            f"<td class='name'>{_esc(f.corp_name)}{star}</td>"
+            f"<td>{title}{flags}{who}</td></tr>")
+    more = (f"<b>앞의 {limit}건만 보입니다</b> (전체 {len(filings)}건) — "
+            "필터로 좁히십시오. " if len(filings) > limit else "")
+    gap_txt = ("<b>훑은 범위:</b> " + _esc(" / ".join(gaps)) + ". "
+               if gaps else "")
+    fb = ("<b>공시 유형 필터가 응답하지 않아 시장별 전체 목록을 몇 쪽만 "
+          "봤습니다.</b> " if getattr(scan, "fallback", False) else "")
     return (
-        '<div class="dash-table-wrap"><table class="dash-table">'
-        "<thead><tr><th>날짜</th><th>분류</th><th>회사</th>"
+        '<div class="dash-table-wrap"><table class="dash-table dash-fl">'
+        "<thead><tr><th>날짜</th><th>유형</th><th>회사</th>"
         "<th>보고서</th></tr></thead>"
-        f"<tbody>{rows}</tbody></table></div>"
+        f"<tbody>{''.join(rows)}</tbody></table></div>"
         + render_footnote(
-            "<b>제목으로 추렸습니다.</b> DART 전체 공시는 하루 수백 건이라 "
-            "주가에 바로 영향을 주는 유형만 남깁니다. 놓치는 쪽을 택했으니 "
-            "<b>빠진 게 있을 수 있습니다</b> — 전체는 DART 에서 보십시오.")
+            more + fb + gap_txt +
+            "<b>제목으로 추렸습니다.</b> 주요사항보고·거래소공시·지분공시를 "
+            "받아 정해 둔 세부 유형에 맞는 것만 남깁니다. 정기보고서, "
+            "임원·주요주주 소유보고(하루 수백 건), 투자주의 지정은 뺐습니다. "
+            "<b>놓치는 쪽을 택했으니 빠진 게 있을 수 있습니다</b> — 전체는 "
+            "DART 에서 보십시오. '정정' 은 앞서 낸 공시를 고친 것이라 원래 "
+            "공시와 함께 봐야 합니다.")
     )
+
+
+def render_filing_guide(types, groups) -> str:
+    """유형별로 '이 공시가 뜨면 무엇을 보나'. types 는 dart.DISCLOSURE_TYPES."""
+    blocks = []
+    for g in groups:
+        items = [t for t in types if t.group == g]
+        if not items:
+            continue
+        tone = _FILING_TONE.get(g, "neutral")
+        lis = "".join(
+            f"<li><b>{_esc(t.label)}</b> — {_esc(t.why)}</li>" for t in items)
+        blocks.append(
+            f"<div class='dash-fg'><span class='dash-fk dash-fk-{tone}'>"
+            f"{_esc(g)}</span><ul>{lis}</ul></div>")
+    return (f"<div class='dash-fg-wrap'>{''.join(blocks)}</div>"
+            + render_footnote(
+                "좋다·나쁘다를 판정하지 않고 <b>보고서에서 어느 숫자를 "
+                "보면 되는지</b>만 적었습니다. 같은 유형이라도 규모와 조건에 "
+                "따라 의미가 달라집니다."))
 
 
 def render_nav_groups(groups) -> str:
@@ -2604,3 +2715,773 @@ def render_sector_heat_summary(rows: list) -> str:
                      f'약세</span>{chips(cold, "down")}</div>')
     return ('<div class="heat-sum">' + "".join(parts)
             + '<div class="heat-sum-note">1개월 · KODEX 200 대비</div></div>')
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 걸러진 단계 (스크리너 깔때기)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def render_funnel(steps, errors: dict | None = None, *, title: str = "") -> str:
+    """단계마다 남은 종목 수를 가로로. 가장 많이 빠진 단계를 강조합니다.
+
+    0 건일 때 '데이터를 못 받은 것' 과 '기준에서 걸러진 것' 을 한눈에
+    구분하려는 표입니다. 오류는 접어서 전문을 보여 줍니다 — 60자에서 자른
+    'HTTPSConnectionPool(h' 로는 원인을 알 수 없었습니다.
+    """
+    if not steps:
+        return ""
+    drops = [(steps[i - 1].count - steps[i].count, i) for i in range(1, len(steps))]
+    worst = max(drops)[1] if drops and max(drops)[0] > 0 else -1
+    cells = []
+    for i, stp in enumerate(steps):
+        cls = "fn-step"
+        if i == worst:
+            cls += " fn-worst"
+        if stp.count == 0:
+            cls += " fn-zero"
+        note = (f'<div class="fn-note">{_esc(stp.note)}</div>'
+                if stp.note else "")
+        arrow = '<div class="fn-arrow" aria-hidden="true">›</div>' if i else ""
+        cells.append(
+            f'{arrow}<div class="{cls}"><div class="fn-n">{stp.count}</div>'
+            f'<div class="fn-l">{_esc(stp.label)}</div>{note}</div>')
+    head = (f'<div class="fn-title">{_esc(title)}</div>' if title else "")
+    err_html = ""
+    if errors:
+        items = "".join(
+            f"<li><code>{_esc(k)}</code> {_esc(str(v))}</li>"
+            for k, v in list(errors.items())[:40])
+        err_html = (f'<details class="fn-errs"><summary>빠진 종목 '
+                    f'{len(errors)}개 — 이유 보기</summary><ul>{items}</ul>'
+                    "</details>")
+    return (f'<div class="dash-funnel">{head}<div class="fn-row">'
+            + "".join(cells) + f"</div>{err_html}</div>")
+
+
+def render_empty_reason(n_total: int, errors: dict, *, scope_hint: bool,
+                        source: str) -> str:
+    """'대상 종목 없음' 을 **원인별로** 말합니다.
+
+    2026-11-11: 국내 3종목이 전부 DART 고유번호 실패였는데 화면은 "'전체'
+    로 바꿔 보십시오" 를 먼저 말했습니다. 데이터를 못 받은 상황에서
+    범위를 넓혀도 결과는 같습니다. 오류가 있으면 오류가 먼저입니다.
+    """
+    if errors:
+        # 같은 원인이 여러 종목에 반복되면 한 번만 적습니다
+        causes: dict[str, list[str]] = {}
+        for tk, msg in errors.items():
+            core = str(msg).split(":", 1)[-1].strip() if ":" in str(msg) else str(msg)
+            causes.setdefault(core, []).append(tk)
+        lines = "".join(
+            f"<li><b>{_esc(', '.join(tks[:6]))}{' 외' if len(tks) > 6 else ''}</b>"
+            f" — {_esc(cause)}</li>" for cause, tks in causes.items())
+        lead = (f"<b>{source} 재무를 받지 못해 판단할 종목이 없습니다.</b> "
+                f"후보 {n_total}종목 중 {len(errors)}종목이 실패했습니다. "
+                "범위를 바꿔도 같은 결과입니다 — 연결 문제가 먼저입니다.")
+        hint = ("" if source != "DART" else
+                '<div class="dash-footnote dash-notice">해결 순서: 설정 → 진단의 '
+                "<b>국내 데이터 출처 확인</b>을 누르면 DART 에 닿는지, 막혔다면 "
+                "연결 단계인지 내려받기 단계인지 나옵니다.</div>")
+        return (f'<div class="dash-empty-reason">{lead}<ul>{lines}</ul></div>'
+                + hint)
+    if scope_hint:
+        return render_footnote(
+            "<b>대상 종목이 없습니다.</b> 위 '대상' 에서 <b>전체</b>를 고르면 "
+            "보유·발굴 통과가 아닌 종목까지 봅니다.")
+    return render_footnote("<b>대상 종목이 없습니다.</b> 후보 목록이 비어 있습니다.")
+
+
+def render_notice(text: str) -> str:
+    """'설명 문구 표시' 를 꺼도 **남는** 안내 — 0 건·실패·통과 수처럼
+    화면을 읽는 데 꼭 필요한 문장. 설명(footnote)과 모양은 같고 숨지 않습니다."""
+    return f'<div class="dash-footnote dash-notice">{text}</div>'
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 시장 띠
+# ──────────────────────────────────────────────────────────────────────────────
+
+def render_market_strip(items) -> str:
+    """맨 위 숫자 6개. items: [(이름, Instrument, Quote|None)].
+
+    **카드가 아니라 띠**입니다 — 칸 사이에 세로선만 두고 한 줄로 붙입니다.
+    아래 섹션들이 카드라서, 첫 줄까지 카드면 화면 전체가 같은 모양이
+    됩니다. 값을 못 받은 칸은 '—' 로 두고 자리를 지킵니다 (칸이 빠지면
+    매번 위치가 바뀌어 눈이 못 따라갑니다).
+    """
+    cells = []
+    for label, inst, q in items:
+        price = q.price if (q is not None and q.ok) else None
+        pct = q.change_pct if (q is not None and q.ok) else None
+        scale = getattr(inst, "scale", 1.0) or 1.0
+        unit = getattr(inst, "suffix", "") or ""
+        dec = inst.decimals if inst.decimals is not None else 2
+        if price is not None and price >= 1000:
+            dec = min(dec, 2)
+        val = "—" if price is None else fmt_num(price * scale, dec) + unit
+        cls = direction_class(pct) if pct is not None else "flat"
+        chg = ("" if pct is None else
+               f'<span class="ms-chg {cls}">{direction_glyph(pct)}{fmt_pct(pct)}</span>')
+        cells.append(
+            f'<div class="ms-cell"><div class="ms-label">{_esc(label)}</div>'
+            f'<div class="ms-val">{_esc(val)}</div>{chg}</div>')
+    return '<div class="dash-mstrip">' + "".join(cells) + "</div>"
+
+
+def render_hit_table(hits, limit: int = 12) -> str:
+    """통과 종목 비교표 — 펼치기 전에 숫자가 보이게.
+
+    전에는 종목 이름만 적힌 접힌 줄이 세로로 늘어서 있어서, 무엇이 왜
+    걸렸는지 보려면 하나씩 열어야 했습니다. 순위·이름·지표를 한 표에
+    두면 종목끼리 비교가 됩니다. 열은 첫 종목의 지표 이름을 따릅니다
+    (같은 스크리너의 종목은 지표가 같습니다).
+    """
+    hits = list(hits or [])[:limit]
+    if not hits:
+        return ""
+    cols = [lab for lab, _v in hits[0].metrics][:6]
+    head = ("<tr><th class='ht-rank'>#</th><th>종목</th>"
+            + "".join(f"<th>{_esc(c)}</th>" for c in cols) + "</tr>")
+    body = []
+    for i, h in enumerate(hits, 1):
+        vals = dict(h.metrics)
+        cells = "".join(f"<td>{_esc(str(vals.get(c, '—')))}</td>" for c in cols)
+        body.append(
+            f"<tr><td class='ht-rank'>{i}</td>"
+            f"<td class='ht-name'><b>{_esc(h.name)}</b>"
+            f"<span>{_esc(h.ticker)}</span></td>{cells}</tr>")
+    return ('<div class="dash-htable-wrap"><table class="dash-htable">'
+            f"<thead>{head}</thead><tbody>{''.join(body)}</tbody></table></div>")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 보유 종목 표
+# ──────────────────────────────────────────────────────────────────────────────
+
+_CHART_SHORT = {"cloud": "일목", "ma": "이평", "cci": "CCI", "macd": "MACD",
+                "stoch": "스토캐스틱", "bb": "볼린저", "dmi": "−DI"}
+
+
+def chart_badges(row, limit: int = 3) -> str:
+    """차트 조건 한 줄 요약 — 상태가 있는 지표만, 최대 limit 개."""
+    if row is None or not getattr(row, "ok", False):
+        return ""
+    nt = row.notes()
+    bits = []
+    if row.ichi.bullish_cloud is not None:
+        bits.append("양운" if row.ichi.bullish_cloud else "음운")
+    for k in ("ma", "cci", "stoch", "macd", "bb", "dmi"):
+        txt = (nt.get(k) or "").split(" · 거래량")[0]
+        if txt:
+            bits.append(f"{_CHART_SHORT[k]} {txt}")
+        if len(bits) >= limit + 1:
+            break
+    return " · ".join(bits[:limit + 1])
+
+
+def render_holdings_table(rows, chart_rows: dict | None = None) -> str:
+    """보유·관심 종목을 한 표로. rows: [(Instrument, Quote|None, 신호목록)].
+
+    전에는 종목마다 큰 카드(이름·거래소·상태 배지·회색 상자 안 가격·등락)
+    가 네 칸 격자로 놓였습니다. 7종목이면 화면 두 장이고 종목끼리 등락을
+    비교하려면 눈이 지그재그로 움직였습니다. 표 한 장이면 위아래로 바로
+    비교됩니다. 신호(지금/이번 주)는 맨 오른쪽 칸에 개수로 둡니다 — 내용은
+    아래 '변화 감지' 에 있습니다.
+    """
+    if not rows:
+        return ""
+    body = []
+    for inst, q, sigs in rows:
+        ok = q is not None and q.ok
+        scale = getattr(inst, "scale", 1.0) or 1.0
+        unit = getattr(inst, "suffix", "") or ""
+        price = fmt_num(q.price * scale, inst.decimals) + unit if ok else "—"
+        pct = q.change_pct if ok else None
+        cls = direction_class(pct) if pct is not None else "flat"
+        chg = (f"{direction_glyph(pct)}{fmt_pct(pct)}" if pct is not None else "—")
+        ext = ""
+        if ok and q.extended_price is not None and q.extended_label:
+            ep = q.extended_change_pct
+            ext = (f'<span class="hd-ext">{_esc(q.extended_label)} '
+                   f'<span class="{direction_class(ep)}">{fmt_pct(ep)}</span></span>')
+        sigs = sigs if sigs is not None else []
+        now = sum(1 for s in sigs if s.severity >= 3)
+        soon = sum(1 for s in sigs if s.severity == 2)
+        badges = ""
+        if now:
+            badges += f'<span class="hd-sig now">지금 {now}</span>'
+        if soon:
+            badges += f'<span class="hd-sig soon">이번 주 {soon}</span>'
+        if not badges:
+            badges = '<span class="hd-sig quiet">조용</span>'
+        link = inst.resolved_link() if hasattr(inst, "resolved_link") else ""
+        name = (f'<a href="{_esc(link)}" target="_blank" rel="noopener">{_esc(inst.name)}</a>'
+                if link else _esc(inst.name))
+        chart = ""
+        if chart_rows is not None:
+            cb = chart_badges(chart_rows.get(inst.symbol))
+            chart = f"<td class='hd-chart'>{_esc(cb) or '—'}</td>"
+        body.append(
+            f"<tr><td class='hd-name'>{name}<span>{_esc(inst.symbol)}</span></td>"
+            f"<td class='hd-num'>{_esc(price)}</td>"
+            f"<td class='hd-num {cls}'>{chg}{ext}</td>"
+            f"{chart}<td class='hd-sigs'>{badges}</td></tr>")
+    chart_th = "<th>차트 상태</th>" if chart_rows is not None else ""
+    return ('<div class="dash-htable-wrap"><table class="dash-htable dash-hold">'
+            f"<thead><tr><th>종목</th><th>현재가</th><th>등락</th>{chart_th}<th>신호</th></tr>"
+            f"</thead><tbody>{''.join(body)}</tbody></table></div>")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 보유 평가
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _won(v: float | None, signed: bool = False) -> str:
+    if v is None:
+        return "—"
+    a = abs(v)
+    if a >= 1e8:
+        s = f"{a / 1e8:,.2f}억"
+    elif a >= 1e4:
+        s = f"{a / 1e4:,.0f}만"
+    else:
+        s = f"{a:,.0f}"
+    sign = ("+" if v > 0 else "−" if v < 0 else "") if signed else ("−" if v < 0 else "")
+    return f"{sign}{s}원"
+
+
+def render_portfolio(summary, *, source: str = "", bad=(), total=None) -> str:
+    """보유 평가 — 숫자 네 칸 + 종목 표 (비중 막대).
+
+    total 을 주면(두 시장 합계) 맨 위에 '계좌 전체' 한 줄을 붙입니다.
+    """
+    rows = summary.rows
+    if not rows:
+        return ""
+    pnl_cls = direction_class(summary.pnl_krw)
+    td_cls = direction_class(summary.today_krw)
+    kpis = (
+        f'<div class="pf-kpi"><div class="pf-l">평가금액</div>'
+        f'<div class="pf-v">{_won(summary.value_krw)}</div>'
+        f'<div class="pf-s">{summary.priced}/{len(rows)}종목 시세 반영</div></div>'
+        f'<div class="pf-kpi"><div class="pf-l">평가손익 (원화 환산)</div>'
+        f'<div class="pf-v {pnl_cls}">{_won(summary.pnl_krw, True)}</div>'
+        f'<div class="pf-s {pnl_cls}">{fmt_pct(summary.pnl_pct)}</div></div>'
+        f'<div class="pf-kpi"><div class="pf-l">오늘 움직임</div>'
+        f'<div class="pf-v {td_cls}">{_won(summary.today_krw, True)}</div>'
+        f'<div class="pf-s {td_cls}">{fmt_pct(summary.today_pct)}</div></div>'
+    )
+    if total is not None and total.value_krw and total.value_krw != summary.value_krw:
+        share = summary.value_krw / total.value_krw * 100.0
+        kpis += (f'<div class="pf-kpi"><div class="pf-l">계좌 전체 중 이 시장</div>'
+                 f'<div class="pf-v">{share:.0f}%</div>'
+                 f'<div class="pf-s">전체 {_won(total.value_krw)} · 손익 '
+                 f'{_won(total.pnl_krw, True)}</div></div>')
+    body = []
+    for r in rows:
+        if not r.ok:
+            body.append(
+                f"<tr><td class='hd-name'><b>{_esc(r.name)}</b><span>{_esc(r.pos.symbol)}</span></td>"
+                f"<td class='hd-num'>{r.pos.qty:,.4g}</td>"
+                f"<td colspan='6' class='qt-err'>{_esc(r.error[:80])}</td></tr>")
+            continue
+        dec = 0 if r.currency == "KRW" else 2
+        w = summary.weight(r) or 0.0
+        pc = direction_class(r.pnl_pct)
+        tc = direction_class(r.today_krw)
+        body.append(
+            f"<tr><td class='hd-name'><b>{_esc(r.name)}</b><span>{_esc(r.pos.symbol)}</span></td>"
+            f"<td class='hd-num'>{r.pos.qty:,.4g}</td>"
+            f"<td class='hd-num'>{fmt_num(r.pos.avg, dec)}</td>"
+            f"<td class='hd-num'>{fmt_num(r.price, dec)}</td>"
+            f"<td class='hd-num {pc}'>{fmt_pct(r.pnl_pct)}</td>"
+            f"<td class='hd-num'>{_won(r.value_krw)}<span class='pf-sub {pc}'>"
+            f"{_won(r.pnl_krw, True)}</span></td>"
+            f"<td class='hd-num {tc}'>{_won(r.today_krw, True)}</td>"
+            f"<td class='pf-w'><i style='width:{w:.0f}%'></i><span>{w:.1f}%</span></td></tr>")
+    head = ("<tr><th>종목</th><th>수량</th><th>평균단가</th><th>현재가</th>"
+            "<th>손익률</th><th>평가금액 · 손익</th><th>오늘</th><th>비중</th></tr>")
+    notes = []
+    if source:
+        notes.append(f"보유 출처: {_esc(source)}")
+    notes.append("원화 손익은 지금 환율로 환산 — 매수 당시 환율을 몰라 환차손익을 나누지 "
+                 "못합니다. 손익률은 종목 통화 기준")
+    if bad:
+        notes.append("읽지 못한 항목: " + _esc(", ".join(list(bad)[:5])))
+    return (f'<div class="dash-pf">{kpis}</div>'
+            '<div class="dash-htable-wrap"><table class="dash-htable dash-hold dash-pft">'
+            f"<thead>{head}</thead><tbody>{''.join(body)}</tbody></table></div>"
+            f'<div class="dash-footnote dash-notice">{" · ".join(notes)}</div>')
+
+
+def render_portfolio_setup() -> str:
+    """PORTFOLIO 가 없을 때 — 무엇을 어디에 적는지."""
+    return ('<div class="dash-footnote dash-notice"><b>보유 수량을 넣으면 평가금액·손익·'
+            "비중이 여기 나옵니다.</b> Streamlit Cloud → 앱 설정 → Secrets 맨 위에 한 줄: "
+            '<code>PORTFOLIO = "MSFT:10@410.5, 005930:30@71000"</code> (종목:수량@평균단가, '
+            "미국은 달러·한국은 원). 저장소에는 올라가지 않습니다.</div>")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 주요 일정
+# ──────────────────────────────────────────────────────────────────────────────
+
+def render_calendar(events, today, *, market: str = "", limit: int = 60,
+                    compact: bool = False) -> str:
+    """날짜별 목록. 고른 시장의 사건은 진하게, 다른 시장은 흐리게.
+
+    compact=True 면 요약 화면용 — 다음 몇 건만 한 줄씩.
+    """
+    import calendar_events as ce
+
+    events = list(events or [])[:limit]
+    if not events:
+        return ""
+    if compact:
+        items = "".join(
+            f'<div class="cal-c {"cal-imp" if e.importance >= 3 else ""}">'
+            f'<span class="cal-d">{_esc(ce.d_day(e, today))}</span>'
+            f'<span class="cal-mk {e.market}">{_esc(ce.MARKET_LABEL[e.market])}</span>'
+            f'<span class="cal-t">{_esc(e.title)}</span>'
+            f'<span class="cal-n">{_esc(e.date[5:].replace("-", "/"))}'
+            f'{" · " + _esc(e.note) if e.note and e.kind != "data" else ""}</span></div>'
+            for e in events)
+        return f'<div class="dash-calc">{items}</div>'
+    days: dict[str, list] = {}
+    for e in events:
+        days.setdefault(e.date, []).append(e)
+    blocks = []
+    for d, evs in days.items():
+        day = evs[0].day
+        wd = "월화수목금토일"[day.weekday()]
+        rows = "".join(
+            f'<div class="cal-row {"cal-other" if market and e.market != market else ""} '
+            f'{"cal-imp" if e.importance >= 3 else ""}">'
+            f'<span class="cal-mk {e.market}">{_esc(ce.MARKET_LABEL[e.market])}</span>'
+            f'<span class="cal-k {e.kind}">{_esc(ce.KIND_LABEL.get(e.kind, e.kind))}</span>'
+            f'<span class="cal-t">{_esc(e.title)}'
+            f'{" <i>잠정</i>" if e.tentative else ""}</span>'
+            f'<span class="cal-n">{_esc(e.note)}</span></div>'
+            for e in evs)
+        blocks.append(
+            f'<div class="cal-day"><div class="cal-date"><b>{day.month}/{day.day}</b>'
+            f'<span>{wd}</span><em>{_esc(ce.d_day(evs[0], today))}</em></div>'
+            f'<div class="cal-list">{rows}</div></div>')
+    return f'<div class="dash-cal">{"".join(blocks)}</div>'
+
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 차트 조건 (일목 양운 · CCI · MACD · DMI)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def render_chart_counts(counts: dict, n_ok: int, n_total: int,
+                        conditions) -> str:
+    """조건별로 몇 종목이 충족하는지 — 네 칸. 깔때기가 아닙니다 (조건이
+    서로 독립이라 순서가 없습니다). 계산된 종목 수를 분모로 같이 적습니다."""
+    cells = []
+    for key, name, rule in conditions:
+        n = counts.get(key, 0)
+        share = (n / n_ok * 100.0) if n_ok else 0.0
+        cells.append(
+            f'<div class="cc-cell"><div class="cc-name">{_esc(name)}</div>'
+            f'<div class="cc-n">{n}<span>/ {n_ok}</span></div>'
+            f'<div class="cc-bar"><i style="width:{share:.0f}%"></i></div>'
+            f'<div class="cc-rule">{_esc(rule)}</div></div>')
+    miss = n_total - n_ok
+    tail = (f'<div class="cc-miss">후보 {n_total}종목 중 {miss}종목은 일봉이 '
+            "없거나 모자라 계산하지 못했습니다.</div>" if miss else "")
+    return f'<div class="dash-cc">{"".join(cells)}</div>{tail}'
+
+
+def _cc_cell(met, main: str, note: str = "") -> str:
+    cls = "ct-yes" if met else ("ct-na" if met is None else "ct-no")
+    mark = "●" if met else ("?" if met is None else "·")
+    sub = f"<span>{_esc(note)}</span>" if note else ""
+    return (f'<td class="{cls}"><b class="ct-mark">{mark}</b>'
+            f'{_esc(main)}{sub}</td>')
+
+
+def render_chart_table(rows, limit: int = 30, held=()) -> str:
+    """종목 × 조건. 칸마다 **상태 이름**과 값을 적습니다. held 에 든 종목
+    (보유·관심)은 이름 앞에 ★ 를 붙입니다.
+
+    해당하는 칸은 채워진 점과 옅은 바탕으로 표시합니다. 과매도·과매수를
+    오름·내림 색으로 칠하지 않습니다 — 좋고 나쁨이 아니라 상태입니다.
+    쪽은 글자로 구분합니다 (상태 이름에 '과매도' / '과매수' 가 들어 있음).
+    """
+    rows = list(rows or [])[:limit]
+    if not rows:
+        return ""
+    body = []
+    for i, r in enumerate(rows, 1):
+        f, nt = r.flags(), r.notes()
+        dots = "".join(
+            f'<i class="{"on" if f.get(k) else ""}"></i>' for k in f)
+        cloud = "—" if f["cloud"] is None else ("양운" if f["cloud"] else "음운")
+        cci = "—" if r.cci is None else f"{r.cci:+.0f}"
+        macd = "—" if r.macd_hist is None else ("위" if r.macd_hist > 0 else "아래")
+        stoch = ("—" if r.stoch_k is None else
+                 f"{r.stoch_k:.0f}" + ("" if r.stoch_d is None
+                                       else f" / {r.stoch_d:.0f}"))
+        di = "—" if r.minus_di is None else f"{r.minus_di:.0f}"
+        ma = "—" if r.disparity is None else f"이격 {r.disparity:.1f}"
+        bb = "—" if r.bb_pctb is None else f"{r.bb_pctb:.2f}"
+        star = '<i class="ct-star" title="내 종목">★</i>' if r.ticker in held else ""
+        body.append(
+            f"<tr><td class='ht-rank'>{i}</td>"
+            f"<td class='ht-name'>{star}<b>{_esc(r.name)}</b><span>{_esc(r.ticker)}</span></td>"
+            f"<td class='ct-met'><span class='ct-dots'>{dots}</span>{r.met}/{len(f)}</td>"
+            + _cc_cell(f["cloud"], cloud, nt["cloud"])
+            + _cc_cell(f["ma"], ma, nt["ma"])
+            + _cc_cell(f["cci"], cci, nt["cci"])
+            + _cc_cell(f["macd"], macd, nt["macd"] if f["macd"] else "")
+            + _cc_cell(f["stoch"], stoch, nt["stoch"])
+            + _cc_cell(f["bb"], bb, nt["bb"])
+            + _cc_cell(f["dmi"], di, nt["dmi"])
+            + "</tr>")
+    return ('<div class="dash-htable-wrap"><table class="dash-htable dash-ctable">'
+            "<thead><tr><th class='ht-rank'>#</th><th>종목</th><th>해당</th>"
+            "<th>일목</th><th>이동평균</th><th>CCI(13)</th><th>MACD<br>시그널 대비</th>"
+            "<th>스토캐스틱<br>%K / %D</th><th>볼린저<br>%B</th><th>−DI</th></tr></thead>"
+            f"<tbody>{''.join(body)}</tbody></table></div>")
+
+
+def _cloud_runs(a: list, b: list) -> list[tuple[bool, int, int]]:
+    """구름을 '양운 구간 / 음운 구간' 으로 자릅니다. (양운?, 시작, 끝) 목록."""
+    runs: list[tuple[bool, int, int]] = []
+    start, cur = None, None
+    for i in range(len(a)):
+        if a[i] is None or b[i] is None:
+            if start is not None:
+                runs.append((cur, start, i - 1))
+                start = None
+            continue
+        bull = a[i] > b[i]
+        if start is None:
+            start, cur = i, bull
+        elif bull != cur:
+            runs.append((cur, start, i))     # 교차 지점을 양쪽이 공유
+            start, cur = i, bull
+    if start is not None:
+        runs.append((cur, start, len(a) - 1))
+    return runs
+
+
+def render_cloud_chart(row, width: int = 640, height: int = 170) -> str:
+    """최근 120봉 종가 + 일목 구름. 양운·음운은 등락 색 규칙을 따릅니다
+    (국내 HTS 와 같이 양운 = 오름 색). 축 눈금 대신 양 끝 가격만 적습니다."""
+    px = [p for p in (row.spark or []) if p is not None]
+    if len(px) < 2:
+        return ""
+    a, b = list(row.spark_a), list(row.spark_b)
+    vals = px + [v for v in a if v is not None] + [v for v in b if v is not None]
+    lo, hi = min(vals), max(vals)
+    if hi <= lo:
+        return ""
+    pad_l, pad_r, pad_t, pad_b = 6, 62, 8, 8
+    n = len(px)
+
+    def X(i: int) -> float:
+        return pad_l + (width - pad_l - pad_r) * i / (n - 1)
+
+    def Y(v: float) -> float:
+        return pad_t + (height - pad_t - pad_b) * (1 - (v - lo) / (hi - lo))
+
+    polys = []
+    for bull, s, e in _cloud_runs(a, b):
+        if e <= s:
+            continue
+        top = " ".join(f"{X(i):.1f},{Y(a[i]):.1f}" for i in range(s, e + 1))
+        bot = " ".join(f"{X(i):.1f},{Y(b[i]):.1f}" for i in range(e, s - 1, -1))
+        polys.append(f'<polygon class="{"cl-bull" if bull else "cl-bear"}" '
+                     f'points="{top} {bot}"/>')
+    line = " ".join(f"{X(i):.1f},{Y(v):.1f}" for i, v in enumerate(px))
+    last = px[-1]
+    dec = 0 if last >= 1000 else 2
+    top_pct = Y(last) / height * 100.0
+    # 가격 글자는 SVG 밖에 둡니다 — SVG 를 칸 너비에 맞춰 늘리면
+    # (preserveAspectRatio=none) 안의 글자도 같이 찌그러집니다.
+    return ('<div class="dash-cloud-wrap">'
+            f'<svg class="dash-cloud" viewBox="0 0 {width} {height}" '
+            'preserveAspectRatio="none" role="img" '
+            f'aria-label="{_esc(row.name)} 최근 {n}일 종가와 일목 구름">'
+            + "".join(polys)
+            + f'<polyline class="cl-price" points="{line}"/></svg>'
+            + f'<span class="cl-lab" style="top:{top_pct:.1f}%">'
+              f'{fmt_num(last, dec)}</span></div>')
+
+
+def render_chart_detail(row, conditions) -> str:
+    """종목 하나 — 구름 차트 + 조건별 상태와 값."""
+    f, nt = row.flags(), row.notes()
+    ic = row.ichi
+
+    def n0(v):
+        return fmt_num(v, 0 if v >= 1000 else 2)
+
+    vol = ("" if row.vol_ratio is None else
+           f" · 거래량 20일 평균의 {row.vol_ratio:.1f}배")
+    vals = {
+        "cloud": ("—" if ic.span_a is None else
+                  f"선행스팬1 {n0(ic.span_a)} · 선행스팬2 {n0(ic.span_b)}"),
+        "ma": ("—" if row.ma20 is None else
+               f"20일 {n0(row.ma20)}"
+               + ("" if row.ma60 is None else f" · 60일 {n0(row.ma60)}")
+               + ("" if row.ma120 is None else f" · 120일 {n0(row.ma120)}")
+               + ("" if row.disparity is None else f" · 이격도 {row.disparity:.1f}")),
+        "bb": ("—" if row.bb_pctb is None else
+               f"%B {row.bb_pctb:.2f}"
+               + ("" if row.bb_width_rank is None else
+                  f" · 밴드폭이 최근 120일 중 좁은 쪽 {row.bb_width_rank:.0f}% 자리")),
+        "cci": ("—" if row.cci is None else
+                f"CCI {row.cci:+.1f}" + ("" if row.cci_signal is None
+                                         else f" · 시그널 {row.cci_signal:+.1f}")),
+        "macd": ("—" if row.macd is None else
+                 f"MACD {row.macd:+.2f} · 시그널 {row.macd_signal:+.2f}"),
+        "stoch": ("—" if row.stoch_k is None else
+                  f"%K {row.stoch_k:.1f}" + ("" if row.stoch_d is None
+                                             else f" · %D {row.stoch_d:.1f}")),
+        "dmi": ("—" if row.minus_di is None else
+                f"−DI {row.minus_di:.1f} · +DI {row.plus_di:.1f}"
+                + ("" if row.adx is None else f" · ADX {row.adx:.1f}") + vol),
+    }
+    lines = []
+    for key, name, rule in conditions:
+        met = f.get(key)
+        cls = "cd-yes" if met else ("cd-na" if met is None else "cd-no")
+        if met is None:
+            verdict = "판정 불가"
+        elif key == "cloud":
+            verdict = ("양운" if met else "음운") + (f" · {nt[key]}" if nt[key] else "")
+        elif key == "dmi":
+            verdict = nt[key].split(" · ")[0] if met else "해당 없음"
+        else:
+            verdict = nt[key] if met else "해당 없음"
+        lines.append(
+            f'<div class="cd-row {cls}"><span class="cd-name">{_esc(name)}</span>'
+            f'<span class="cd-verdict">{_esc(verdict)}</span>'
+            f'<span class="cd-val">{_esc(vals[key])}</span>'
+            f'<span class="cd-rule">{_esc(rule)}</span></div>')
+    legend = ('<div class="cd-legend"><span class="lg-price">종가</span>'
+              '<span class="lg-bull">양운</span><span class="lg-bear">음운</span>'
+              f"<span>최근 {len(row.spark)}거래일</span></div>")
+    return ('<div class="dash-cdetail">' + render_cloud_chart(row) + legend
+            + "".join(lines) + "</div>")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 매크로 화면 — 표로 줄인 구성 (2026-11-11 개편)
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# 매크로 화면은 세로 5,000px 가 넘었습니다: 시세 카드 7장, 임계값 카드
+# 6장(각각 헤드라인 포함), 지표 카드 14장. 같은 모양의 큰 카드가 이어져
+# 무엇이 중요한지 위치로 드러나지 않았습니다. 시세와 지표는 **표**로,
+# 임계값은 **한 줄 목록**으로 줄이고 자세한 내용은 접어 둡니다.
+
+def render_quote_table(rows) -> str:
+    """시세 표. rows: [(Instrument, Quote|None)]. 카드 격자를 대신합니다."""
+    if not rows:
+        return ""
+    body = []
+    for inst, q in rows:
+        ok = q is not None and q.ok
+        scale = getattr(inst, "scale", 1.0) or 1.0
+        unit = getattr(inst, "suffix", "") or ""
+        link = inst.resolved_link() if hasattr(inst, "resolved_link") else ""
+        name = (f'<a href="{_esc(link)}" target="_blank" rel="noopener">'
+                f"{_esc(inst.name)}</a>" if link else _esc(inst.name))
+        if not ok:
+            why = (getattr(q, "error", None) or "데이터 없음") if q is not None \
+                else "데이터 없음"
+            body.append(
+                f"<tr><td class='hd-name'>{name}<span>{_esc(inst.symbol)}</span></td>"
+                f"<td class='hd-num'>—</td>"
+                f"<td class='qt-err' colspan='2'>{_esc(str(why)[:80])}</td></tr>")
+            continue
+        pct, chg = q.change_pct, q.change
+        cls = direction_class(pct) if pct is not None else "flat"
+        # 금리처럼 단위가 % 인 값의 변화는 %p 입니다 (4.09% → 4.21% 는 +0.12%p)
+        chg_unit = "%p" if unit == "%" else unit
+        chg_txt = ("—" if chg is None
+                   else fmt_signed(chg * scale, inst.decimals) + chg_unit)
+        pct_txt = "—" if pct is None else f"{direction_glyph(pct)}{fmt_pct(pct)}"
+        body.append(
+            f"<tr><td class='hd-name'>{name}<span>{_esc(inst.symbol)}</span></td>"
+            f"<td class='hd-num'>{_esc(fmt_num(q.price * scale, inst.decimals) + unit)}</td>"
+            f"<td class='hd-num {cls}'>{_esc(chg_txt)}</td>"
+            f"<td class='hd-num {cls}'>{pct_txt}</td></tr>")
+    return ('<div class="dash-htable-wrap"><table class="dash-htable dash-hold dash-qt">'
+            "<thead><tr><th>지표</th><th>현재</th><th>전일 대비</th><th>등락률</th>"
+            f"</tr></thead><tbody>{''.join(body)}</tbody></table></div>")
+
+
+def render_trigger_list(triggers) -> str:
+    """임계값에 닿은 지표 — 한 줄씩. 헤드라인·질문은 접힌 상세에 둡니다."""
+    if not triggers:
+        return ""
+    rows = []
+    for t in triggers:
+        spec = t.reading.spec
+        sev_class = {3: "now", 2: "soon", 1: "fyi"}.get(t.severity, "fyi")
+        sev_label = {3: "지금", 2: "이번 주", 1: "참고"}.get(t.severity, "")
+        rule = _MACRO_RULE_LABEL.get(t.rule, t.rule)
+        rows.append(
+            f'<div class="tl-row {sev_class}">'
+            f'<span class="dash-sig-chip {sev_class}">{_esc(sev_label)}</span>'
+            f'<div class="tl-main"><div class="tl-title">{_esc(t.title)}</div>'
+            f'<div class="tl-detail">{_esc(t.detail)}</div></div>'
+            f'<span class="tl-tag">{_esc(spec.series_id)} · {_esc(rule)}</span>'
+            "</div>")
+    return '<div class="dash-tlist">' + "".join(rows) + "</div>"
+
+
+def render_macro_table(groups, by_group: dict, hit_keys: set,
+                       *, show_why: bool = False) -> str:
+    """경제지표 전체 — 묶음별 표. groups: [(키, 제목, 부제)].
+
+    카드 14장 대신 표 한 장입니다. 줄마다 현재값 · 직전 대비 · 최근 흐름 ·
+    관측 시점. 임계값에 닿은 줄은 왼쪽 막대와 '임계값' 표시로 구분합니다.
+    방향은 기호로만 적고 색으로 좋고 나쁨을 암시하지 않습니다 (금리가
+    오른 것이 좋은지는 보는 사람의 포지션에 달렸습니다).
+    """
+    body = []
+    for key, title, subtitle in groups:
+        readings = by_group.get(key) or []
+        if not readings:
+            continue
+        body.append(
+            f"<tr class='mt-group'><td colspan='5'><b>{_esc(title)}</b>"
+            f"<span>{_esc(subtitle)}</span></td></tr>")
+        for r in readings:
+            spec = r.spec
+            hit = spec.key in hit_keys
+            flag = '<i class="mt-flag">임계값</i>' if hit else ""
+            unv = "" if spec.verified else '<i class="mt-unv">미검증</i>'
+            name = (f"<td class='mt-name'><b>{_esc(spec.name)}</b>{flag}{unv}"
+                    f"<span>{_esc(spec.series_id)}</span></td>")
+            if not r.ok:
+                body.append(f"<tr class='mt-err'>{name}"
+                            f"<td colspan='4'>{_esc(r.error)}</td></tr>")
+                continue
+            arrow = "—"
+            if r.delta is not None and r.delta != 0:
+                arrow = f"{'▲' if r.delta > 0 else '▼'} {_esc(r.delta_label)}"
+            late = " class='late'" if r.stale else ""
+            lag = "" if r.lag_days is None else f"<span{late}>{r.lag_days}일 전</span>"
+            body.append(
+                f"<tr class='{'mt-hit' if hit else ''}'>{name}"
+                f"<td class='mt-val'>{_esc(r.value_label)}</td>"
+                f"<td class='mt-delta'>{arrow}</td>"
+                f"<td class='mt-spark'>{render_macro_spark(r.history, width=120, height=24)}</td>"
+                f"<td class='mt-obs'>{_esc(r.observed_label)}{lag}</td></tr>")
+            extra = []
+            if show_why and spec.why:
+                extra.append(_safe_inline(spec.why))
+            if r.warning:
+                extra.append(_safe_inline(r.warning))
+            if extra:
+                body.append("<tr class='mt-why'><td colspan='5'>"
+                            + "<br>".join(extra) + "</td></tr>")
+    if not body:
+        return ""
+    return ('<div class="dash-htable-wrap"><table class="dash-htable dash-mt">'
+            "<thead><tr><th>지표</th><th>현재값</th><th>직전 대비</th>"
+            "<th>최근 흐름</th><th>관측 시점</th></tr></thead>"
+            f"<tbody>{''.join(body)}</tbody></table></div>")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 전일 장 브리핑
+# ──────────────────────────────────────────────────────────────────────────────
+
+def render_daily_brief(brief, headlines=(), reports=()) -> str:
+    """한 시장의 마지막 거래일 — 지수 칸 + 문장 몇 줄 + 마감 기사 제목.
+
+    '왜' 는 적지 않습니다 (daily_brief.py 머리말). 이유는 기사·리포트 링크로.
+    """
+    if brief is None:
+        return ""
+    if not brief.ok:
+        return ('<div class="dash-db"><div class="db-head"><b>'
+                f'{_esc(brief.title)}</b></div><div class="db-err">브리핑을 만들지 '
+                f'못했습니다 — {_esc(brief.error)}</div></div>')
+    cells = []
+    for m in brief.indices:
+        cls = direction_class(m.pct) if m.ok else "flat"
+        val = "—" if not m.ok else (f"{m.close:,.2f}" if m.close < 10_000
+                                    else f"{m.close:,.0f}")
+        chg = (f'{direction_glyph(m.pct)}{_esc(m.change_label)}' if m.ok else "")
+        cells.append(f'<div class="db-cell"><div class="db-l">{_esc(m.label)}</div>'
+                     f'<div class="db-v">{val}</div>'
+                     f'<div class="db-c {cls}">{chg}</div></div>')
+    live = ('<span class="db-live">오늘 장은 아직 끝나지 않아 뺐습니다</span>'
+            if brief.in_progress else "")
+    lines = "".join(
+        f'<div class="db-line"><span>{_esc(tag)}</span><div>{_esc(text)}</div></div>'
+        for tag, text in brief.lines if tag != "지수")
+    miss = (f'<div class="db-miss">값을 못 받은 항목: '
+            f'{_esc(", ".join(brief.missing[:8]))}</div>' if brief.missing else "")
+    news = render_news_block(list(headlines or ()), limit=3, title="마감 기사")
+    rep = ""
+    if reports:
+        items = "".join(
+            f'<li><a class="dash-inline-link" target="_blank" rel="noopener noreferrer" '
+            f'href="{_esc(r.link)}">{_esc(r.title)}</a> '
+            f'<span>{_esc(r.broker)} · {_esc(r.date)}</span></li>'
+            for r in list(reports)[:4] if r.link.startswith(("https://", "http://")))
+        rep = ('<div class="db-rep"><div class="db-rep-h">증권사 시황 리포트</div>'
+               f"<ul>{items}</ul></div>")
+    return (f'<div class="dash-db"><div class="db-head"><b>{_esc(brief.title)}</b>'
+            f'<span>{_esc(brief.session_label)} 마감 기준</span>{live}</div>'
+            f'<div class="db-cells">{"".join(cells)}</div>{lines}{miss}{news}{rep}</div>')
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 산업 리포트
+# ──────────────────────────────────────────────────────────────────────────────
+
+def render_research_counts(groups, top: int = 12) -> str:
+    """업종별 보고서 수 — 가로 막대. 어느 업종에 리포트가 몰리는지."""
+    groups = list(groups or [])[:top]
+    if not groups:
+        return ""
+    peak = max(len(rs) for _c, rs in groups) or 1
+    rows = "".join(
+        f'<div class="rc-row"><div class="rc-name">{_esc(cat)}</div>'
+        f'<div class="rc-track"><i style="width:{len(rs) / peak * 100:.0f}%"></i></div>'
+        f'<div class="rc-n">{len(rs)}</div></div>'
+        for cat, rs in groups)
+    return f'<div class="dash-rc">{rows}</div>'
+
+
+def render_research_table(reports, limit: int = 40, *, show_category: bool = True) -> str:
+    """리포트 목록 — 제목은 원문(PDF 또는 상세 페이지)으로 가는 링크."""
+    reports = list(reports or [])[:limit]
+    if not reports:
+        return ""
+    body = []
+    for r in reports:
+        cat = f"<td class='rt-cat'>{_esc(r.category or '—')}</td>" if show_category else ""
+        link = (f'<a class="dash-inline-link" target="_blank" rel="noopener noreferrer" '
+                f'href="{_esc(r.link)}">{_esc(r.title)}</a>'
+                if r.link.startswith(("https://", "http://")) else _esc(r.title))
+        pdf = ' <span class="rt-pdf">PDF</span>' if r.pdf else ""
+        body.append(f"<tr><td class='rt-date'>{_esc(r.date[5:] if r.date else '—')}</td>"
+                    f"{cat}<td class='rt-title'>{link}{pdf}</td>"
+                    f"<td class='rt-broker'>{_esc(r.broker)}</td></tr>")
+    head_cat = "<th>업종</th>" if show_category else ""
+    return ('<div class="dash-htable-wrap"><table class="dash-htable dash-rt">'
+            f"<thead><tr><th>날짜</th>{head_cat}<th>제목</th><th>증권사</th></tr></thead>"
+            f"<tbody>{''.join(body)}</tbody></table></div>")
+
+
+def render_prompt_links(prompt: str, label: str = "Claude 에 요약 요청") -> str:
+    """프롬프트가 채워진 채로 Claude 를 여는 링크 (앱 · 웹)."""
+    import urllib.parse as _up
+
+    q = _up.quote(prompt, safe="")
+    return ('<div class="dash-skill-row">'
+            f'<a class="dash-skill-btn" href="{APP_LINK.format(q=q)}">{_esc(label)} (앱)</a>'
+            f'<a class="dash-skill-btn ghost" target="_blank" rel="noopener noreferrer" '
+            f'href="{WEB_LINK.format(q=q)}">웹에서 열기</a></div>')

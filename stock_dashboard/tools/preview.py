@@ -58,6 +58,23 @@ EXTRA_CSS = """
   .pv-nav[hidden] { display: none !important; }
 
   /* 섹션 내비 — 앱과 같이 세로입니다 */
+  /* 앱 기본값과 같이: 설명 문단은 숨기고, 꼭 필요한 안내(notice)만 */
+  .dash-footnote:not(.dash-notice) { display: none; }
+  body.pv-notes .dash-footnote { display: block; }
+  .pv-topctl { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+               margin-bottom: 12px; }
+  .pv-topctl .pv-market { margin-bottom: 0; }
+  .pv-notes-btn { appearance: none; cursor: pointer; font: inherit;
+    font-size: var(--fs-3); color: var(--dash-ink-2); background: none;
+    border: 1px solid var(--dash-border); border-radius: var(--r-pill);
+    padding: 5px 12px; }
+  .pv-notes-btn[aria-pressed="true"] { color: var(--dash-ink); border-color: var(--dash-accent); }
+  .pv-chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+              font-size: var(--fs-2); color: var(--dash-ink-muted); margin: 6px 0 8px; }
+  .pv-chip { border: 1px solid var(--dash-border); border-radius: var(--r-pill);
+             padding: 4px 11px; color: var(--dash-ink); font-size: var(--fs-3);
+             background: var(--dash-surface); }
+  .pv-chips em { font-style: normal; }
   .pv-shell { display: flex; gap: 26px; align-items: flex-start; }
   .pv-side {
     flex: 0 0 176px; position: sticky; top: 14px;
@@ -153,6 +170,7 @@ TAB_SCRIPT = """
   var navs = Array.prototype.slice.call(document.querySelectorAll('.pv-nav'));
   var panels = Array.prototype.slice.call(document.querySelectorAll('.pv-panel'));
   var badge = document.getElementById('pv-badge');
+  var strips = Array.prototype.slice.call(document.querySelectorAll('.pv-strip'));
   var current = 'kr';
 
   function navOf(m) {
@@ -171,7 +189,7 @@ TAB_SCRIPT = """
       if (p.dataset.key === key) { p.removeAttribute('hidden'); }
       else { p.setAttribute('hidden', ''); }
     });
-    var h = current + '/' + key;
+    var h = current + '/' + key.replace(current + ':', '');
     if (location.hash.slice(1) !== h) { history.replaceState(null, '', '#' + h); }
   }
 
@@ -188,9 +206,25 @@ TAB_SCRIPT = """
       var btn = markets.filter(function (b) { return b.dataset.market === m; })[0];
       badge.textContent = btn ? btn.textContent : '';
     }
+    strips.forEach(function (s) {
+      if (s.dataset.market === m) { s.removeAttribute('hidden'); }
+      else { s.setAttribute('hidden', ''); }
+    });
     var tabs = tabsOf(m);
-    var ok = tabs.some(function (t) { return t.dataset.key === key; });
-    show(ok ? key : (tabs[0] ? tabs[0].dataset.key : ''));
+    // 주소의 섹션은 'holdings' 일 수도, 'kr:holdings' 일 수도 있습니다
+    var want = '';
+    tabs.forEach(function (t) {
+      if (t.dataset.key === key || t.dataset.key === m + ':' + key) { want = t.dataset.key; }
+    });
+    show(want || (tabs[0] ? tabs[0].dataset.key : ''));
+  }
+  var notesBtn = document.getElementById('pv-notes');
+  if (notesBtn) {
+    notesBtn.addEventListener('click', function () {
+      var on = document.body.classList.toggle('pv-notes');
+      notesBtn.setAttribute('aria-pressed', String(on));
+      notesBtn.textContent = on ? '설명 숨기기' : '설명 보기';
+    });
   }
 
   markets.forEach(function (b) {
@@ -226,7 +260,10 @@ def _section_panel(section, data, fx) -> str:
     return "".join(parts)
 
 
-def _signals_panel(data, use_demo: bool) -> str:
+_LAST_FOUND: list = []    # 내 종목 표가 신호 개수를 쓰려고 받아 둡니다
+
+
+def _signals_panel(data, use_demo: bool, market: str = "") -> str:
     """변화 감지 탭. 정적 프리뷰에서는 프롬프트를 <details> 로 접어 넣습니다."""
     import os
 
@@ -238,6 +275,9 @@ def _signals_panel(data, use_demo: bool) -> str:
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))), config.ANALYSIS_DIR
     )
     instruments = list(config.SECTION_WATCHLIST.instruments)
+    if market:
+        # 앱과 같이 고른 시장의 종목만 — 전엔 한국 화면에 Apple 이 떴습니다
+        instruments = config.filter_instruments(instruments, market)
     docs = astore.load_all(base, [i.analysis_key for i in instruments if i.analysis_key])
 
     quotes = {}
@@ -267,6 +307,7 @@ def _signals_panel(data, use_demo: bool) -> str:
     )
     found = sig_mod.detect(instruments, quotes, docs, filings,
                            thresholds=th, trends=trends)
+    _LAST_FOUND[:] = found
 
     targets = sig_mod.news_targets(found, limit=config.NEWS_MAX_TICKERS)
     headlines = (demo_mod.demo_news([t[0] for t in targets]) if use_demo else {})
@@ -676,6 +717,9 @@ def _summary_panel(data, fx, use_demo: bool, market: str = "kr") -> str:
         ui.render_section_head(
             "요약", "휴대폰에서 10초 — 지금 알아야 할 것만", 4),
         ui.render_summary(summary),
+        ui.render_sector_bars(sector_rows) if sector_rows else "",
+        _upcoming(data, use_demo, market),
+        _daily_briefs(use_demo, market),
         ui.render_briefing_line(demo_mod.demo_briefing()),
     ]
     if summary.all_quiet:
@@ -693,15 +737,22 @@ def _summary_panel(data, fx, use_demo: bool, market: str = "kr") -> str:
 
 def _holdings_panel(data, fx, use_demo: bool, market: str = "kr") -> str:
     """내 종목 — 고른 시장의 종목만."""
-    parts = [_signals_panel(data, use_demo)]
     watchlist = config.SECTION_WATCHLIST
     shown = config.filter_instruments(watchlist.instruments, market)
-    parts.append(ui.render_section_head(
-        "보유 · 관심 종목", watchlist.subtitle, len(shown)))
-    cards = "".join(
-        ui.render_card(inst, (data.get(inst.source) or {}).get(inst.symbol), fx)
-        for inst in shown)
-    parts.append(f'<div class="dash-grid cols-4">{cards}</div>')
+    import chart_signals as cs
+
+    signals_html = _signals_panel(data, use_demo, market)
+    found = list(_LAST_FOUND)
+    cands = config.chart_candidates(market)
+    crow = ({r.ticker: r for r in cs.build_rows(cands, *demo_mod.demo_chart_ohlc(cands))}
+            if use_demo else None)
+    parts = [_portfolio_html(data, fx, use_demo, market),
+             ui.render_section_head("보유 · 관심 종목", watchlist.subtitle, len(shown))]
+    parts.append(ui.render_holdings_table(
+        [(inst, pick_quote(inst, data),
+          [s for s in found if s.inst.symbol == inst.symbol]) for inst in shown],
+        chart_rows=crow))
+    parts.append(signals_html)
     # 공시 분석은 앱에서 **접혀 있습니다** — 프리뷰에도 접힌 상태로 보여줍니다
     parts.append(
         '<details class="pv-fold"><summary>'
@@ -757,10 +808,24 @@ def _kr_flows_panel(use_demo: bool) -> str:
               if use_demo else ({}, {}))
     parts.append(ui.render_sector_news(config.KR_SECTORS, sn, se))
 
-    filings = demo_mod.demo_market_filings() if use_demo else []
+    import sources.dart as _dart  # noqa: PLC0415
+    scan = demo_mod.demo_filing_scan() if use_demo else _dart.FilingScan([])
+    filings = scan.filings
     parts.append(ui.render_section_head(
-        "한국 — 주요 공시", "최근 3일 · 전체 시장에서 추렸습니다", len(filings)))
-    parts.append(ui.render_market_filings(filings))
+        "한국 — 주요 공시", "11-06 이후 · 코스피·코스닥 · 세부 유형별",
+        len(filings)))
+    parts.append(ui.render_filing_counts(_dart.count_filings(filings)))
+    parts.append(ui.render_notice(
+        "<i>(앱에서는 여기에 분류 칩 · 세부 유형 칩 · 시장 · '내 종목만' "
+        f"필터가 붙습니다)</i> <b>{len(filings)}건</b> / 읽은 공시 "
+        f"{scan.scanned:,}건 · <b>내 종목 3건</b>"))
+    parts.append(ui.render_market_filings(
+        filings, held={"005930", "000660", "005380"}, scan=scan))
+    parts.append("<details class='dash-pv-details'><summary>유형별로 무엇을 "
+                 "보면 되나</summary>"
+                 + ui.render_filing_guide(_dart.DISCLOSURE_TYPES,
+                                          _dart.DISCLOSURE_GROUPS)
+                 + "</details>")
 
     kr_rows = (demo_mod.demo_kr_macro(config.KR_MACRO_SERIES)
                if use_demo else [])
@@ -875,9 +940,21 @@ def _discover_panel(use_demo: bool, market: str = "us") -> str:
         tuple(c for c, _n in cands)) if use_demo else {}
     news_demo = demo_mod.demo_news([c for c, _n in cands]) if use_demo else {}
 
+    n_cands = len(cands)
     for key, title, rule, caveat in kr_screen.KR_SCREENS:
         picked = hits.get(key, [])
         parts.append(ui.render_screener_head(title, rule, len(picked), caveat))
+        if key in ("contraction", "near_high"):
+            steps = kr_screen.vol_funnel(n_cands, profiles)
+            if key == "near_high":
+                steps = steps[:-1]
+            parts.append(ui.render_funnel(steps, vol_errors, title="단계별로 남은 종목"))
+        else:
+            parts.append(ui.render_funnel(
+                kr_screen.value_funnel(value_rows),
+                {r.ticker: r.error for r in value_rows if r.error},
+                title="단계별로 남은 종목"))
+        parts.append(ui.render_hit_table(picked))
         if not picked:
             parts.append(ui.render_footnote(
                 "<b>이 기준을 통과한 종목이 없습니다.</b> 기준을 느슨하게 "
@@ -910,6 +987,170 @@ def _discover_panel(use_demo: bool, market: str = "us") -> str:
         parts.append(ui.render_footnote(
             f"<b>일봉을 못 받은 종목 {len(vol_errors)}건</b> — 신규 상장이나 "
             "거래정지 구간이 있으면 변동성을 신뢰할 수 없어 뺍니다."))
+    return "".join(parts)
+
+
+def _calendar_data(data, use_demo: bool, days: int = 45):
+    import datetime as _dt
+    from zoneinfo import ZoneInfo
+
+    import calendar_events as ce
+
+    today = _dt.datetime.now(ZoneInfo("Asia/Seoul")).date()
+    payload = demo_mod.demo_fred_release_dates(today) if use_demo else None
+    watch = [i for i in config.SECTION_WATCHLIST.instruments if i.source == "yahoo"]
+    events, warns = ce.build(today, days, fred_payload=payload,
+                             quotes=(data or {}).get("yahoo", {}), instruments=watch)
+    return events, warns, today
+
+
+def _upcoming(data, use_demo: bool, market: str) -> str:
+    events, _w, today = _calendar_data(data, use_demo, 7)
+    top = [e for e in events if e.importance >= 2
+           or (e.market == market and (e.day - today).days <= 2)][:6]
+    if not top:
+        return ""
+    return (ui.render_section_head("다가오는 일정", "앞으로 7일 — 전체는 '주요 일정'", len(top))
+            + ui.render_calendar(top, today, market=market, compact=True))
+
+
+def _calendar_panel(data, use_demo: bool, market: str) -> str:
+    events, warns, today = _calendar_data(data, use_demo)
+    return (ui.render_section_head("주요 일정", "앞으로 45일 · 고르지 않은 시장은 흐리게",
+                                   len(events))
+            + ui.render_calendar(events, today, market=market)
+            + "".join(ui.render_notice(w) for w in warns)
+            + ui.render_footnote(
+                "<b>출처:</b> FOMC 연준 공식 일정 · 금통위 한국은행 의결 일정 · 휴장일 "
+                "거래소 공지 · 미국 지표 발표일 FRED (프리뷰는 데모 날짜) · 만기일은 "
+                "규칙으로 계산"))
+
+
+def _portfolio_html(data, fx, use_demo: bool, market: str) -> str:
+    import portfolio as pf
+
+    positions, bad, source = pf.load(use_demo)
+    if not positions:
+        return ui.render_portfolio_setup()
+    by_sym = {i.symbol: i for i in (*config.SECTION_WATCHLIST.instruments,
+                                    *config.SECTION_LOCAL.instruments)}
+    names = {p.symbol: by_sym[p.symbol].name for p in positions if p.symbol in by_sym}
+    quote_of = (lambda p: pick_quote(by_sym[p.symbol], data) if p.symbol in by_sym else None)
+    total = pf.valuate(positions, quote_of, fx.usdkrw, names)
+    mine = [p for p in positions if p.market == market]
+    summ = pf.valuate(mine, quote_of, fx.usdkrw, names)
+    return (ui.render_section_head("보유 평가", "수량·평균단가 기준 · 원화 환산", len(mine))
+            + ui.render_portfolio(summ, source=source, bad=bad, total=total))
+
+
+def _daily_briefs(use_demo: bool, market: str) -> str:
+    """전일 장 브리핑 — 앱의 _render_daily_briefs 와 같은 순서."""
+    import datetime as _dt
+    from zoneinfo import ZoneInfo
+
+    import daily_brief as dbm
+
+    if not use_demo:
+        return ""
+    now = _dt.datetime.now(ZoneInfo("Asia/Seoul"))
+    heads = demo_mod.demo_sector_news(
+        tuple(config.DAILY_BRIEF[m]["news"] for m in config.DAILY_BRIEF)
+        + (("_", "_", "_"),))[0]
+    reports = demo_mod.demo_research()[1]
+    order = [market] + [m for m in config.DAILY_BRIEF if m != market]
+    parts = [ui.render_section_head(
+        "전일 장 브리핑", "마지막으로 마감한 거래일 — 숫자만, 해석 없이", len(order))]
+    for m in order:
+        spec = config.daily_brief_spec(m)
+        today = now.astimezone(ZoneInfo(spec["tz"])).date().isoformat()
+        brief = dbm.build(m, spec, demo_mod.demo_daily_bars(m, today)[0], now)
+        parts.append(ui.render_daily_brief(
+            brief, heads.get(config.DAILY_BRIEF[m]["news"][0]) or (),
+            reports if m == "kr" else ()))
+    parts.append(ui.render_footnote(
+        "<b>'왜' 는 적지 않습니다.</b> 숫자만으로는 이유를 알 수 없어서, "
+        "움직임만 적고 이유는 마감 기사와 증권사 시황 리포트 링크로 넘깁니다."))
+    return "".join(parts)
+
+
+def _research_panel(use_demo: bool) -> str:
+    """산업 리포트 — 앱의 render_research_tab 과 같은 순서."""
+    from sources import research as rs
+
+    reports = demo_mod.demo_research()[0] if use_demo else []
+    groups = rs.by_category(reports)
+    lo, hi = rs.date_range(reports)
+    parts = [
+        ui.render_section_head(
+            "산업 리포트",
+            f"증권사 산업분석 · 네이버 증권 리서치 · {lo[5:]} ~ {hi[5:]}", len(reports)),
+        ui.render_footnote(
+            "<b>제목과 링크만 싣습니다.</b> 리포트 본문은 증권사의 저작물이라 "
+            "옮기지 않고 원문으로 보냅니다."),
+        ui.render_section_head("업종별 보고서 수",
+                               "어느 업종에 리포트가 몰리는가", len(groups)),
+        ui.render_research_counts(groups),
+        ui.render_section_head("리포트 목록", "제목을 누르면 원문이 열립니다 · "
+                               "앱에서는 업종을 골라 좁힙니다", len(reports)),
+        ui.render_research_table(reports),
+    ]
+    if groups:
+        cat, rs_ = groups[0]
+        parts.append(ui.render_section_head(
+            f"{cat} 리포트", "업종을 고르면 요약 요청 링크가 붙습니다", len(rs_)))
+        parts.append(ui.render_research_table(rs_, show_category=False))
+        parts.append(ui.render_prompt_links(rs.summary_prompt(cat, rs_)))
+    return "".join(parts)
+
+
+def _chart_panel(use_demo: bool, market: str = "kr") -> str:
+    """차트 조건 — 앱의 render_chart_tab 과 같은 순서.
+
+    앱에서는 '모두 해당해야 하는 조건' 과 '쪽' 을 눌러 표를 거릅니다. 정적
+    프리뷰에는 그 버튼이 없어서, 조건 없이 한 번, 그리고 'CCI + 스토캐스틱 ·
+    과매도 쪽' 으로 거른 예를 한 번 보여줍니다.
+    """
+    import chart_signals as cs
+
+    conds = cs.CONDITIONS
+    cands = config.chart_candidates(market)
+    ohlc, errs = demo_mod.demo_chart_ohlc(cands) if use_demo else ({}, {})
+    rows = cs.build_rows(cands, ohlc, errs)
+    ok_rows = [r for r in rows if r.ok]
+    names = {k: n for k, n, _r in conds}
+    parts = [
+        ui.render_section_head(
+            f"차트 조건 · {config.MARKETS.get(market, '')}",
+            "일봉 기준 — 일목 · 이동평균 · CCI · MACD · 스토캐스틱 · 볼린저 · −DI",
+            len(ok_rows)),
+        ui.render_footnote(
+            "<b>읽어볼 목록이지 매매 신호가 아닙니다.</b> 지표는 지난 가격을 "
+            "다시 정리한 값이고 방향을 말해주지 않습니다."),
+        ui.render_chart_counts(cs.counts(rows), len(ok_rows), len(rows), conds),
+    ]
+    chips = "".join(f'<span class="pv-chip">{n}</span>' for n in names.values())
+    sides = "".join(f'<span class="pv-chip">{n}</span>' for _k, n in cs.SIDES)
+    parts.append(f'<div class="pv-chips"><span>모두 해당해야 하는 조건</span>{chips}'
+                 f"<span>쪽</span>{sides}<span class=\"pv-chip\">내 종목만</span>"
+                 "<em>앱에서는 눌러서 고릅니다</em></div>")
+    chosen = cs.select(rows)
+    parts.append(ui.render_notice(
+        f"<b>{len(chosen)}종목</b> · 조건을 고르지 않음 — 해당 수 많은 순"))
+    held = {i.symbol for i in config.SECTION_WATCHLIST.instruments
+            if config.in_market(i, market)}
+    parts.append(ui.render_chart_table(chosen, limit=12, held=held))
+    for i, row in enumerate(chosen[:3]):
+        parts.append(
+            f'<details class="pv-fold"{" open" if i == 0 else ""}><summary>'
+            f"{row.name} · {row.ticker} · {row.met}/{len(conds)}</summary>"
+            f'<div class="pv-fold-body">{ui.render_chart_detail(row, conds)}</div>'
+            "</details>")
+    req = ("cci", "stoch")
+    ex = cs.select(rows, req, "os")
+    parts.append(ui.render_section_head(
+        "거른 예", " + ".join(names[k] for k in req) + " · 과매도 쪽", len(ex)))
+    parts.append(ui.render_chart_table(ex, limit=8)
+                 or ui.render_notice("<b>이 조합에 해당하는 종목이 없습니다.</b>"))
     return "".join(parts)
 
 
@@ -1102,100 +1343,73 @@ def _macro_panel(section, data, fx, use_demo: bool) -> str:
             "렌더됩니다. <code>briefings/2026-11-10.md</code> 같은 "
             "날짜 파일명으로 저장하면 읽어옵니다."),
     ]
-    if section is not None:
-        parts.append(_section_panel(section, data, fx))
-
-    triggers = macro_mod.evaluate_all(readings)
     hit_keys = {t.reading.spec.key for t in triggers}
 
-    # 공포탐욕지수 — 가격도 통계도 아닌 제3의 성격이라 둘 사이에 둡니다
-    fg = demo_mod.demo_feargreed() if use_demo else None
-    if fg is not None:
-        parts.append(ui.render_section_head(
-            "공포탐욕지수 (CNN Fear & Greed)",
-            "시장 심리 0~100 · 세부 지표 7개로 '왜 그 값인가' 를 함께",
-            7 if fg.ok else 0))
-        parts.append(ui.render_feargreed(fg))
-        parts.append(ui.render_footnote(
-            "숫자가 안 맞는다고 느끼시면 "
-            '<a class="dash-inline-link" '
-            'href="https://edition.cnn.com/markets/fear-and-greed" '
-            'target="_blank" rel="noopener noreferrer">CNN 공식 페이지</a>'
-            " 와 직접 대조해 보십시오. "
-            "<b>이 프리뷰는 데모 데이터라 당연히 다릅니다</b> — 실제 앱에서 "
-            "다르면 화면 위쪽 진단 패널 → 경제지표 확인을 돌려 출력을 "
-            "알려주십시오."))
-        if fg.ok and fg.extremes:
-            parts.append(ui.render_footnote(
-                "<b>지금 지수를 끌고 있는 것:</b> "
-                + " · ".join(f"{c.label} {c.score:,.0f}({c.band})"
-                             for c in fg.extremes)
-                + ". 지수 한 숫자만 보면 같은 '탐욕 70' 이 주가 모멘텀 때문인지 "
-                "채권 수요 때문인지 알 수 없어서, 극단에 있는 세부 지표를 "
-                "따로 적었습니다."))
-        parts.append(ui.render_footnote(
-            "<b>출처 주의 —</b> CNN 이 자기 페이지에서 쓰는 "
-            "<b>문서화되지 않은 내부 엔드포인트</b>입니다. 공개 API 가 아니라 "
-            "예고 없이 바뀌거나 막힐 수 있어, 실패해도 다른 지표에 영향이 "
-            "가지 않게 격리했습니다. 이 지수는 <b>심리 지표이고 가치 판단이 "
-            "아닙니다</b> — 탐욕 구간이라고 비싸다는 뜻이 아닙니다."))
-
-    # VIX 기간구조 — 공탐지수와 같은 심리·위험 묶음
-    if use_demo:
-        import sources.vix as vix_mod
-
-        vs = demo_mod.demo_vix()
-        parts.append(ui.render_section_head(
-            "VIX 기간구조", "숫자 하나가 아니라 곡선의 모양 · 과거 대비 위치",
-            sum(1 for p in vs.points if p.ok)))
-        parts.append(ui.render_vix(vs))
-        parts.append(ui.render_footnote(
-            "<b>VIX 숫자 하나는 쓸모가 적습니다.</b> 18 이 높은지 낮은지는 맥락 "
-            "없이 답할 수 없어서, 위 카드의 VIX 값에 두 가지를 붙였습니다 — "
-            "<b>과거 대비 백분위</b>(FRED VIXCLS 5년)와 <b>기간구조</b>"
-            "(VIX9D→VIX→VIX3M→VIX6M 곡선의 모양).<br>"
-            "평소에는 뒤 만기가 더 높습니다(<b>콘탱고</b>). 위기에는 앞이 치솟아 "
-            "뒤보다 높아집니다(<b>백워데이션</b>) — 2010년 이후 전체 거래일의 "
-            f"<b>{vix_mod.BACKWARDATION_BASE_RATE:g}%</b> 에만 나타났으니, "
-            "드물기 때문에 신호가 됩니다."))
-
+    # 2) 임계값 도달 — 한 줄씩. 헤드라인·질문은 접어 둡니다.
     if triggers:
         parts.append(ui.render_section_head(
             "임계값 도달", "이 지표만 확인하십시오", len(triggers)))
+        parts.append(ui.render_trigger_list(triggers))
         targets = macro_mod.news_queries(
             triggers, limit=config.MACRO_MAX_NEWS_TARGETS)
         headlines = (demo_mod.demo_news([t[0] for t in targets])
                      if use_demo else {})
-        for trig in triggers:
-            parts.append(ui.render_macro_trigger(
-                trig, macro_mod.prompt_for(trig),
-                headlines.get(trig.reading.spec.key) or ()))
+        cards = "".join(
+            ui.render_macro_trigger(trig, macro_mod.prompt_for(trig),
+                                    headlines.get(trig.reading.spec.key) or ())
+            for trig in triggers)
+        parts.append('<details class="pv-fold"><summary>관련 헤드라인 · Claude 에 '
+                     f'붙여넣을 질문</summary><div class="pv-fold-body">{cards}'
+                     "</div></details>")
     else:
-        parts.append(ui.render_footnote(
-            "<b>임계값에 닿은 지표가 없습니다.</b> 조용한 게 정상입니다 — "
-            "이 탭은 뉴스 피드가 아니라, 지표가 실제로 움직였을 때만 "
-            "올라오게 만들었습니다."
-        ))
+        parts.append(ui.render_notice(
+            "<b>임계값에 닿은 지표가 없습니다.</b> 조용한 게 정상입니다."))
 
+    # 3) 시장가격 — 표 한 장
+    if section is not None:
+        parts.append(ui.render_section_head(
+            section.title, section.subtitle, len(section.instruments)))
+        parts.append(ui.render_quote_table(
+            [(inst, pick_quote(inst, data)) for inst in section.instruments]))
+        parts.append(ui.render_footnote(section.footnote))
+
+    # 4) 심리 — 공포탐욕 | VIX 좌우
+    fg = demo_mod.demo_feargreed() if use_demo else None
+    vs = demo_mod.demo_vix() if use_demo else None
+    if fg is not None and vs is not None:
+        left = (ui.render_section_head(
+                    "공포탐욕지수 (CNN)", "시장 심리 0~100 · 세부 지표 7개",
+                    7 if fg.ok else 0)
+                + ui.render_feargreed(fg)
+                + ui.render_footnote(
+                    "<b>출처 주의 —</b> CNN 의 문서화되지 않은 내부 "
+                    "엔드포인트입니다. 이 지수는 <b>심리 지표이고 가치 판단이 "
+                    "아닙니다</b>. 이 프리뷰는 데모 값입니다."))
+        right = (ui.render_section_head(
+                     "VIX 기간구조", "곡선의 모양 · 과거 대비 위치",
+                     sum(1 for p in vs.points if p.ok))
+                 + ui.render_vix(vs)
+                 + ui.render_footnote(
+                     "<b>VIX 숫자 하나는 쓸모가 적습니다.</b> 과거 대비 "
+                     "백분위와 기간구조(VIX9D→VIX→VIX3M→VIX6M)를 같이 봅니다."))
+        parts.append(f'<div class="dash-two"><div>{left}</div><div>{right}</div></div>')
+
+    # 5) 경제지표 — 묶음별 표 한 장
     parts.append(ui.render_section_head(
         "경제지표 (FRED)",
-        "발표 지연이 있는 통계 — 위 가격 카드와 성격이 다릅니다",
+        "발표 지연이 있는 통계 — 위 시세 표와 성격이 다릅니다",
         len(readings),
     ))
     parts.append(ui.render_footnote(
-        "위 카드는 <b>시장가격</b>(실시간), 아래는 <b>통계</b>입니다. "
-        "통계는 발표가 2~6주 늦으므로 각 칸에 <b>관측 시점과 지연일수</b>를 "
-        "함께 적었습니다. 지수 계열(산업생산·PPI)은 기준연도가 바뀌어 레벨 비교가 "
-        "불가능하므로 <b>전년 동기 대비</b>만 표시합니다. "
-        "FRED 는 인증키가 필요 없습니다."
+        "위 표는 <b>시장가격</b>(실시간), 아래는 <b>통계</b>입니다. "
+        "통계는 발표가 2~6주 늦으므로 줄마다 <b>관측 시점과 지연일수</b>를 "
+        "함께 적었습니다. 앱에서는 '각 지표를 보는 이유 표시' 를 켜면 줄마다 "
+        "설명이 붙습니다."
     ))
-
     by_group: dict[str, list] = {}
     for reading in readings:
         by_group.setdefault(reading.spec.group, []).append(reading)
-    for key, title, subtitle in config.MACRO_GROUPS:
-        parts.append(ui.render_macro_group(
-            title, subtitle, by_group.get(key, []), hit_keys, show_why=True))
+    parts.append(ui.render_macro_table(config.MACRO_GROUPS, by_group, hit_keys))
 
     unverified = [r.spec for r in readings if not r.spec.verified]
     if unverified:
@@ -1292,7 +1506,7 @@ def build_html(convention: str, use_demo: bool) -> str:
     # ── 시장이 최상위 축 — 앱과 같은 구조 ─────────────────────────────
     # 시장마다 내용이 다른 탭은 패널을 따로 만듭니다 (kr:summary, us:summary).
     # 한쪽에만 있거나 공통인 탭은 하나만 만듭니다.
-    PER_MARKET = {"summary", "holdings", "discover", "valuation"}
+    PER_MARKET = {"summary", "holdings", "discover", "valuation", "chart"}
 
     def panel_key(market: str, key: str) -> str:
         return f"{market}:{key}" if key in PER_MARKET else key
@@ -1306,6 +1520,12 @@ def build_html(convention: str, use_demo: bool) -> str:
             return _discover_panel(use_demo, market)
         if key == "valuation":
             return _valuation_tab_panel(data, fx, use_demo, market)
+        if key == "research":
+            return _research_panel(use_demo)
+        if key == "calendar":
+            return _calendar_panel(data, use_demo, market)
+        if key == "chart":
+            return _chart_panel(use_demo, market)
         if key == "sector_heat":
             return _sector_heat_panel(use_demo)
         if key == "kr_flows":
@@ -1329,7 +1549,8 @@ def build_html(convention: str, use_demo: bool) -> str:
     navs: list[str] = []
     panels: list[str] = []
     made: set[str] = set()
-    demo_top = ui.render_demo_banner(preview=True) if use_demo else ""
+    # 패널마다 큰 데모 경고를 반복하지 않습니다 — 맨 위 한 줄로 충분합니다.
+    demo_top = ""
     for market in config.MARKETS:
         groups = config.tab_groups(market)
         buttons = "".join(
@@ -1356,12 +1577,20 @@ def build_html(convention: str, use_demo: bool) -> str:
                               f'hidden>{demo_top}{body}</div>')
 
     market_switch = (
-        '<div class="pv-market" role="tablist">'
+        '<div class="pv-topctl"><div class="pv-market" role="tablist">'
         + "".join(
             f'<button class="pv-mkt" type="button" data-market="{m}" '
             f'aria-pressed="false">{label} 시장</button>'
             for m, label in config.MARKETS.items())
-        + "</div>")
+        + '</div><button class="pv-notes-btn" id="pv-notes" type="button" '
+          'aria-pressed="false">설명 보기</button></div>'
+        + "".join(
+            f'<div class="pv-strip" data-market="{m}" hidden>'
+            + ui.render_market_strip(
+                [(label, inst, pick_quote(inst, data))
+                 for inst, label in config.strip_instruments(m)])
+            + "</div>"
+            for m in config.MARKETS))
 
     css = (
         "<style>"
@@ -1372,11 +1601,8 @@ def build_html(convention: str, use_demo: bool) -> str:
     )
 
     banner = (
-        '<div class="demo-banner"><b>레이아웃 프리뷰 (데모 데이터)</b><br>'
-        "숫자는 레이아웃 확인용 가짜 값이며 실제 시세가 아닙니다. "
-        "맨 위에서 시장을 고르고, 왼쪽 목록에서 섹션을 고르십시오. "
-        "카드 제목을 누르면 해당 종목 페이지로 이동합니다. "
-        "실제 시세는 <code>streamlit run app.py</code> 로 확인하십시오.</div>"
+        '<div class="demo-banner"><b>프리뷰 · 숫자는 전부 데모 값</b> — '
+        "레이아웃 확인용이며 실제 시세가 아닙니다.</div>"
         if use_demo
         else ""
     )

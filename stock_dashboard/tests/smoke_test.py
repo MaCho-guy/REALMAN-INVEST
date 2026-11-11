@@ -1082,8 +1082,8 @@ check_true("10년물 연동 함수가 있다", "def _risk_free_pct(" in _app_src
 print("\n=== 가격 조건 CSS ===")
 import theme as _th2  # noqa: E402
 
-for _mode in ("dark", "light"):
-    _css = _th2.build_css(_mode, "kr")
+for _mode in ("light",):
+    _css = _th2.build_css("kr")
     _need = (".dash-bf {", ".dash-bf-line {", ".dash-price {",
              ".dash-price-metrics {", ".dash-bf-stale {")
     _miss = [n for n in _need if n not in _css]
@@ -1241,8 +1241,8 @@ check_true("font-size 를 직접 쓰지 않는다 (토큰만)", not _raw_fs,
 check_true("border-radius 를 직접 쓰지 않는다", not _raw_r,
            f"{len(_raw_r)}곳 남음: {_raw_r[:5]}")
 
-for _mode in ("dark", "light"):
-    _css2 = _th2.build_css(_mode, "kr")
+for _mode in ("light",):
+    _css2 = _th2.build_css("kr")
     check_true(f"{_mode}: 타입 스케일 9단이 정의돼 있다",
                all(f"--fs-{i}:" in _css2 for i in range(1, 10)))
     check_true(f"{_mode}: 모서리 4단이 정의돼 있다",
@@ -1280,8 +1280,8 @@ check_true("경제지표 헤더 다음에 바로 그룹이 온다",
 print("\n=== 표 세로 스크롤 ===")
 # 30행짜리 표가 페이지를 통째로 늘리면 아래 카드까지 한참 내려야 합니다.
 # 표가 **자기 안에서** 스크롤하고 머리글은 붙어 있어야 합니다.
-for _mode in ("dark", "light"):
-    _css3 = _th2.build_css(_mode, "kr")
+for _mode in ("light",):
+    _css3 = _th2.build_css("kr")
     check_true(f"{_mode}: 표에 최대 높이", "max-height: 62vh" in _css3)
     check_true(f"{_mode}: 세로 스크롤", "overflow-y: auto" in _css3)
     check_true(f"{_mode}: 머리글 고정", "position: sticky; top: 0" in _css3)
@@ -1590,8 +1590,10 @@ check_true("통과 수 0 이면 '전체 종목' 으로 적는다",
 
 # ──────────────────────────────────────────────────────────────────────────────
 print("\n=== 명암비 (WCAG AA 4.5) ===")
-# 2026-11-11: "나이트 모드 글씨 잘 안 보임". 재보니 보조 글자가 4.4,
-# 미국 하락 적색은 3.3 이었습니다 — 눈 탓이 아니라 색 탓이었습니다.
+# 2026-11-11: "나이트 모드 글씨 잘 안 보임" → 재보니 보조 글자가 4.4,
+# 미국 하락 적색은 3.3 이었습니다. 같은 날 나이트 모드를 아예 없애고
+# 데이 한 벌만 남겼습니다 — 두 벌이면 한쪽에서만 깨지는 버그가 계속
+# 생깁니다. 남은 한 벌은 **가장 밝은 배경 기준 5.0 이상**으로 둡니다.
 import theme as _th_c  # noqa: E402
 
 
@@ -1612,30 +1614,74 @@ def _contrast(a: str, b: str) -> float:
     return (hi + 0.05) / (lo + 0.05)
 
 
-_FG = ("ink", "ink_secondary", "ink_muted", "up_kr", "down_kr", "up_us",
-       "down_us", "badge_pre", "badge_post", "badge_live", "badge_error",
-       "flat", "badge_closed")
+check_true("테마는 한 벌뿐", list(_th_c.PALETTE) == ["light"],
+           f"{list(_th_c.PALETTE)} — 두 벌이면 한쪽만 깨집니다")
+_FG = ("ink", "ink_secondary", "ink_muted", "accent", "up_kr", "down_kr",
+       "up_us", "down_us", "badge_pre", "badge_post", "badge_live",
+       "badge_error", "flat", "badge_closed")
 _BG = ("page", "surface", "surface_raised")
-_worst = (99.0, "")
-for _mode in ("dark", "light"):
-    _pal = _th_c.PALETTE[_mode]
-    for _b in _BG:
-        for _f in _FG:
-            _r = _contrast(_pal[_f], _pal[_b])
-            if _r < _worst[0]:
-                _worst = (_r, f"{_mode}/{_f} on {_b}")
-check_true("모든 글자색이 AA(4.5) 를 넘는다", _worst[0] >= 4.5,
-           f"최저 {_worst[0]:.2f} — {_worst[1]}")
-check_true("야간 모드는 여유를 둔다(5.0+)",
-           min(_contrast(_th_c.PALETTE["dark"][f], _th_c.PALETTE["dark"][b])
-               for f in _FG for b in _BG) >= 5.0)
-# 글자 크기 — 10px 짜리 보조 글자가 저대비와 겹치면 안 읽힙니다
-_css = _th_c.build_css("dark", "kr") if hasattr(_th_c, "build_css") else ""
-import re as _re_c
-_m = _re_c.search(r"--fs-1:\s*([0-9.]+)rem", pathlib.Path("theme.py").read_text())
+_pal = _th_c.PALETTE["light"]
+_worst = min((_contrast(_pal[f], _pal[b]), f, b) for b in _BG for f in _FG)
+check_true("모든 글자색이 5.0 이상", _worst[0] >= 5.0,
+           f"최저 {_worst[0]:.2f} — {_worst[1]} on {_worst[2]}")
+# 카드가 바탕에서 떠 보여야 합니다
+check_true("카드가 바탕과 구분된다",
+           _contrast(_pal["surface"], _pal["page"]) >= 1.10,
+           f"{_contrast(_pal['surface'], _pal['page']):.3f}")
+check_true("카드 안쪽 블록도 구분된다",
+           _contrast(_pal["surface_raised"], _pal["surface"]) >= 1.05,
+           f"{_contrast(_pal['surface_raised'], _pal['surface']):.3f}")
+# 등락 두 색의 **명암비**로 재면 안 됩니다. 적색과 청색은 밝기가 비슷해도
+# 사람 눈에는 전혀 다른 색이고, 적록색약(가장 흔한 유형)에서도 구분됩니다.
+# 문제가 되는 조합은 적-녹입니다. 그래서 색상(hue) 차이로 봅니다.
+import colorsys as _cs  # noqa: E402
+
+
+def _hue(hexs: str) -> float:
+    h = hexs.lstrip("#")
+    r, g, b = (int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    return _cs.rgb_to_hls(r, g, b)[0] * 360
+
+
+def _hue_gap(a: str, b: str) -> float:
+    d = abs(_hue(a) - _hue(b)) % 360
+    return min(d, 360 - d)
+
+
+check_true("한국 관행 상승·하락 색상이 충분히 멀다",
+           _hue_gap(_pal["up_kr"], _pal["down_kr"]) >= 90,
+           f"{_hue_gap(_pal['up_kr'], _pal['down_kr']):.0f}도 차이")
+check_true("미국 관행도 마찬가지",
+           _hue_gap(_pal["up_us"], _pal["down_us"]) >= 90,
+           f"{_hue_gap(_pal['up_us'], _pal['down_us']):.0f}도 — 적-녹은 "
+           "적록색약에서 겹치므로 기호(▲▼)를 반드시 같이 써야 합니다")
+# 색만으로 뜻을 전하지 않는지 — 방향 기호가 코드에 실제로 있는지
+_comp_src = pathlib.Path("components.py").read_text(encoding="utf-8")
+check_true("방향 기호를 함께 쓴다",
+           "▲" in _comp_src and "▼" in _comp_src,
+           "색각이상에서는 색만으로 등락을 읽을 수 없습니다")
+check_true("강조색은 등락색과 다르다",
+           _pal["accent"] not in (_pal["up_kr"], _pal["down_kr"],
+                                  _pal["up_us"], _pal["down_us"]),
+           "색이 두 뜻을 가지면 숫자를 잘못 읽습니다")
+
+import re as _re_c  # noqa: E402
+_m = _re_c.search(r"--fs-1:\s*([0-9.]+)rem",
+                  pathlib.Path("theme.py").read_text(encoding="utf-8"))
 check_true("가장 작은 글자가 11px 이상",
            _m is not None and float(_m.group(1)) * 16 >= 11,
            f"{float(_m.group(1)) * 16:.1f}px" if _m else "못 찾음")
+
+print("\n=== 나이트 모드 흔적이 남지 않았다 ===")
+for _f in ("app.py", "theme.py", "tools/preview.py"):
+    _txt = pathlib.Path(_f).read_text(encoding="utf-8")
+    _lines = [ln.strip() for ln in _txt.splitlines()
+              if ln.strip().startswith(('"', "f\"", "'"))
+              and ("나이트" in ln or "data-mode" in ln)]
+    check_true(f"{_f} 에 테마 전환 UI 가 없다", not _lines, str(_lines[:2]))
+check_true("build_css 가 모드를 받지 않는다",
+           "def build_css(convention: str)" in
+           pathlib.Path("theme.py").read_text(encoding="utf-8"))
 
 print("\n=== 한국·미국 시장 분리 ===")
 import config as _cfg_m  # noqa: E402

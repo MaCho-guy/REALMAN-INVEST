@@ -255,11 +255,14 @@ def fetch_market_cap(symbol: str) -> float | None:
 # 일봉 — 국내 변동성 스크리너용
 # ──────────────────────────────────────────────────────────────────────────────
 
-def fetch_closes(symbols: list[str], *, period: str = "1y"
+def fetch_closes(symbols: list[str], *, period: str = "1y",
+                 volumes: dict[str, list[float]] | None = None,
                  ) -> tuple[dict[str, list[float]], dict[str, str]]:
     """심볼마다 일봉 종가 목록을 가져옵니다.
 
     반환: ({심볼: [종가…]}, {심볼: 오류})
+    volumes 에 dict 를 넘기면 {심볼: [거래량…]} 로 채워 줍니다 —
+    거래대금(종가×거래량) 으로 유동성 바닥을 거르는 데 씁니다.
 
     **한 종목에 심볼 후보가 여럿일 수 있습니다.** 국내 코드는 코스피(.KS)
     인지 코스닥(.KQ)인지 코드만 봐서는 모르므로, 호출하는 쪽이 후보를
@@ -273,26 +276,43 @@ def fetch_closes(symbols: list[str], *, period: str = "1y"
     unique = list(dict.fromkeys(s for s in symbols if s))
     out: dict[str, list[float]] = {}
     errors: dict[str, str] = {}
+    # 거래량은 호출하는 쪽이 dict 를 넘기면 채워 줍니다. 반환값을 늘리면
+    # 기존 호출부가 전부 깨지므로 선택 인자로 둡니다.
+    if volumes is None:
+        volumes = {}
 
-    def one(sym: str) -> tuple[str, list[float], str]:
+    def one(sym: str) -> tuple[str, list[float], list[float], str]:
         try:
             hist = yf.Ticker(sym).history(period=period, interval="1d",
                                           auto_adjust=True)
             if hist is None or hist.empty or "Close" not in hist:
-                return sym, [], "일봉이 비어 있습니다."
-            closes = [float(v) for v in hist["Close"].tolist()
-                      if v is not None and not (isinstance(v, float)
-                                                and v != v)]
-            return sym, closes, "" if closes else "유효한 종가가 없습니다."
+                return sym, [], [], "일봉이 비어 있습니다."
+            rows = list(zip(hist["Close"].tolist(),
+                            (hist["Volume"].tolist()
+                             if "Volume" in hist
+                             else [0] * len(hist))))
+            closes, vols = [], []
+            for close, vol in rows:
+                if close is None or (isinstance(close, float)
+                                     and close != close):
+                    continue
+                closes.append(float(close))
+                try:
+                    vols.append(float(vol or 0.0))
+                except (TypeError, ValueError):
+                    vols.append(0.0)
+            return (sym, closes, vols,
+                    "" if closes else "유효한 종가가 없습니다.")
         except Exception as exc:  # noqa: BLE001
-            return sym, [], f"{type(exc).__name__}: {exc}"
+            return sym, [], [], f"{type(exc).__name__}: {exc}"
 
     if not unique:
         return out, errors
     with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(unique))) as pool:
-        for sym, closes, err in pool.map(one, unique):
+        for sym, closes, vols, err in pool.map(one, unique):
             if closes:
                 out[sym] = closes
+                volumes[sym] = vols
             if err:
                 errors[sym] = err
     return out, errors

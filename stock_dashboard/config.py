@@ -957,6 +957,17 @@ SECTIONS_MERGED_INTO: dict[str, str] = {
 }
 
 
+#: 섹션을 묶는 그룹. 두 참고 사이트(모닝 브리프·주식봇)가 공통으로 쓰는
+#: 패턴입니다 — 섹션이 7개를 넘으면 평평한 목록은 '어디로 가야 하지' 가
+#: 됩니다. 묶음 이름은 **무엇을 하려는가**로 답니다.
+TAB_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("오늘", ("summary", "holdings")),
+    ("찾기", ("discover", "valuation")),
+    # '시장' 은 아래 시장(한국/미국) 선택과 헷갈려서 '흐름' 으로 둡니다
+    ("흐름", ("macro", "flows", "cycle")),
+)
+
+
 SPECIAL_TAB_LABELS = {
     "summary": "요약",
     "holdings": "내 종목",
@@ -1203,3 +1214,22 @@ KR_SECTORS: tuple[tuple[str, str, str], ...] = (
 
 #: 섹터당 가져올 헤드라인 수. 9섹터 × 3건 = 27건이면 한 화면입니다.
 SECTOR_NEWS_PER = 3
+
+def tab_groups() -> list[tuple[str, list[tuple[str, str]]]]:
+    """[(그룹명, [(key, 라벨), …]), …]. TAB_ORDER 에 있는 것만 넣습니다.
+
+    그룹에 안 적힌 섹션이 생기면 '기타' 로 모읍니다 — 조용히 사라지면
+    새 섹션을 추가하고 왜 안 보이나 한참 찾게 됩니다.
+    """
+    labels = dict(tab_labels())
+    out: list[tuple[str, list[tuple[str, str]]]] = []
+    placed: set[str] = set()
+    for group, keys in TAB_GROUPS:
+        items = [(k, labels[k]) for k in keys if k in labels]
+        placed.update(k for k, _l in items)
+        if items:
+            out.append((group, items))
+    rest = [(k, v) for k, v in labels.items() if k not in placed]
+    if rest:
+        out.append(("기타", rest))
+    return out

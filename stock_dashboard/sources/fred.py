@@ -47,8 +47,35 @@ CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
 API_URL = "https://api.stlouisfed.org/fred/series/observations"
 
 
+#: 화면에서 임시로 넣은 키. Secrets 에 못 넣어 보는 상황에서
+#: **되는지 먼저 확인**하려고 둡니다. 세션이 끝나면 사라지고 파일에
+#: 저장하지 않습니다 — 저장소에 키가 들어가면 안 됩니다.
+_session_key = ""
+
+
+def set_session_key(key: str) -> None:
+    """화면에서 넣은 키를 이 프로세스에서만 씁니다."""
+    global _session_key
+    _session_key = (key or "").strip()
+
+
 def api_key() -> str:
-    return (os.environ.get("FRED_API_KEY") or "").strip()
+    """환경변수 우선, 없으면 화면에서 넣은 임시 키.
+
+    환경변수(=Streamlit Secrets)를 먼저 보는 이유: 제대로 설정해 둔
+    값이 화면에서 잘못 넣은 값에 덮이면 원인을 찾기 어렵습니다.
+    """
+    env = (os.environ.get("FRED_API_KEY") or "").strip()
+    return env or _session_key
+
+
+def key_source() -> str:
+    """키가 어디서 왔는지. 화면에 적어 주면 혼란이 줄어듭니다."""
+    if (os.environ.get("FRED_API_KEY") or "").strip():
+        return "Secrets (환경변수)"
+    if _session_key:
+        return "화면에서 임시 입력"
+    return "없음"
 
 
 #: FRED API 키는 **소문자 영숫자 32자**입니다. 형식이 다르면 서버가

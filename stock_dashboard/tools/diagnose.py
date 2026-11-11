@@ -637,3 +637,73 @@ def diagnose_kr_codes() -> None:
               "에서 해당 줄을 DART 쪽 이름·코드로 고치십시오.")
     elif not missing:
         print("  → 전부 일치합니다. 코드 목록을 신뢰해도 됩니다.")
+
+
+def diagnose_fred_key() -> None:
+    """FRED 키 하나만 집중해서 봅니다 — 형식 → 연결 → 실제 호출.
+
+    `diagnose_fred` 는 계열 14개를 전부 돌려 길고, 키가 문제일 때는
+    같은 실패가 14번 반복됩니다. 여기서는 **한 계열(DGS10)만** 불러서
+    키가 되는지 아닌지 한 줄로 답합니다.
+    """
+    import requests
+
+    from sources import fred
+
+    print("[FRED 키 확인]")
+    key = fred.api_key()
+    print(f"  출처: {fred.key_source()}")
+    if not key:
+        print("  키가 없습니다. 무료 발급(즉시): "
+              "https://fred.stlouisfed.org/docs/api/api_key.html")
+        print("  발급 후 Streamlit Secrets 에 **최상위 레벨**로 넣으십시오:")
+        print('    FRED_API_KEY = "여기에32자"')
+        print("  [section] 아래에 넣으면 환경변수가 되지 않습니다.")
+        return
+    print(f"  길이 {len(key)}자 · 끝 4자리 …{key[-4:]}")
+    problem = fred.key_problem()
+    if problem:
+        print(f"  ✗ 형식 문제: {problem}")
+        print("  → 따옴표·공백이 섞였는지 확인하십시오. Secrets 값의 "
+              "따옴표는 TOML 문법이라 값에 포함되지 않아야 합니다.")
+        return
+    print("  ✓ 형식은 정상입니다 (소문자 영숫자 32자)")
+
+    print("\n  공식 API 로 DGS10 한 계열만 받아봅니다…")
+    try:
+        resp = requests.get(
+            fred.API_URL,
+            params={"series_id": "DGS10", "api_key": key,
+                    "file_type": "json", "limit": "3",
+                    "sort_order": "desc"},
+            timeout=fred.API_TIMEOUT,
+            headers={"User-Agent": "stock-dashboard/1.0"},
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"  ✗ 연결 실패: {type(exc).__name__}: {exc}")
+        print("  → api.stlouisfed.org 로 나가는 길이 막혀 있습니다. "
+              "키 문제가 아닙니다.")
+        return
+
+    print(f"  HTTP {resp.status_code} · {len(resp.content)} bytes")
+    if resp.status_code != 200:
+        body = resp.text.replace(key, "…" + key[-4:])
+        print("  ✗ 응답 본문:")
+        for line in textwrap.wrap(body[:600], width=76):
+            print(f"      {line}")
+        print("  → 위 문장이 사유입니다. 'Bad Request. The value for "
+              "variable api_key is not registered' 면 키가 아직 "
+              "활성화되지 않았거나 오타입니다.")
+        return
+
+    try:
+        obs = resp.json().get("observations", [])
+    except ValueError:
+        print("  ✗ JSON 으로 읽을 수 없습니다.")
+        return
+    print(f"  ✓ 관측치 {len(obs)}건 수신")
+    for row in obs[:3]:
+        print(f"      {row.get('date')}  {row.get('value')}")
+    print("  → 키가 정상 동작합니다. 매크로·물가·유동성이 모두 "
+          "채워져야 합니다. 그래도 비면 화면 위쪽 '캐시 비우고 다시 "
+          "불러오기' 를 누르십시오.")

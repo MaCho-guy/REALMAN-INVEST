@@ -1,73 +1,73 @@
 """
-색상 토큰과 CSS.
+색상 토큰과 CSS. **데이 모드 한 가지입니다.**
 
-색상은 검증된 기본 팔레트에서 가져왔고, 등락 색상 쌍은
-대비·색각이상 분리도 검사를 통과한 조합입니다.
+2026-11-11 에 나이트 모드를 없앴습니다. 두 벌을 유지하면 한쪽에서만
+깨지는 버그가 계속 생기고(실제로 각주 태그·링크 색·차트 대비가 전부
+한쪽에서만 틀렸습니다), 둘 다 어중간해집니다. 하나를 제대로 만드는 게
+낫습니다.
 
-  다크 모드: 상승 #e66767 / 하락 #3987e5
-    - 대비 모두 3:1 이상 (surface #1a1a19)
-    - 색각이상(protan) ΔE 19.2, 정상시야 ΔE 29.0
-  라이트 모드: 상승 #e34948 / 하락 #2a78d6
-    - 색각이상 ΔE 21.6, 정상시야 ΔE 32.3
+**디자인 방향 — '리서치 노트'**
 
-색상만으로 의미를 전달하지 않도록 ▲ / ▼ 기호와 부호를 항상 같이 표시합니다.
+이 화면은 종이 위의 리서치 노트처럼 읽혀야 합니다. 숫자가 주인공이고
+나머지는 구조입니다. 그래서:
+
+  바탕은 차가운 회색(#eceef1), 카드는 **진짜 흰색**.
+    크림색(#f4f1ea 계열)을 피했습니다. 따뜻한 종이색은 숫자를 읽는
+    화면에 어울리지 않고, 카드와 바탕이 둘 다 크림이면 경계가 안
+    보입니다. 흰 카드가 회색 바탕에서 뜨면 그림자 없이도 구분됩니다.
+
+  **색은 등락에만 씁니다.** 구조(선·제목·링크)는 전부 무채색이나
+    남색 하나입니다. 색이 두 가지 뜻을 가지면 숫자를 잘못 읽습니다 —
+    돈이 걸린 화면에서 제일 비싼 실수입니다.
+
+  숫자는 **tabular-nums** 로 자릿수를 맞춥니다. 표에서 자리가 흔들리면
+    위아래 비교가 안 됩니다.
+
+모든 글자색은 가장 밝은 배경(#eceef1) 기준 **명암비 5.0 이상**입니다
+(WCAG AA 는 4.5). 색각이상 대비: 상승 적색 #c02a29 / 하락 청색 #1d63b8.
+색만으로 뜻을 전하지 않도록 ▲ / ▼ 와 부호를 항상 같이 적습니다.
 """
 
 from __future__ import annotations
 
 from typing import Literal
 
-Mode = Literal["dark", "light"]
+#: 남아 있는 호출부 호환용. 값은 "light" 하나뿐입니다.
+Mode = Literal["light"]
 
 PALETTE: dict[Mode, dict[str, str]] = {
-    "dark": {
-        "page": "#0d0d0d",
-        "surface": "#1a1a19",
-        "surface_raised": "#222221",
-        "ink": "#f0efec",
-        "ink_secondary": "#c3c2b7",
-        "ink_muted": "#adaca7",
-        "border": "rgba(255,255,255,0.10)",
-        "divider": "#2c2c2a",
-        # 등락
-        "up_kr": "#ff6b6b",
-        "down_kr": "#5aa0f0",
-        "up_us": "#2eb82e",
-        "down_us": "#ff6b6b",
-        "flat": "#adaca7",
-        # 상태 배지
-        "badge_live": "#2eb82e",
-        "badge_pre": "#fab219",
-        "badge_post": "#a79ef0",
-        "badge_closed": "#adaca7",
-        "badge_error": "#ff6b6b",
-    },
     "light": {
-        "page": "#f9f9f7",
-        "surface": "#fcfcfb",
-        "surface_raised": "#ffffff",
-        "ink": "#0b0b0b",
-        "ink_secondary": "#52514e",
-        "ink_muted": "#6d6b67",
-        "border": "rgba(11,11,11,0.10)",
-        "divider": "#e1e0d9",
-        "up_kr": "#cc2d2b",
-        "down_kr": "#256bc0",
-        "up_us": "#006300",
-        "down_us": "#ca3030",
-        "flat": "#6d6b67",
-        "badge_live": "#097d09",
-        "badge_pre": "#8e6400",
-        "badge_post": "#6250d6",
-        "badge_closed": "#6d6b67",
-        "badge_error": "#ca3030",
+        # 바탕과 면
+        "page": "#eceef1",            # 차가운 회색 — 카드가 뜨는 바탕
+        "surface": "#ffffff",         # 카드
+        "surface_raised": "#f1f3f6",  # 카드 **안쪽** 블록 (흰색보다 어둡게)
+        # 글자
+        "ink": "#15181c",
+        "ink_secondary": "#4a5158",
+        "ink_muted": "#5f666e",
+        # 구조
+        "border": "rgba(21,24,28,0.16)",
+        "divider": "#dce0e6",
+        "accent": "#1f3a5f",          # 깊은 남색 — 구조 전용, 등락 아님
+        # 등락 (한국 관행: 상승 적색 / 미국 관행: 상승 녹색)
+        "up_kr": "#c02a29",
+        "down_kr": "#1d63b8",
+        "up_us": "#13693a",
+        "down_us": "#c02a29",
+        "flat": "#5f666e",
+        # 상태 배지
+        "badge_live": "#13693a",
+        "badge_pre": "#835f00",
+        "badge_post": "#5b4bc4",
+        "badge_closed": "#5f666e",
+        "badge_error": "#bf2b2b",
     },
 }
 
 FONT_STACK = 'system-ui, -apple-system, "Segoe UI", "Apple SD Gothic Neo", sans-serif'
 
 
-def delta_colors(mode: Mode, convention: str) -> tuple[str, str, str]:
+def delta_colors(convention: str, mode: Mode = "light") -> tuple[str, str, str]:
     """(상승색, 하락색, 보합색) 을 반환합니다."""
     p = PALETTE[mode]
     if convention == "us":
@@ -75,14 +75,10 @@ def delta_colors(mode: Mode, convention: str) -> tuple[str, str, str]:
     return p["up_kr"], p["down_kr"], p["flat"]
 
 
-def build_vars(mode: Mode, convention: str, scope: str = ":root") -> str:
-    """색상 변수만 담은 CSS 블록.
-
-    scope 를 바꾸면 한 페이지에 여러 테마를 넣고 전환할 수 있습니다.
-    예) build_vars("light", "kr", ':root[data-theme="light"]')
-    """
-    p = PALETTE[mode]
-    up, down, flat = delta_colors(mode, convention)
+def build_vars(convention: str, scope: str = ":root") -> str:
+    """색상 변수만 담은 CSS 블록."""
+    p = PALETTE["light"]
+    up, down, flat = delta_colors(convention)
 
     return f"""
   {scope} {{
@@ -93,6 +89,7 @@ def build_vars(mode: Mode, convention: str, scope: str = ":root") -> str:
     --dash-ink-2: {p["ink_secondary"]};
     --dash-ink-muted: {p["ink_muted"]};
     --dash-border: {p["border"]};
+    --dash-accent: {p["accent"]};
     --dash-divider: {p["divider"]};
     --dash-up: {up};
     --dash-down: {down};
@@ -139,9 +136,9 @@ def build_vars(mode: Mode, convention: str, scope: str = ":root") -> str:
 """
 
 
-def build_css(mode: Mode, convention: str) -> str:
+def build_css(convention: str) -> str:
     """앱 전체에 주입할 CSS (변수 + 규칙)."""
-    return "<style>" + build_vars(mode, convention) + build_rules() + "</style>"
+    return "<style>" + build_vars(convention) + build_rules() + "</style>"
 
 
 def build_rules() -> str:
@@ -149,18 +146,30 @@ def build_rules() -> str:
     return f"""
   .stApp {{ background: var(--dash-page); }}
 
+  /* 숫자는 어디에 있든 자릿수를 맞춥니다. 표에서 자리가 흔들리면 위아래
+     비교가 안 됩니다 — 이 화면에서 제일 많이 하는 동작입니다. */
+  .dash-card, .dash-signal, .dash-exp, .dash-skills, .dash-sector,
+  table.dash-table, .dash-kv, .dash-hit-row, .dash-macro-card {{
+    font-variant-numeric: tabular-nums;
+  }}
+
   /* 섹션 헤더 */
+  /* 섹션 제목 — 아래 실선 하나로만 구분했더니 어디서 끊기는지 눈이 못
+     잡았습니다. 제목 왼쪽에 남색 굵은 선을 세워 **구역의 시작**을
+     표시합니다. 색은 여기서만 쓰고 숫자에는 쓰지 않습니다. */
   .dash-section-head {{
     display: flex; align-items: baseline; gap: var(--sp-3);
-    margin: var(--sp-5) 0 var(--sp-3); padding-bottom: var(--sp-2);
+    margin: var(--sp-5) 0 var(--sp-3);
+    padding: 0 0 var(--sp-2) 11px;
     border-bottom: 1px solid var(--dash-divider);
+    border-left: 3px solid var(--dash-accent);
     font-family: {FONT_STACK};
   }}
   /* 첫 섹션은 위 여백을 줄입니다 — 탭 바로 아래가 비어 보입니다 */
   .dash-section-head:first-child {{ margin-top: var(--sp-2); }}
   .dash-section-title {{
-    font-size: var(--fs-6); font-weight: 650; color: var(--dash-ink);
-    letter-spacing: -0.01em;
+    font-size: var(--fs-6); font-weight: 750; color: var(--dash-ink);
+    letter-spacing: -0.015em;
     /* 좁은 폭에서 flex 가 제목을 압축해 '요/약' 처럼 글자 단위로
        쪼갰습니다. 제목은 줄이지 않습니다. */
     flex: 0 0 auto; white-space: nowrap;
@@ -190,6 +199,9 @@ def build_rules() -> str:
   .dash-nonotes .dash-check-detail {{ display: none; }}
 
   /* 종목 카드 */
+  /* 카드 — 흰 면이 회색 바탕 위에 놓입니다. 그림자를 깔지 않습니다:
+     카드가 20개 넘는 화면에서 그림자는 전부 같은 회색 번짐이 되어
+     오히려 구분을 지웁니다. 테두리 한 줄이면 충분합니다. */
   .dash-card {{
     background: var(--dash-surface);
     border: 1px solid var(--dash-border);
@@ -492,6 +504,21 @@ def build_rules() -> str:
     overflow-x: auto; overflow-y: auto;
     max-height: 62vh;
     border: 1px solid var(--dash-border); border-radius: var(--r-inner);
+    background: var(--dash-surface);
+    /* 가로로 잘렸다는 걸 보이게 — 오른쪽 끝에 옅은 그라데이션을 붙여
+       둡니다. 열이 9개면 1280px 에서도 잘리는데, 아무 표시가 없으면
+       '그게 전부' 라고 읽습니다. 끝까지 스크롤하면 사라집니다. */
+    background-image:
+      linear-gradient(to right, var(--dash-surface) 30%,
+                      rgba(255,255,255,0)),
+      linear-gradient(to left, var(--dash-surface) 30%,
+                      rgba(255,255,255,0)),
+      linear-gradient(to right, rgba(21,24,28,.13), rgba(255,255,255,0) 14px),
+      linear-gradient(to left, rgba(21,24,28,.13), rgba(255,255,255,0) 14px);
+    background-position: left center, right center, left center, right center;
+    background-repeat: no-repeat;
+    background-size: 36px 100%, 36px 100%, 14px 100%, 14px 100%;
+    background-attachment: local, local, scroll, scroll;
   }}
   .dash-table-wrap table.dash-table thead th {{
     position: sticky; top: 0; z-index: 2;
@@ -514,16 +541,33 @@ def build_rules() -> str:
     border-bottom: 1px solid var(--dash-divider);
   }}
   table.dash-table th {{
-    color: var(--dash-ink-muted); font-weight: 600;
+    color: var(--dash-ink-2); font-weight: 700;
     font-size: var(--fs-3); text-align: right;
-    border-bottom: 1px solid var(--dash-border);
+    background: var(--dash-raised);
+    border-bottom: 2px solid var(--dash-border);
   }}
+  /* 첫 열은 가로 스크롤 중에도 붙어 있어야 '어느 종목 줄' 인지 압니다.
+     sticky 요소는 배경이 투명하면 뒤 칸이 비쳐서 글자가 겹칩니다 —
+     그래서 배경을 깔되, 줄무늬와 어긋나지 않게 **줄의 배경을 물려받습니다**
+     (전에는 --dash-page 를 깔아 그 칸만 회색으로 떠 보였습니다). */
   table.dash-table th:first-child,
   table.dash-table td:first-child {{
-    text-align: left; color: var(--dash-ink); font-weight: 600;
-    position: sticky; left: 0; background: var(--dash-page);
+    text-align: left; color: var(--dash-ink); font-weight: 650;
+    position: sticky; left: 0;
+    background: var(--dash-surface);
   }}
-  table.dash-table td {{ color: var(--dash-ink-2); }}
+  table.dash-table tbody tr:nth-child(even) td:first-child {{
+    background: var(--dash-raised);
+  }}
+  table.dash-table tbody tr:hover td:first-child {{ background: #e7ebf1; }}
+  table.dash-table thead th:first-child {{ background: var(--dash-raised); }}
+  table.dash-table td {{ color: var(--dash-ink); }}
+  /* 줄이 길면 눈이 옆줄로 샙니다. 홀짝을 아주 옅게 깔아 줄을 잡아줍니다 —
+     테두리를 더 긋는 것보다 조용합니다. */
+  table.dash-table tbody tr:nth-child(even) {{
+    background: var(--dash-raised);
+  }}
+  table.dash-table tbody tr:hover {{ background: #e7ebf1; }}
   table.dash-table td.na {{ color: var(--dash-ink-muted); }}
 
   /* 매크로 지표 — 방향에 가격의 적색/청색을 쓰지 않습니다.

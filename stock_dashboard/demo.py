@@ -1009,7 +1009,12 @@ def demo_kr_vol_profiles(candidates):
             closes.append(price)
         if idx % 11 == 7:          # 몇 종목은 일부러 데이터 부족
             closes = closes[:60]
-        p = kr_screen.profile(code, name, closes)
+        # 거래대금 — 몇 종목은 일부러 바닥 밑으로 둡니다. 필터가 실제로
+        # 걸러내는지 프리뷰에서 눈으로 보여야 합니다.
+        thin = idx % 4 == 3
+        base_vol = 3_000.0 if thin else rnd.uniform(40_000, 400_000)
+        vols = [base_vol * rnd.uniform(0.6, 1.5) for _ in closes]
+        p = kr_screen.profile(code, name, closes, vols)
         profiles.append(p)
         if p.error:
             errors[code] = p.error

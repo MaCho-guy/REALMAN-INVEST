@@ -100,7 +100,11 @@ quiet_high = ks.profile("QH", "조용한 신고가",
                         + walk(70, 0.004, drift=0.0005,
                                start=walk(240, 0.03, drift=0.002,
                                           seed=24)[-1], seed=25))
-hits = ks.contraction_hits([quiet_bottom, loud_high, quiet_high])
+# 이 세 프로파일에는 거래량이 없습니다. 여기서 보려는 건 변동성·위치
+# 교집합이지 유동성이 아니므로 그 조건은 끕니다 — 유동성은 아래에서
+# 따로 봅니다.
+hits = ks.contraction_hits([quiet_bottom, loud_high, quiet_high],
+                           require_liquid=False)
 names = [h.ticker for h in hits]
 check("조용한 바닥은 안 걸린다", "QB" not in names, str(names))
 check("시끄러운 신고가는 안 걸린다", "LH" not in names, str(names))
@@ -109,7 +113,10 @@ check("조용한 신고가는 걸린다", "QH" in names, str(names))
 print("\n=== 통과 사유를 남긴다 ===")
 if hits:
     h = hits[0]
-    check("이유가 두 줄", len(h.reasons) == 2, str(h.reasons))
+    check("유동성을 끄면 이유도 두 줄", len(h.reasons) == 2, str(h.reasons))
+    check("안 본 조건을 적지 않는다",
+          not any("거래대금" in r for r in h.reasons),
+          "require_liquid=False 인데 '기준 5억 이상' 이라고 적으면 거짓말입니다")
     check("기준값이 이유에 적힌다",
           any("기준" in r for r in h.reasons), str(h.reasons))
     check("지표를 함께 돌려준다", len(h.metrics) >= 4, str(len(h.metrics)))
@@ -123,14 +130,15 @@ ps = [ks.profile(f"S{i}", f"종목{i}",
                         start=walk(240, 0.03, drift=0.002,
                                    seed=30 + i)[-1], seed=40 + i))
       for i in range(5)]
-ranked = ks.contraction_hits(ps)
+ranked = ks.contraction_hits(ps, require_liquid=False)
 check("많이 잦아든 순",
       all(ranked[i].sort_key <= ranked[i + 1].sort_key
           for i in range(len(ranked) - 1)),
       str([round(h.sort_key, 2) for h in ranked]))
 
 print("\n=== 신고가만 보는 스크리너 ===")
-nh = ks.near_high_hits([quiet_bottom, loud_high, quiet_high])
+nh = ks.near_high_hits([quiet_bottom, loud_high, quiet_high],
+                       require_liquid=False)
 check("①의 상위집합이다",
       set(h.ticker for h in hits) <= set(h.ticker for h in nh),
       "변동성 조건을 뺀 것이므로 ①은 전부 ②에 있어야 합니다")
@@ -191,6 +199,36 @@ check("전부 통과하지는 않는다", n_h < len(demo_cands), f"{n_h}")
 demo_rows = demo_mod.demo_kr_value_rows(demo_cands)
 n_v = len(ks.value_hits(demo_rows))
 check("밸류가 1~20종목", 1 <= n_v <= 20, f"{n_v}종목")
+
+print("\n=== 유동성 바닥 ===")
+check("기준이 5억 원", ks.MIN_TURNOVER == 500_000_000.0)
+_thick = ks.profile("A", "충분", [1000.0] * 300, [600_000.0] * 300)
+_thin = ks.profile("B", "부족", [1000.0] * 300, [100.0] * 300)
+_novol = ks.profile("C", "거래량없음", [1000.0] * 300)
+check("거래대금을 계산한다", _thick.turnover is not None
+      and abs(_thick.turnover - 6e8) < 1e6, str(_thick.turnover))
+check("억 단위로 적는다", "억" in _thick.turnover_label, _thick.turnover_label)
+check("충분하면 통과", _thick.liquid)
+check("부족하면 탈락", not _thin.liquid)
+check("모르면 통과시키지 않는다", not _novol.liquid,
+      "거래량을 못 받은 종목을 '유동성 충분' 으로 보면 거르는 의미가 없습니다")
+# 같은 프로파일인데 유동성만 다르면 결과가 갈려야 합니다
+# 가격 5만 원대(국내 대형주 수준)로 둡니다. 거래대금은 가격 × 거래량이라
+# 가격 눈금이 틀리면 유동성 판정이 통째로 엇나갑니다.
+_up = [50_000 + i * 50 for i in range(300)]
+_a = ks.profile("UP1", "유동", _up, [30_000.0] * 300)     # 약 20억
+_b = ks.profile("UP2", "비유동", _up, [500.0] * 300)      # 약 3천만
+_got = {h.ticker for h in ks.contraction_hits([_a, _b])}
+check("유동성만으로 갈린다", _got == {"UP1"}, str(_got))
+check("끄면 둘 다 통과",
+      len(ks.contraction_hits([_a, _b], require_liquid=False)) == 2)
+check("지표에 거래대금이 들어간다",
+      any(lab == "20일 평균 거래대금"
+          for lab, _v in ks.contraction_hits([_a])[0].metrics))
+check("표본이 모자라면 None",
+      ks.average_turnover([1000.0] * 3, [100.0] * 3) is None)
+check("스크리너 설명에 거래대금 기준",
+      "거래대금" in ks.KR_SCREENS[0][2])
 
 print("\n=== 화면 ===")
 h = ks.contraction_hits(demo_profiles)[0]

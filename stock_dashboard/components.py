@@ -2272,7 +2272,7 @@ def render_inflation_table(readings: list) -> str:
             + " · ".join(f"{_esc(r.label)} ({_esc(r.error[:40])})"
                          for r in missing[:4]))
     return (
-        '<div class="dash-tablewrap"><table class="dash-table">'
+        '<div class="dash-table-wrap"><table class="dash-table">'
         "<thead><tr><th>지표</th><th class='num'>전월비</th>"
         "<th class='num'>전년동월비</th><th class='num'>3개월 연율</th>"
         "<th>방향</th><th>기준</th></tr></thead>"
@@ -2403,7 +2403,7 @@ def render_market_filings(filings: list, error: str = "") -> str:
         for f in filings
     )
     return (
-        '<div class="dash-tablewrap"><table class="dash-table">'
+        '<div class="dash-table-wrap"><table class="dash-table">'
         "<thead><tr><th>날짜</th><th>분류</th><th>회사</th>"
         "<th>보고서</th></tr></thead>"
         f"<tbody>{rows}</tbody></table></div>"
@@ -2412,3 +2412,41 @@ def render_market_filings(filings: list, error: str = "") -> str:
             "주가에 바로 영향을 주는 유형만 남깁니다. 놓치는 쪽을 택했으니 "
             "<b>빠진 게 있을 수 있습니다</b> — 전체는 DART 에서 보십시오.")
     )
+
+
+def render_nav_groups(groups) -> str:
+    """세로 내비의 묶음 이름을 CSS 로 끼워 넣습니다.
+
+    스트림릿 라디오 안에는 머리말을 넣을 수 없습니다. 그룹마다 라디오를
+    따로 두면 선택이 갈려서 '지금 어느 탭인가' 가 흔들립니다. 그래서
+    라디오는 하나로 두고, 각 그룹 첫 항목 **앞에** ::before 로 이름을
+    붙입니다.
+
+    **범위를 좁히는 게 중요합니다.** 그냥 div[role="radiogroup"] 에 걸면
+    아래 '시장' 라디오(3개)에도 '오늘'·'찾기' 가 붙어 버립니다. 바로 앞에
+    표식 div 를 하나 두고 :has() 로 **그 다음 위젯만** 집습니다.
+
+    스트림릿이 DOM 을 바꾸거나 :has() 가 없는 브라우저면 **묶음 이름만**
+    사라지고 내비는 그대로 돕니다.
+    """
+    sel = ('div[data-testid="stElementContainer"]:has(.dash-navmark)'
+           ' + div[data-testid="stElementContainer"]'
+           ' div[role="radiogroup"] > label')
+    rules = []
+    idx = 1
+    for name, items in groups:
+        if not items:
+            continue
+        rules.append(
+            f"{sel}:nth-of-type({idx})::before {{"
+            f'content: "{_esc(name)}";'
+            "display: block; font-size: var(--fs-1); font-weight: 700;"
+            "letter-spacing: .06em; color: var(--dash-ink-muted);"
+            "margin: 11px 0 3px; padding-left: 2px;"
+            "}"
+        )
+        idx += len(items)
+    # 첫 묶음은 위 여백을 줄입니다 — '섹션' 글자 바로 아래라 비어 보입니다
+    rules.append(f"{sel}:nth-of-type(1)::before {{ margin-top: 0; }}")
+    return ('<div class="dash-navmark"></div><style>'
+            + "".join(rules) + "</style>")

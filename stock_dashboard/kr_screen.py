@@ -5,7 +5,7 @@
 
 미국 발굴은 '버핏식 품질 기준'만으로 충분합니다. 종목 수가 많고 재무가
 안정적이라 재무제표만 봐도 목록이 줄어듭니다. 국내는 사정이 다릅니다 —
-후보가 30종목뿐이라 재무 기준만으로는 거의 안 걸러지고, 대신 **주가
+후보가 50종목 남짓이라 재무 기준만으로는 거의 안 걸러지고, 대신 **주가
 변동성이 훨씬 큽니다.** 52주 신고가를 단독으로 쓰면 급등 후 되돌림
 구간이 대거 섞여 들어옵니다.
 
@@ -43,12 +43,22 @@ SHORT_WINDOW = 63
 
 #: 변동성이 '잦아들었다'고 보는 기준. 0.80 이면 최근 3개월이 1년 평균보다
 #: 20% 이상 조용해진 상태입니다. 0.9 로 두면 거의 전부 통과하고, 0.7 로
-#: 두면 1~2 종목만 남습니다 — 30종목 모집단에서 둘 다 쓸모가 없습니다.
+#: 두면 1~2 종목만 남습니다 — 50종목 모집단에서 둘 다 쓸모가 없습니다.
 CONTRACTION_MAX = 0.80
 
 #: 신고가 '근처'의 범위. 52주 고가 대비 몇 % 이상인가.
 #: 100% 정확히 신고가만 보면 하루 차이로 목록이 통째로 바뀝니다.
 NEAR_HIGH_PCT = 90.0
+
+#: 유동성 바닥 — 20일 평균 거래대금(원). 모닝 브리프가 쓰는 5억 원을
+#: 그대로 가져왔습니다. **왜 필요한가:** 코스닥에는 하루 거래대금이
+#: 수천만 원인 종목이 흔합니다. 변동성 수축이 잡혀도 실제로는 '거래가
+#: 없어서 안 움직인 것' 이고, 사려고 하면 호가가 비어 있습니다.
+#: 걸러내지 않으면 스크리너가 **살 수 없는 종목**을 추천합니다.
+MIN_TURNOVER = 500_000_000.0
+
+#: 거래대금을 재는 기간 (거래일).
+TURNOVER_WINDOW = 20
 
 #: 계산에 필요한 최소 일봉 수. 이보다 적으면 변동성을 신뢰할 수 없습니다
 #: (신규 상장·거래정지). 숫자를 내는 대신 '알 수 없음' 으로 둡니다.
@@ -78,7 +88,23 @@ class VolProfile:
     vol_long: float | None = None      # 연율 변동성 (%), 1년
     vol_short: float | None = None     # 연율 변동성 (%), 3개월
     return_1y: float | None = None     # %
+    turnover: float | None = None      # 20일 평균 거래대금 (원)
     error: str = ""
+
+    @property
+    def liquid(self) -> bool:
+        """거래대금이 바닥을 넘는가. **모르면 통과시키지 않습니다** —
+        거래량을 못 받은 종목을 '유동성 충분' 으로 보면 걸러내는 의미가
+        없어집니다."""
+        return self.turnover is not None and self.turnover >= MIN_TURNOVER
+
+    @property
+    def turnover_label(self) -> str:
+        if self.turnover is None:
+            return "—"
+        if self.turnover >= 100_000_000:
+            return f"{self.turnover / 100_000_000:,.1f}억"
+        return f"{self.turnover / 10_000:,.0f}만"
 
     @property
     def ok(self) -> bool:
@@ -126,8 +152,24 @@ def annualized_vol(closes: list[float], window: int) -> float | None:
     return sd * math.sqrt(252) * 100.0
 
 
-def profile(ticker: str, name: str, closes: list[float]) -> VolProfile:
-    """일봉 종가 목록 하나로 프로파일을 만듭니다."""
+def average_turnover(closes: list[float], volumes: list[float],
+                     window: int = TURNOVER_WINDOW) -> float | None:
+    """최근 window 거래일의 평균 거래대금 (종가 × 거래량).
+
+    정확한 거래대금은 체결가 기준이지만 일봉으로는 알 수 없습니다.
+    종가 × 거래량은 **근사치**이고, 유동성 바닥을 가르는 데는 충분합니다
+    (5억 원 근처에서 10% 틀려도 판정이 거의 안 바뀝니다).
+    """
+    pairs = [(c, v) for c, v in zip(closes[-window:], volumes[-window:])
+             if c and c > 0 and v is not None and v >= 0]
+    if len(pairs) < max(5, window // 4):
+        return None
+    return sum(c * v for c, v in pairs) / len(pairs)
+
+
+def profile(ticker: str, name: str, closes: list[float],
+            volumes: list[float] | None = None) -> VolProfile:
+    """일봉 종가(+거래량) 목록 하나로 프로파일을 만듭니다."""
     clean = [c for c in closes if c and c > 0]
     if not clean:
         return VolProfile(ticker=ticker, name=name,
@@ -147,6 +189,7 @@ def profile(ticker: str, name: str, closes: list[float]) -> VolProfile:
         vol_long=annualized_vol(clean, LONG_WINDOW),
         vol_short=annualized_vol(clean, SHORT_WINDOW),
         return_1y=ret,
+        turnover=(average_turnover(closes, volumes) if volumes else None),
     )
 
 
@@ -167,12 +210,16 @@ class Hit:
 
 def contraction_hits(profiles: list[VolProfile], *,
                      contraction_max: float = CONTRACTION_MAX,
-                     near_high_pct: float = NEAR_HIGH_PCT) -> list[Hit]:
+                     near_high_pct: float = NEAR_HIGH_PCT,
+                     require_liquid: bool = True) -> list[Hit]:
     """변동성이 잦아든 채로 52주 고가 근처에 있는 종목.
 
     **교집합입니다.** 둘 중 하나만 만족하면 올리지 않습니다 — 변동성만
     낮으면 그냥 안 움직이는 종목이고, 신고가만 보면 급등 중인 종목이
     섞입니다.
+
+    거래대금 바닥도 같이 겁니다. 변동성 수축은 '거래가 없어서 안 움직인
+    것' 과 구분이 안 되는데, 코스닥에는 그런 종목이 흔합니다.
     """
     out: list[Hit] = []
     for p in profiles:
@@ -181,13 +228,23 @@ def contraction_hits(profiles: list[VolProfile], *,
             continue
         if c > contraction_max or hp < near_high_pct:
             continue
+        if require_liquid and not p.liquid:
+            continue
+        reasons = [
+            f"최근 3개월 변동성이 1년 평균의 {c * 100:.0f}% "
+            f"(기준 {contraction_max * 100:.0f}% 이하)",
+            f"52주 고가 대비 {hp:.1f}% (기준 {near_high_pct:.0f}% 이상)",
+        ]
+        # 거래대금은 **실제로 검사했을 때만** 이유에 적습니다. 끄고
+        # 돌렸는데 '기준 5억 이상' 이라고 적으면 안 본 조건을 본 것처럼
+        # 말하는 셈입니다.
+        if require_liquid and p.turnover is not None:
+            reasons.append(
+                f"20일 평균 거래대금 {p.turnover_label}원 "
+                f"(기준 {MIN_TURNOVER / 100_000_000:.0f}억 이상)")
         out.append(Hit(
             ticker=p.ticker, name=p.name,
-            reasons=[
-                f"최근 3개월 변동성이 1년 평균의 {c * 100:.0f}% "
-                f"(기준 {contraction_max * 100:.0f}% 이하)",
-                f"52주 고가 대비 {hp:.1f}% (기준 {near_high_pct:.0f}% 이상)",
-            ],
+            reasons=reasons,
             metrics=[
                 ("변동성 수축비", f"{c:.2f}"),
                 ("연율 변동성 (3개월)", f"{p.vol_short:.1f}%"),
@@ -195,6 +252,7 @@ def contraction_hits(profiles: list[VolProfile], *,
                 ("52주 고가 대비", f"{hp:.1f}%"),
                 ("1년 수익률",
                  "—" if p.return_1y is None else f"{p.return_1y:+.1f}%"),
+                ("20일 평균 거래대금", p.turnover_label),
             ],
             sort_key=c,
         ))
@@ -203,12 +261,15 @@ def contraction_hits(profiles: list[VolProfile], *,
 
 
 def near_high_hits(profiles: list[VolProfile], *,
-                   near_high_pct: float = NEAR_HIGH_PCT) -> list[Hit]:
+                   near_high_pct: float = NEAR_HIGH_PCT,
+                   require_liquid: bool = True) -> list[Hit]:
     """52주 신고가 근처 — 변동성 조건 없이. 비교용으로 따로 둡니다."""
     out: list[Hit] = []
     for p in profiles:
         hp = p.pct_of_high
         if hp is None or hp < near_high_pct:
+            continue
+        if require_liquid and not p.liquid:
             continue
         out.append(Hit(
             ticker=p.ticker, name=p.name,
@@ -222,6 +283,7 @@ def near_high_hits(profiles: list[VolProfile], *,
                  "—" if p.vol_long is None else f"{p.vol_long:.1f}%"),
                 ("1년 수익률",
                  "—" if p.return_1y is None else f"{p.return_1y:+.1f}%"),
+                ("20일 평균 거래대금", p.turnover_label),
             ],
             sort_key=-hp,
         ))
@@ -326,6 +388,7 @@ def yahoo_symbols(code: str) -> tuple[str, ...]:
 
 
 def build_profiles(candidates, closes_by_symbol: dict[str, list[float]],
+                   volumes_by_symbol: dict[str, list[float]] | None = None,
                    ) -> tuple[list[VolProfile], dict[str, str]]:
     """(코드, 이름) 목록 + 받아온 일봉 → 프로파일 목록.
 
@@ -334,16 +397,19 @@ def build_profiles(candidates, closes_by_symbol: dict[str, list[float]],
     """
     profiles: list[VolProfile] = []
     errors: dict[str, str] = {}
+    volumes_by_symbol = volumes_by_symbol or {}
     for code, name in candidates:
         closes: list[float] = []
+        vols: list[float] = []
         for sym in yahoo_symbols(code):
             if closes_by_symbol.get(sym):
                 closes = closes_by_symbol[sym]
+                vols = volumes_by_symbol.get(sym) or []
                 break
         if not closes:
             errors[code] = "일봉을 받지 못했습니다 (.KS · .KQ 둘 다 비었습니다)."
             continue
-        p = profile(code, name, closes)
+        p = profile(code, name, closes, vols)
         profiles.append(p)
         if p.error:
             errors[code] = p.error
@@ -369,12 +435,15 @@ def all_symbols(candidates) -> list[str]:
 KR_SCREENS = (
     ("contraction", "① 변동성 수축 + 신고가",
      f"최근 3개월 변동성 ÷ 1년 변동성 ≤ {CONTRACTION_MAX:.2f} "
-     f"<b>그리고</b> 52주 고가 대비 ≥ {NEAR_HIGH_PCT:.0f}%",
+     f"<b>그리고</b> 52주 고가 대비 ≥ {NEAR_HIGH_PCT:.0f}% "
+     f"<b>그리고</b> 20일 평균 거래대금 ≥ "
+     f"{MIN_TURNOVER / 100_000_000:.0f}억",
      "<b>방향을 말해주지 않습니다.</b> 변동성이 잦아든 뒤에는 위로도 "
      "아래로도 터집니다. 이 목록은 '오를 종목' 이 아니라 '공시를 읽어볼 "
      "종목' 입니다."),
     ("near_high", "② 52주 신고가 근처",
-     f"52주 고가 대비 ≥ {NEAR_HIGH_PCT:.0f}% (변동성 조건 없음)",
+     f"52주 고가 대비 ≥ {NEAR_HIGH_PCT:.0f}% · 거래대금 ≥ "
+     f"{MIN_TURNOVER / 100_000_000:.0f}억 (변동성 조건 없음)",
      "①과 비교하라고 둔 목록입니다. 여기에만 있고 ①에 없으면 "
      "<b>아직 급하게 움직이는 중</b>이라는 뜻입니다."),
     ("value_trad", "③ 전통 밸류 (PBR · PER · 배당)",

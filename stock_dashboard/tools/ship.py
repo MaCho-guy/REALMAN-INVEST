@@ -13,6 +13,10 @@ sources/kr_exports.py 와 sources/yahoo.py 였습니다. 기억으로 고르면
 
     python -m tools.ship --diff     달라진 파일만 출력 (한 줄에 하나)
     python -m tools.ship --mark     지금 상태를 '보냈음' 으로 기록
+    python -m tools.ship --restore  실수로 --mark 했을 때 되돌리기
+
+**--mark 는 실제로 보낸 직후에만** 돌립니다. 보내기 전에 돌리면 기준점이
+사라져서 다음에 전체를 보내야 합니다 (실제로 한 번 그랬습니다).
     python -m tools.ship            요약
 
 BUILD.json 과 .shipped.json 의 차이:
@@ -61,16 +65,48 @@ def changed(root: str) -> tuple[list[str], list[str], list[str]]:
 
 
 def mark(root: str) -> int:
+    """지금 상태를 '보냈음' 으로 기록합니다.
+
+    **직전 기록을 .shipped.prev.json 으로 남깁니다.** 보내지도 않고
+    실수로 --mark 를 돌리면 '무엇이 바뀌었는지' 기준점이 사라지는데,
+    그러면 다시 전체를 보내는 수밖에 없습니다. 실제로 한 번 그랬습니다.
+    """
+    path = os.path.join(root, SHIPPED)
+    if os.path.exists(path):
+        prev = os.path.join(root, SHIPPED.replace(".json", ".prev.json"))
+        try:
+            with open(path, encoding="utf-8") as src, \
+                    open(prev, "w", encoding="utf-8") as dst:
+                dst.write(src.read())
+        except OSError:
+            pass
     now = buildstamp.build_manifest(root)
-    with open(os.path.join(root, SHIPPED), "w", encoding="utf-8") as fh:
+    with open(path, "w", encoding="utf-8") as fh:
         json.dump({"files": now}, fh, ensure_ascii=False, indent=1,
                   sort_keys=True)
     return len(now)
 
 
+def restore(root: str) -> bool:
+    """실수로 --mark 한 것을 되돌립니다."""
+    prev = os.path.join(root, SHIPPED.replace(".json", ".prev.json"))
+    if not os.path.exists(prev):
+        return False
+    with open(prev, encoding="utf-8") as src, \
+            open(os.path.join(root, SHIPPED), "w", encoding="utf-8") as dst:
+        dst.write(src.read())
+    return True
+
+
 def main(argv: list[str]) -> int:
     root = _root()
     modified, added, removed = changed(root)
+
+    if "--restore" in argv:
+        ok = restore(root)
+        print("직전 기록으로 되돌렸습니다." if ok
+              else "되돌릴 기록이 없습니다.")
+        return 0 if ok else 1
 
     if "--mark" in argv:
         n = mark(root)

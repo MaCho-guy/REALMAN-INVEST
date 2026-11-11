@@ -6,7 +6,7 @@
 
 구성:
   상단 탭      섹션 전환 (관심종목 / 밸류에이션 / 공시 분석 / DEX 선물 / …)
-  설정 패널   테마(나이트·데이), 등락 색상, 갱신, 환율 — 페이지 상단
+  설정 패널   등락 색상, 갱신, 환율 — 페이지 상단
   카드 제목    클릭하면 야후·네이버·Hyperliquid 해당 종목 페이지로 이동
 
 jusikbot.com 의 정보 구조를 참고했으나 UI·코드는 전부 직접 작성한 것입니다.
@@ -292,7 +292,7 @@ def load_news(targets: tuple[tuple[str, str, str], ...], use_demo: bool) -> dict
 
 @st.cache_data(ttl=3_600, show_spinner=False)
 def load_kr_vol_profiles(use_demo: bool):
-    """국내 후보 30종목의 1년 일봉 → 변동성 프로파일.
+    """국내 후보(코스피 + 코스닥)의 1년 일봉 → 변동성 프로파일.
 
     일봉은 하루 한 번만 바뀌므로 캐시를 1시간으로 둡니다. 코드마다
     `.KS` · `.KQ` 두 심볼을 시도하므로 최대 60회 호출이고, 야후는
@@ -301,11 +301,13 @@ def load_kr_vol_profiles(use_demo: bool):
     cands = list(config.screen_kr_candidates())
     if use_demo:
         return demo_mod.demo_kr_vol_profiles(cands), {}
+    vols: dict[str, list[float]] = {}
     try:
-        closes, _errs = yahoo.fetch_closes(kr_screen.all_symbols(cands))
+        closes, _errs = yahoo.fetch_closes(kr_screen.all_symbols(cands),
+                                           volumes=vols)
     except Exception as exc:  # noqa: BLE001
         return [], {"_": f"일봉을 받지 못했습니다: {exc}"}
-    return kr_screen.build_profiles(cands, closes)
+    return kr_screen.build_profiles(cands, closes, vols)
 
 
 @st.cache_data(ttl=3_600, show_spinner=False)
@@ -939,7 +941,7 @@ def render_discover_tab(use_demo: bool, *, market: str = "all") -> None:
     - 미국은 후보가 68종목이고 재무가 안정적이라 **품질 기준만으로도**
       목록이 줄어듭니다. 52주 위치는 거기에 모멘텀을 섞는 축이라, 장기
       보유 판단에는 오히려 잡음이었습니다. 그래서 뺐습니다.
-    - 국내는 후보가 30종목뿐이라 재무 기준으로 거의 안 걸러지고, 대신
+    - 국내는 후보가 50종목 남짓이라 재무 기준으로 거의 안 걸러지고, 대신
       **주가 변동성이 훨씬 큽니다.** 그래서 변동성을 축으로 씁니다.
     """
     if market == "kr":
@@ -1043,11 +1045,14 @@ def _discover_kr(use_demo: bool) -> None:
     )
     st.markdown(
         ui.render_footnote(
-            "<b>왜 미국과 기준이 다른가.</b> 국내 후보는 30종목뿐이라 재무 "
-            "기준만으로는 거의 걸러지지 않습니다. 대신 주가 변동성이 "
-            "미국보다 큽니다 — 52주 신고가를 단독으로 쓰면 급등 후 되돌림 "
-            "구간이 대거 섞입니다. 그래서 <b>변동성이 잦아든 상태</b>를 "
-            "같이 봅니다."),
+            f"<b>왜 미국과 기준이 다른가.</b> 국내 후보 "
+            f"{len(config.screen_kr_candidates())}종목(코스피 + 코스닥)은 "
+            "재무 기준만으로는 거의 걸러지지 않습니다. 대신 주가 "
+            "변동성이 미국보다 큽니다 — 52주 신고가를 단독으로 쓰면 "
+            "급등 후 되돌림 구간이 대거 섞입니다. 그래서 <b>변동성이 "
+            "잦아든 상태</b>와 <b>거래대금 바닥</b>을 같이 봅니다. "
+            "코스닥에는 '거래가 없어서 안 움직인' 종목이 흔한데, "
+            "변동성 수축만으로는 그걸 구분하지 못합니다."),
         unsafe_allow_html=True,
     )
 
@@ -1330,11 +1335,32 @@ def render_diag_panel() -> None:
 
     from tools import diagnose as diag
 
+    # 키를 Secrets 에 넣기 전에 **되는지 먼저** 보고 싶을 때가 있습니다.
+    # 여기에 넣은 값은 이 세션에서만 쓰이고 저장하지 않습니다.
+    _fred_src = fred.key_source()
+    st.caption(f"FRED 키 출처: **{_fred_src}**")
+    if _fred_src != "Secrets (환경변수)":
+        _typed = st.text_input(
+            "FRED 키 임시 입력 (저장하지 않습니다)", value="",
+            type="password", key="fred_tmp_key",
+            help="Secrets 에 넣기 전에 되는지 확인용입니다. 새로고침하면 "
+                 "사라집니다. 확인되면 Secrets 에 최상위 레벨로 "
+                 'FRED_API_KEY = "…" 를 넣으십시오.',
+        )
+        if _typed and _typed.strip() != fred.api_key():
+            fred.set_session_key(_typed)
+            st.cache_data.clear()
+            st.rerun()
+
     # 함수를 **이름으로** 찾습니다. 직접 참조하면 tools/diagnose.py 가
     # 옛날 파일일 때 이 목록을 만드는 순간 AttributeError 로 앱 전체가
     # 죽습니다 — 2026-11-11 에 실제로 그렇게 죽었습니다. 진단 하나가
     # 없는 것과 앱이 안 켜지는 것은 심각도가 다릅니다.
     specs = (
+        ("fredkey", "FRED 키 확인 (한 계열만)", "diagnose_fred_key",
+         "키 형식 → 연결 → 실제 호출을 순서대로 봅니다. 계열 14개를 다 "
+         "돌리지 않아 **빠르고**, 실패하면 응답 본문에서 사유를 그대로 "
+         "보여줍니다. 물가·유동성이 전부 비면 여기부터 누르십시오."),
         ("fred", "경제지표 계열 확인", "diagnose_fred",
          f"FRED 계열 {len(config.MACRO_SERIES)}개가 실제로 받아지는지. "
          "연결 자체도 먼저 시험합니다. 키 불필요."),
@@ -2698,26 +2724,11 @@ def controls() -> dict:
     휴대폰에서는 화면을 가립니다. 한 줄에 묶고, 자주 안 쓰는 것은 버튼을
     눌러 펼치는 패널에 넣습니다. 매일 쓰는 건 '지금 갱신' 하나뿐입니다.
     """
-    c1, c2, c3, c4 = st.columns([3, 2, 2, 2])
-
-    with c1:
-        seg = getattr(st, "segmented_control", None)
-        opts_theme = ["🌙 나이트", "☀️ 데이"]
-        default = opts_theme[0 if config.DEFAULT_THEME == "dark" else 1]
-        if seg is not None:
-            try:
-                theme_label = seg("테마", opts_theme, default=default,
-                                  key="ui_theme", label_visibility="collapsed")
-            except Exception:  # noqa: BLE001
-                theme_label = st.radio("테마", opts_theme, horizontal=True,
-                                       key="ui_theme_r",
-                                       label_visibility="collapsed")
-        else:
-            theme_label = st.radio("테마", opts_theme, horizontal=True,
-                                   key="ui_theme_r",
-                                   label_visibility="collapsed")
-        mode = "dark" if (theme_label or opts_theme[0]).startswith("🌙") \
-            else "light"
+    # 테마 전환을 없앴습니다 (2026-11-11). 두 벌을 유지하면 한쪽에서만
+    # 깨지는 버그가 계속 생기고 둘 다 어중간해집니다 — 실제로 각주 태그,
+    # 링크 색, 차트 대비가 전부 한쪽에서만 틀렸습니다. 하나를 제대로
+    # 만드는 쪽을 골랐습니다.
+    c2, c3, c4 = st.columns([2, 2, 2])
 
     with c2:
         with _pane("표시 설정", "색상 · 휴대폰 · 설명 문구"):
@@ -2815,7 +2826,6 @@ def controls() -> dict:
         st.rerun()
 
     return {
-        "mode": mode,
         "convention": convention,
         "phone": phone,
         "notes": show_notes,
@@ -2890,14 +2900,33 @@ def render_body(opts: dict) -> None:
     nav_col, body_col = st.columns([1, 5], gap="medium")
 
     with nav_col:
-        st.markdown('<div class="dash-navhead">섹션</div>',
-                    unsafe_allow_html=True)
+        # 섹션이 7개가 되면서 평평한 목록으로는 '어디로 가야 하지' 가
+        # 됐습니다. 두 참고 사이트가 쓰는 방식대로 묶음 이름을 답니다.
+        # 라디오는 하나여야 하므로(두 개면 선택이 갈립니다) 목록은
+        # 그대로 두고 **라벨 앞에 묶음 이름**을 붙입니다.
+        groups = config.tab_groups()
+        head_of = {}
+        for gname, items in groups:
+            if items:
+                head_of[items[0][0]] = gname
+        ordered = [k for _g, items in groups for k, _l in items]
+
+        def _nav_label(key: str) -> str:
+            return labels.get(key, key)
+
+        # 묶음 이름(오늘·찾기·시장)이 머리말 역할을 하므로 '섹션' 이라는
+        # 줄은 빼습니다 — 바로 아래 '오늘' 과 겹쳐 읽힙니다.
+        # 묶음 이름은 CSS 로 끼워 넣습니다. 라디오를 그룹마다 따로 두면
+        # 선택이 두 군데로 갈려서 '어느 탭에 있는지' 가 흔들립니다.
+        # 스트림릿이 DOM 을 바꾸면 **묶음 이름만** 사라지고 내비는 그대로
+        # 돕니다 — 깨져도 쓸 수 있는 쪽으로 만들었습니다.
+        st.markdown(ui.render_nav_groups(groups), unsafe_allow_html=True)
         active = st.radio(
-            "섹션", keys, key="nav",
-            format_func=lambda k: labels.get(k, k),
+            "섹션", ordered, key="nav",
+            format_func=_nav_label,
             label_visibility="collapsed",
         )
-        st.markdown('<div class="dash-navhead">시장</div>',
+        st.markdown('<div class="dash-navhead">보는 시장</div>',
                     unsafe_allow_html=True)
         market = st.radio(
             "시장", list(config.MARKETS), key="market",
@@ -2972,7 +3001,7 @@ def main() -> None:
         st.markdown(ui.render_build_warning(_build), unsafe_allow_html=True)
 
     opts = controls()
-    st.markdown(build_css(opts["mode"], opts["convention"]), unsafe_allow_html=True)
+    st.markdown(build_css(opts["convention"]), unsafe_allow_html=True)
     if not opts.get("notes", True):
         # Streamlit 의 본문 컨테이너에 클래스를 걸 수 없어서, 설명 문구를
         # 숨기는 규칙을 전역으로 한 번 더 주입합니다. build_css 의 서명을

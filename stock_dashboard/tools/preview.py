@@ -1,7 +1,7 @@
 """
 데모 데이터로 대시보드를 정적 HTML 한 장으로 렌더링합니다.
 
-Streamlit 을 설치하지 않고도 실제 앱과 같은 탭 전환 / 나이트·데이 전환을
+Streamlit 을 설치하지 않고도 실제 앱과 같은 섹션 전환을
 눈으로 확인할 용도입니다. 카드·테이블은 앱과 동일한 components.py / theme.py
 를 쓰므로 여기서 보이는 모양이 앱에서도 그대로 나옵니다.
 
@@ -57,19 +57,26 @@ EXTRA_CSS = """
     color: var(--dash-ink-2); background: var(--dash-surface-raised);
   }
   .pv-tab[aria-selected="true"] {
-    color: var(--dash-ink); border-left-color: var(--dash-up);
-    background: var(--dash-surface);
+    color: var(--dash-ink); border-left-color: var(--dash-accent);
+    background: var(--dash-surface); font-weight: 700;
   }
+  .pv-navgroup {
+    font-size: var(--fs-1); font-weight: 700; letter-spacing: .06em;
+    color: var(--dash-ink-muted); margin: 11px 0 3px; padding-left: 11px;
+  }
+  .pv-navgroup:first-child { margin-top: 0; }
   @media (max-width: 760px) {
     .pv-shell { display: block; }
     .pv-side { position: static; margin-bottom: 14px; }
-    .pv-tabs { flex-direction: row; flex-wrap: wrap; }
+    .pv-tabs { flex-direction: row; flex-wrap: wrap; align-items: center; }
+    .pv-navgroup { width: 100%; margin: 8px 0 2px; padding-left: 0; }
     .pv-tab {
       border-left: none; border-bottom: 2px solid transparent;
       border-radius: var(--r-inner) var(--r-inner) 0 0;
     }
     .pv-tab[aria-selected="true"] {
-      border-left-color: transparent; border-bottom-color: var(--dash-up);
+      border-left-color: transparent;
+      border-bottom-color: var(--dash-accent);
     }
   }
   .pv-fold > summary {
@@ -83,20 +90,6 @@ EXTRA_CSS = """
   .pv-fold[open] > summary::before { content: "▾ "; }
   .pv-panel[hidden] { display: none; }
   .pv-fold-body { padding: 2px 0 10px; }
-
-  /* 테마 전환 */
-  .pv-toggle {
-    margin-left: auto; display: flex; gap: 2px; align-items: center;
-    border: 1px solid var(--dash-border); border-radius: 999px; padding: 2px;
-  }
-  .pv-toggle button {
-    appearance: none; background: none; border: none; cursor: pointer;
-    color: var(--dash-ink-muted); font: inherit; font-size: 0.72rem;
-    padding: 4px 11px; border-radius: 999px;
-  }
-  .pv-toggle button[aria-pressed="true"] {
-    background: var(--dash-surface); color: var(--dash-ink); font-weight: 600;
-  }
 
   .demo-banner {
     border: 1px solid var(--dash-badge-pre); color: var(--dash-badge-pre);
@@ -166,21 +159,6 @@ TAB_SCRIPT = """
   show(tabs.some(function (t) { return t.dataset.key === start; })
        ? start : tabs[0].dataset.key);
 
-  var buttons = Array.prototype.slice.call(document.querySelectorAll('.pv-toggle button'));
-  function setTheme(mode) {
-    if (mode === 'light') { document.documentElement.setAttribute('data-theme', 'light'); }
-    else { document.documentElement.removeAttribute('data-theme'); }
-    buttons.forEach(function (b) {
-      b.setAttribute('aria-pressed', String(b.dataset.mode === mode));
-    });
-    try { localStorage.setItem('dash-theme', mode); } catch (e) { /* 무시 */ }
-  }
-  buttons.forEach(function (b) {
-    b.addEventListener('click', function () { setTheme(b.dataset.mode); });
-  });
-  var saved = null;
-  try { saved = localStorage.getItem('dash-theme'); } catch (e) { saved = null; }
-  setTheme(saved === 'light' ? 'light' : 'dark');
 })();
 """
 
@@ -784,10 +762,12 @@ def _discover_panel(use_demo: bool) -> str:
         "종목 발굴 · 한국",
         "변동성 × 신고가 × 전통 밸류 — 국내는 재무만으로 안 걸러집니다"))
     parts.append(ui.render_footnote(
-        "<b>왜 미국과 기준이 다른가.</b> 국내 후보는 30종목뿐이라 재무 "
+        f"<b>왜 미국과 기준이 다른가.</b> 국내 후보 "
+        f"{len(config.screen_kr_candidates())}종목(코스피 + 코스닥)은 재무 "
         "기준만으로는 거의 걸러지지 않습니다. 대신 주가 변동성이 미국보다 "
         "큽니다 — 52주 신고가를 단독으로 쓰면 급등 후 되돌림 구간이 대거 "
-        "섞입니다. 그래서 <b>변동성이 잦아든 상태</b>를 같이 봅니다.<br>"
+        "섞입니다. 그래서 <b>변동성이 잦아든 상태</b>와 <b>거래대금 "
+        "바닥</b>을 같이 봅니다.<br>"
         "앱에서는 아래 세 묶음을 <b>버튼으로 전환</b>하고, 종목마다 카드를 "
         "펼쳐 기업 개요·최근 뉴스·3대 분석 버튼을 봅니다."))
 
@@ -1217,17 +1197,16 @@ def build_html(convention: str, use_demo: bool) -> str:
     pairs = config.tab_labels()
 
     # 탭 버튼
+    # 묶음 이름을 붙입니다 — 앱의 세로 내비와 같은 구조입니다.
     tab_buttons = "".join(
-        f'<button class="pv-tab" role="tab" data-key="{key}" '
-        f'aria-selected="false">{label}</button>'
-        for key, label in pairs
+        f'<div class="pv-navgroup">{gname}</div>'
+        + "".join(
+            f'<button class="pv-tab" role="tab" data-key="{key}" '
+            f'aria-selected="false">{label}</button>'
+            for key, label in items)
+        for gname, items in config.tab_groups()
     )
-    theme_toggle = (
-        '<div class="pv-toggle">'
-        '<button data-mode="dark" aria-pressed="true">🌙 나이트</button>'
-        '<button data-mode="light" aria-pressed="false">☀️ 데이</button>'
-        "</div>"
-    )
+    theme_toggle = ""
 
     # 탭 패널
     panels: list[str] = []
@@ -1260,8 +1239,7 @@ def build_html(convention: str, use_demo: bool) -> str:
 
     css = (
         "<style>"
-        + build_vars("dark", convention, ":root")
-        + build_vars("light", convention, ':root[data-theme="light"]')
+        + build_vars(convention, ":root")
         + build_rules()
         + EXTRA_CSS
         + "</style>"
@@ -1270,8 +1248,7 @@ def build_html(convention: str, use_demo: bool) -> str:
     banner = (
         '<div class="demo-banner"><b>레이아웃 프리뷰 (데모 데이터)</b><br>'
         "숫자는 레이아웃 확인용 가짜 값이며 실제 시세가 아닙니다. "
-        "왼쪽 목록에서 섹션을 고르고, 우측 상단에서 나이트·데이 모드를 "
-            "바꿔 보십시오. "
+        "왼쪽 목록에서 섹션을 고르십시오. "
         "카드 제목을 누르면 해당 종목 페이지로 이동합니다. "
         "실제 시세는 <code>streamlit run app.py</code> 로 확인하십시오.</div>"
         if use_demo
@@ -1292,9 +1269,8 @@ def build_html(convention: str, use_demo: bool) -> str:
         banner,
         '<div class="pv-shell">',
         '<div class="pv-side">'
-        '<div class="dash-navhead">섹션</div>'
         f'<div class="pv-tabs" role="tablist">{tab_buttons}</div>'
-        '<div class="dash-navhead">시장</div>'
+        '<div class="dash-navhead">보는 시장</div>'
         '<div class="pv-tabs">'
         '<button class="pv-tab" aria-selected="true" type="button">전체</button>'
         '<button class="pv-tab" type="button">미국</button>'
@@ -1325,7 +1301,7 @@ def main(argv: list[str]) -> int:
         fh.write(html_text)
 
     print(f"preview.html 생성 완료 ({len(html_text):,} bytes, demo={use_demo})")
-    print("탭 전환 · 나이트/데이 전환 · 카드 링크가 모두 동작합니다.")
+    print("섹션 전환 · 카드 링크가 모두 동작합니다.")
     return 0
 
 

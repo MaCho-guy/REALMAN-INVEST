@@ -243,19 +243,67 @@ SCREEN_KR_CANDIDATES: tuple[tuple[str, str], ...] = (
     ("316140", "우리금융지주"),
 )
 
+
+#: 코스닥 후보. **코스피와 성격이 다릅니다** — 시가총액이 작고 변동성이
+#: 훨씬 크며, 적자 기업이 많아 PER 이 아예 안 나오는 경우가 흔합니다.
+#: 변동성 스크리너가 의미를 갖는 건 사실 이쪽입니다.
+#:
+#: 종목코드는 **제 기억에서 적은 것이라 검증되지 않았습니다.** 6자리
+#: 숫자가 하나만 틀려도 엉뚱한 회사의 재무를 가져오는데, 화면에는
+#: 아무 이상이 없어 보입니다. 그래서 진단 패널에 '국내 종목코드 대조'
+#: 를 넣었습니다 — DART 의 corpCode.xml 에서 실제 회사명을 받아
+#: 아래 이름과 맞는지 기계가 확인합니다. 배포 후 한 번 돌리십시오.
+SCREEN_KQ_CANDIDATES: tuple[tuple[str, str], ...] = (
+    ("247540", "에코프로비엠"),
+    ("086520", "에코프로"),
+    ("196170", "알테오젠"),
+    ("028300", "HLB"),
+    ("141080", "리가켐바이오"),
+    ("068760", "셀트리온제약"),
+    ("277810", "레인보우로보틱스"),
+    ("348370", "엔켐"),
+    ("257720", "실리콘투"),
+    ("058470", "리노공업"),
+    ("036930", "주성엔지니어링"),
+    ("005290", "동진쎄미켐"),
+    ("240810", "원익IPS"),
+    ("140860", "파크시스템스"),
+    ("403870", "HPSP"),
+    ("039030", "이오테크닉스"),
+    ("263750", "펄어비스"),
+    ("293490", "카카오게임즈"),
+    ("041510", "에스엠"),
+    ("035900", "JYP Ent."),
+)
+
 #: 국내 사업보고서를 몇 개 받을지. 보고서당 3년이므로 4개면 약 12년입니다.
 SCREEN_KR_REPORTS = 4
 
 
-def screen_kr_candidates() -> list[tuple[str, str]]:
-    """국내 스크리닝 대상 — 관심종목 국내 종목 + 후보. 중복 제거."""
+def screen_kr_candidates(include_kosdaq: bool = True) -> list[tuple[str, str]]:
+    """국내 스크리닝 대상 — 관심종목 국내 종목 + 코스피 후보 + 코스닥 후보.
+
+    코스닥을 섞는 게 맞는가: 변동성 스크리너 입장에서는 맞습니다. 코스피
+    대형주는 1년 변동성이 대체로 25~35% 대라 '수축' 이 잘 안 보입니다.
+    코스닥은 50% 를 넘는 종목이 흔해서 수축이 일어나면 눈에 띕니다.
+    대신 **전통 밸류 스크리너에서는 거의 안 걸립니다** — PBR 이 높고
+    적자가 많아 PER 이 안 나옵니다. 그건 고장이 아니라 사실입니다.
+    """
     seen: dict[str, str] = {}
     for inst in SECTION_WATCHLIST.instruments:
         if inst.source == "naver" and inst.symbol.isdigit():
             seen[inst.symbol] = inst.name
     for code, name in SCREEN_KR_CANDIDATES:
         seen.setdefault(code, name)
+    if include_kosdaq:
+        for code, name in SCREEN_KQ_CANDIDATES:
+            seen.setdefault(code, name)
     return list(seen.items())
+
+
+def kosdaq_codes() -> frozenset[str]:
+    """코스닥 후보 코드. 화면에서 시장을 표시할 때 씁니다."""
+    return frozenset(c for c, _n in SCREEN_KQ_CANDIDATES)
 
 
 def screen_tickers() -> list[str]:
@@ -866,6 +914,7 @@ TAB_ORDER: tuple[str, ...] = (
     "holdings",    # 1. 내가 가진 종목 — 변화 감지 + 시세 + 공시 분석
     "discover",    # 2. 종목 발굴 — 52주 신고가 + 버핏식 (미국·국내)
     "macro",       # 3. 매크로 지표 및 중요 기사
+    "flows",       # 4. 뉴스·공시·지표 — 한국 섹터/공시, 미국 물가·유동성
     "valuation",   # 4. 걸러낸 종목 밸류에이션 — 역DCF + 사분면
     "cycle",       # 5. 메모리 사이클 지표 — 재고(레이어 2) + 반도체 생산·가격
 )
@@ -913,6 +962,7 @@ SPECIAL_TAB_LABELS = {
     "holdings": "내 종목",
     "discover": "종목 발굴",
     "macro": "매크로",
+    "flows": "뉴스 · 공시 · 지표",
     "valuation": "밸류에이션",
     "cycle": "메모리 사이클",
 }
@@ -1021,3 +1071,135 @@ def all_hyperliquid_symbols() -> list[str]:
             if inst.source == "hyperliquid" and inst.symbol not in seen:
                 seen.append(inst.symbol)
     return seen
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 시장 구분
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# 한국과 미국을 한 화면에 섞으면 비교가 아니라 잡음이 됩니다. 거래 시간이
+# 다르고(장중/장마감이 엇갈림), 회계 기준이 다르고(K-IFRS vs US-GAAP),
+# 공시 출처가 다르고(DART vs EDGAR), 등락 색 관행까지 반대입니다.
+# 종목이 어느 쪽인지는 Instrument 가 이미 알고 있습니다 — source 와
+# currency 가 그것입니다. 새 필드를 만들지 않고 그걸 읽습니다.
+
+MARKETS: dict[str, str] = {
+    "all": "전체",
+    "us": "미국",
+    "kr": "한국",
+}
+
+
+def market_of(inst) -> str:
+    """Instrument 의 시장. 'kr' 또는 'us'."""
+    if getattr(inst, "source", "") == "naver":
+        return "kr"
+    if getattr(inst, "currency", "") == "KRW":
+        return "kr"
+    return "us"
+
+
+def in_market(inst, market: str) -> bool:
+    """market 이 'all' 이면 전부 통과."""
+    return market in ("", "all", None) or market_of(inst) == market
+
+
+def filter_instruments(instruments, market: str) -> list:
+    return [i for i in instruments if in_market(i, market)]
+
+# 뉴스 검색용 한국어 종목명.
+#
+# 구글 뉴스를 hl=ko 로 불러도 검색어가 영어면 영어 기사가 주로 돌아옵니다.
+# 한국 매체는 'Microsoft' 가 아니라 '마이크로소프트' 라고 씁니다. 여기에
+# 없는 종목은 영문 이름을 그대로 씁니다 — 모르는 이름을 지어내지 않습니다.
+# ETF 는 한국 매체도 티커로 부르므로 티커가 맞는 검색어입니다.
+NEWS_NAME_KO: dict[str, str] = {
+    "MSFT": "마이크로소프트",
+    "AAPL": "애플",
+    "MU": "마이크론",
+    "O": "리얼티인컴",
+    "QQQ": "QQQ ETF",
+    "SCHD": "SCHD ETF",
+    "UNH": "유나이티드헬스",
+    "005930": "삼성전자",
+    "000660": "SK하이닉스",
+}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 물가 · 유동성 계열 (FRED)
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# MACRO_SERIES 와 따로 두는 이유: 저쪽은 '임계값을 넘었나' 를 보는 지표고,
+# 여기는 **지수를 속도로 바꿔서** 보는 계열입니다. 쓰는 계산이 다릅니다.
+#
+# 계열 ID 는 **실제 응답으로 검증되지 않았습니다.** 진단 패널의
+# '경제지표 계열 확인' 을 돌리면 어느 ID 가 살아 있는지 알려줍니다.
+
+#: 물가. (계열ID, 표시이름, 계절조정 여부)
+#: 계절조정이 아니면 전월비·3개월 연율을 계산하지 않습니다 — 계절 패턴이
+#: 물가 상승으로 보입니다.
+INFLATION_SERIES: tuple[tuple[str, str, bool], ...] = (
+    ("CPIAUCSL", "CPI (헤드라인)", True),
+    ("CPILFESL", "CPI 근원", True),
+    ("PCEPI", "PCE (헤드라인)", True),
+    ("PCEPILFE", "PCE 근원", True),
+    ("PPIFIS", "PPI 최종수요", True),
+    ("PPIACO", "PPI 전체상품", False),
+)
+
+#: 유동성. (키, 계열ID, 표시이름, 단위)
+#: **단위가 계열마다 다릅니다** — WALCL 은 백만, 나머지는 십억으로
+#: 알려져 있습니다. 그냥 빼면 1000배 틀립니다. liquidity.py 가 받은
+#: 값의 크기로 한 번 더 확인하고, 안 맞으면 숫자를 내지 않습니다.
+LIQUIDITY_SERIES: tuple[tuple[str, str, str, str], ...] = (
+    ("fed_assets", "WALCL", "연준 총자산", "millions"),
+    ("rrp", "RRPONTSYD", "역레포 (ON RRP)", "billions"),
+    ("tga", "WTREGEN", "재무부 일반계정 (TGA)", "billions"),
+)
+
+#: 참고용 유동성 계열 — 순유동성 계산에는 안 들어갑니다.
+LIQUIDITY_EXTRA: tuple[tuple[str, str, str], ...] = (
+    ("M2SL", "미국 M2 통화량", "billions"),
+    ("ECBASSETSW", "ECB 총자산", "millions"),
+    ("JPNASSETS", "일본은행 총자산", "units"),
+)
+
+#: 한국 경제지표. **전부 미검증입니다** — FRED 의 한국 계열은 OECD
+#: 경유라 ID 체계가 미국 계열과 다르고, 중단된 계열도 많습니다.
+#: 진단으로 확인한 뒤 안 되는 것은 지우십시오.
+KR_MACRO_SERIES: tuple[tuple[str, str], ...] = (
+    ("KORCPIALLMINMEI", "한국 소비자물가 (지수)"),
+    ("KORPROINDMISMEI", "한국 광공업생산 (지수)"),
+    ("XTEXVA01KRM667S", "한국 수출액"),
+    ("XTIMVA01KRM667S", "한국 수입액"),
+    ("IR3TIB01KRM156N", "한국 3개월 시장금리"),
+    ("KORLOLITONOSTSAM", "한국 OECD 경기선행지수"),
+)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 한국 섹터별 뉴스
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# 종목 뉴스와 다릅니다. 종목 뉴스는 '내 종목에 무슨 일이' 고, 이건
+# '내 종목이 속한 업종에 무슨 바람이' 입니다. 업종 뉴스가 먼저 움직이고
+# 종목이 따라가는 경우가 많아 따로 봅니다.
+#
+# 검색어는 **업종 + 한정어** 로 씁니다. '반도체' 만 넣으면 해외 기사와
+# 제품 리뷰가 섞입니다. 구글 뉴스를 hl=ko 로 부르므로 한국 매체가
+# 우선 나옵니다.
+
+KR_SECTORS: tuple[tuple[str, str, str], ...] = (
+    ("rates", "금리 · 통화", "한국은행 기준금리 국고채"),
+    ("fx", "환율", "원달러 환율 외환시장"),
+    ("semi", "반도체", "반도체 업황 메모리 가격"),
+    ("battery", "2차전지", "2차전지 배터리 수주 전기차"),
+    ("auto", "자동차", "현대차 기아 완성차 판매"),
+    ("ship", "조선 · 방산", "조선 수주 방산 수출"),
+    ("bio", "바이오 · 제약", "제약 바이오 임상 기술수출"),
+    ("platform", "플랫폼 · 게임", "네이버 카카오 게임 실적"),
+    ("policy", "정책 · 수급", "금융위 공매도 밸류업 외국인 수급"),
+)
+
+#: 섹터당 가져올 헤드라인 수. 9섹터 × 3건 = 27건이면 한 화면입니다.
+SECTOR_NEWS_PER = 3

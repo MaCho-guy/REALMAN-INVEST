@@ -395,13 +395,16 @@ print("\n=== 목적 기준 5개 탭 ===")
 import discover as _disc  # noqa: E402
 
 _tabs = dict(config.tab_labels())
-# 요약 탭이 맨 앞에 붙어 6개입니다. 요약은 축이 달라서(휴대폰 10초) 목적
-# 기준 5개와 따로 셉니다.
-check_true("탭이 6개", len(_tabs) == 6, f"{len(_tabs)}개: {list(_tabs)}")
-check_true("요약 + 목적 기준 5개",
+# 요약(휴대폰 10초) + 목적 기준 6개. 2026-11-11 에 '뉴스·공시·지표' 가
+# 들어왔습니다 — 종목이 아니라 시장 흐름을 보는 화면이라 축이 또 다릅니다.
+check_true("탭이 7개", len(_tabs) == 7, f"{len(_tabs)}개: {list(_tabs)}")
+check_true("순서가 맞다",
            list(_tabs) == ["summary", "holdings", "discover", "macro",
-                           "valuation", "cycle"],
+                           "flows", "valuation", "cycle"],
            str(list(_tabs)))
+check_true("뉴스·공시·지표가 매크로 바로 뒤",
+           list(_tabs).index("flows") == list(_tabs).index("macro") + 1,
+           "둘 다 시장 배경이라 붙여 둡니다")
 check_true("라벨 한국어", all(_tabs.values()), str(_tabs))
 
 # 내린 탭의 섹션은 코드가 남아 있어야 합니다 — 되돌릴 수 있어야 하니까
@@ -731,12 +734,12 @@ check_true("표 가로 스크롤", "overflow-x: auto" in _rules)
 check_true("SVG 폰트 보정", "svg.dash-dio text" in _rules)
 check_true("요약 줄 스타일", ".dash-srow" in _rules)
 
-print("\n=== 탭 6개 ===")
+print("\n=== 탭 구성 ===")
 _tabs6 = dict(config.tab_labels())
 check_true("요약이 맨 앞", list(_tabs6)[0] == "summary", str(list(_tabs6)))
-check_true("탭 6개", len(_tabs6) == 6, f"{len(_tabs6)}개")
-check_true("목적 5개는 그대로",
-           list(_tabs6)[1:] == ["holdings", "discover", "macro",
+check_true("탭 7개", len(_tabs6) == 7, f"{len(_tabs6)}개")
+check_true("목적 6개는 그대로",
+           list(_tabs6)[1:] == ["holdings", "discover", "macro", "flows",
                                 "valuation", "cycle"],
            str(list(_tabs6)[1:]))
 
@@ -746,12 +749,12 @@ print("\n=== 휴대폰 모드 ===")
 # 배선 자체를 확인합니다.
 check_true("휴대폰 모드 토글이 있다", '"휴대폰 모드"' in _app_src)
 check_true("옵션으로 반환", '"phone": phone' in _app_src)
-check_true("내 종목에 전달",
-           'render_holdings_tab(data, fx, opts["demo"], opts["phone"])'
-           in _app_src)
-check_true("밸류에이션에 전달",
-           'render_valuation_tab(data, fx, opts["demo"], opts["phone"])'
-           in _app_src)
+# 인자가 늘어나면서 호출이 여러 줄로 나뉘었습니다. 한 줄 리터럴로
+# 찾으면 줄바꿈만으로 깨지므로, 호출에 phone 이 들어가는지를 봅니다.
+for _tab_fn in ("render_holdings_tab", "render_valuation_tab"):
+    _call = _app_src.split(f"{_tab_fn}(data, fx,")[1][:160]
+    check_true(f"{_tab_fn} 호출에 phone 전달",
+               'opts["phone"]' in _call, _call.split(")")[0])
 
 _an = _app_fns.get("render_analysis_tab")
 check_true("분석 함수가 phone 을 받음",
@@ -1583,6 +1586,144 @@ check_true("밸류에이션 헤더가 실제 개수를 받는다",
 check_true("통과 수 0 이면 '전체 종목' 으로 적는다",
            '"전체 종목" if min_pass <= 0' in _app_src,
            "'0개 이상 통과' 는 말이 안 됩니다")
+
+# ──────────────────────────────────────────────────────────────────────────────
+print("\n=== 명암비 (WCAG AA 4.5) ===")
+# 2026-11-11: "나이트 모드 글씨 잘 안 보임". 재보니 보조 글자가 4.4,
+# 미국 하락 적색은 3.3 이었습니다 — 눈 탓이 아니라 색 탓이었습니다.
+import theme as _th_c  # noqa: E402
+
+
+def _srgb(c: float) -> float:
+    c = c / 255
+    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+
+def _lum(hexs: str) -> float:
+    h = hexs.lstrip("#")
+    r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+    return 0.2126 * _srgb(r) + 0.7152 * _srgb(g) + 0.0722 * _srgb(b)
+
+
+def _contrast(a: str, b: str) -> float:
+    la, lb = _lum(a), _lum(b)
+    hi, lo = max(la, lb), min(la, lb)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+_FG = ("ink", "ink_secondary", "ink_muted", "up_kr", "down_kr", "up_us",
+       "down_us", "badge_pre", "badge_post", "badge_live", "badge_error",
+       "flat", "badge_closed")
+_BG = ("page", "surface", "surface_raised")
+_worst = (99.0, "")
+for _mode in ("dark", "light"):
+    _pal = _th_c.PALETTE[_mode]
+    for _b in _BG:
+        for _f in _FG:
+            _r = _contrast(_pal[_f], _pal[_b])
+            if _r < _worst[0]:
+                _worst = (_r, f"{_mode}/{_f} on {_b}")
+check_true("모든 글자색이 AA(4.5) 를 넘는다", _worst[0] >= 4.5,
+           f"최저 {_worst[0]:.2f} — {_worst[1]}")
+check_true("야간 모드는 여유를 둔다(5.0+)",
+           min(_contrast(_th_c.PALETTE["dark"][f], _th_c.PALETTE["dark"][b])
+               for f in _FG for b in _BG) >= 5.0)
+# 글자 크기 — 10px 짜리 보조 글자가 저대비와 겹치면 안 읽힙니다
+_css = _th_c.build_css("dark", "kr") if hasattr(_th_c, "build_css") else ""
+import re as _re_c
+_m = _re_c.search(r"--fs-1:\s*([0-9.]+)rem", pathlib.Path("theme.py").read_text())
+check_true("가장 작은 글자가 11px 이상",
+           _m is not None and float(_m.group(1)) * 16 >= 11,
+           f"{float(_m.group(1)) * 16:.1f}px" if _m else "못 찾음")
+
+print("\n=== 한국·미국 시장 분리 ===")
+import config as _cfg_m  # noqa: E402
+
+check_true("시장 선택지는 전체·미국·한국",
+           list(_cfg_m.MARKETS) == ["all", "us", "kr"], str(_cfg_m.MARKETS))
+_w = _cfg_m.SECTION_WATCHLIST.instruments
+check_true("naver 종목은 한국",
+           all(_cfg_m.market_of(i) == "kr" for i in _w if i.source == "naver"))
+check_true("yahoo 종목은 미국",
+           all(_cfg_m.market_of(i) == "us" for i in _w if i.source == "yahoo"))
+check_true("전체는 거르지 않는다",
+           len(_cfg_m.filter_instruments(_w, "all")) == len(_w))
+check_true("미국만 고르면 한국 종목이 빠진다",
+           all(i.source != "naver"
+               for i in _cfg_m.filter_instruments(_w, "us")))
+check_true("한국만 고르면 미국 종목이 빠진다",
+           all(i.source == "naver"
+               for i in _cfg_m.filter_instruments(_w, "kr")))
+check_true("미국 + 한국 = 전체",
+           len(_cfg_m.filter_instruments(_w, "us"))
+           + len(_cfg_m.filter_instruments(_w, "kr")) == len(_w),
+           "어느 쪽에도 안 들어가는 종목이 있으면 화면에서 사라집니다")
+
+# 탭마다 market 을 받아야 합니다 — 하나라도 빠지면 그 탭만 안 걸러집니다
+for _fn in ("render_summary_tab", "render_holdings_tab", "render_discover_tab",
+            "render_macro_tab", "render_valuation_tab", "render_cycle_tab",
+            "render_section", "render_signals_tab"):
+    _seg = _app_src.split(f"def {_fn}(")[1][:300]
+    check_true(f"{_fn} 가 market 을 받는다", "market" in _seg.split(")")[0],
+               "안 받으면 그 탭만 전체가 보입니다")
+check_true("탭마다 있던 시장 라디오를 없앴다",
+           "disc_market" not in _app_src and "val_market" not in _app_src,
+           "두 군데서 고르면 발굴은 미국인데 밸류에이션은 한국인 상태가 됩니다")
+check_true("매크로는 시장으로 거르지 않는다",
+           "매크로는 **일부러 시장별로 나누지 않습니다.**" in _app_src,
+           "금리·환율은 어느 시장을 보든 같은 배경입니다")
+
+print("\n=== 섹션 내비는 세로 ===")
+check_true("세로 라디오를 쓴다",
+           'st.radio(\n            "섹션"' in _app_src
+           or '"섹션", keys, key="nav"' in _app_src)
+check_true("가로 옵션을 쓰지 않는다",
+           '"섹션", keys, horizontal=True' not in _app_src,
+           "horizontal=True 면 다시 한 줄로 돌아갑니다")
+check_true("본문과 내비를 두 칸으로 나눈다",
+           "nav_col, body_col = st.columns" in _app_src)
+
+print("\n=== 뉴스 헤드라인은 한국어 우선 ===")
+import sources.news as _nw  # noqa: E402
+
+check_true("미국 종목도 한국어로 찾는다",
+           _nw._ko_query("Microsoft", "MSFT") == "마이크로소프트 주가",
+           _nw._ko_query("Microsoft", "MSFT"))
+check_true("모르는 종목은 영문 이름 그대로",
+           _nw._ko_query("Nvidia", "NVDA") == "Nvidia 주가",
+           "없는 한국어 이름을 지어내면 엉뚱한 기사가 붙습니다")
+check_true("한 글자 이름은 티커로 보완",
+           _nw._ko_query("X", "XYZ").startswith("X XYZ"),
+           _nw._ko_query("X", "XYZ"))
+check_true("구글 뉴스를 한국어로 호출한다",
+           "hl=ko" in _nw.GOOGLE_NEWS_RSS and "ceid=KR:ko" in _nw.GOOGLE_NEWS_RSS)
+_news_src = pathlib.Path("sources/news.py").read_text()
+check_true("한국어를 먼저 시도하고 영어는 대체",
+           _news_src.index("_from_google_rss(_ko_query")
+           < _news_src.index("return _from_yfinance(symbol, limit)"),
+           "yfinance 가 먼저면 제목이 전부 영어로 나옵니다")
+
+# ──────────────────────────────────────────────────────────────────────────────
+print("\n=== 화면 문구가 현재 UI 와 맞는가 ===")
+# 사이드바를 없앤 뒤에도 "사이드바 진단 버튼을 누르십시오" 같은 안내가
+# 여러 곳에 남아 있었습니다. 있지도 않은 곳을 가리키는 안내는 없느니만
+# 못합니다.
+_GONE = ("사이드바", "왼쪽 접었다", "탭을 눌러")
+for _f in sorted(pathlib.Path(".").glob("*.py")) + \
+        sorted(pathlib.Path("sources").glob("*.py")) + \
+        sorted(pathlib.Path("tools").glob("*.py")):
+    _txt = _f.read_text(encoding="utf-8")
+    # 주석·독스트링은 이력 설명이라 허용합니다. 화면에 나가는 문자열만
+    # 봅니다 — 큰따옴표로 시작하는 한 줄짜리 리터럴.
+    _bad = []
+    for _ln in _txt.splitlines():
+        _st = _ln.strip()
+        if not _st.startswith(('"', "f\"", "'")):
+            continue
+        if any(g in _st for g in _GONE):
+            _bad.append(_st[:60])
+    check_true(f"{_f.as_posix()} 에 사라진 UI 안내가 없다", not _bad,
+               str(_bad[:2]))
 
 print("\n" + "=" * 54)
 if FAILURES:

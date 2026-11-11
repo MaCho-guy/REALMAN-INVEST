@@ -2085,3 +2085,330 @@ def render_build_warning(rep) -> str:
                  + "".join(f'<code>{_esc(f)}</code>' for f in rep.problem_files)
                  + "</div>")
     return (f'<div class="{cls}">{_md_bold(_esc(msg))}{files}</div>')
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 국내 스크리너
+# ──────────────────────────────────────────────────────────────────────────────
+
+def render_screener_head(title: str, rule: str, count: int,
+                         caveat: str = "") -> str:
+    """스크리너 한 묶음의 머리 — **기준을 제목 옆에 적습니다.**
+
+    기준이 화면에 없으면 몇 주 뒤에 "이게 왜 걸렸지" 를 되묻게 됩니다.
+    """
+    cav = (f'<div class="dash-scr-caveat">{_safe_inline(caveat)}</div>'
+           if caveat else "")
+    return (
+        '<div class="dash-scr-head">'
+        f'<span class="dash-scr-title">{_esc(title)}</span>'
+        f'<span class="dash-scr-rule">{_safe_inline(rule)}</span>'
+        f'<span class="dash-section-count">{count}종목</span>'
+        "</div>" + cav
+    )
+
+
+def render_hit_metrics(hit) -> str:
+    """통과 종목의 지표를 가로 표 한 줄로."""
+    if not hit.metrics:
+        return ""
+    cells = "".join(
+        f'<div class="dash-hit-cell">'
+        f'<div class="dash-hit-label">{_esc(label)}</div>'
+        f'<div class="dash-hit-value">{_esc(value)}</div></div>'
+        for label, value in hit.metrics
+    )
+    return f'<div class="dash-hit-row">{cells}</div>'
+
+
+def render_hit_reasons(hit) -> str:
+    """왜 걸렸는지. 기준과 실제값을 같이 적습니다."""
+    if not hit.reasons:
+        return ""
+    items = "".join(f"<li>{_safe_inline(r)}</li>" for r in hit.reasons)
+    return ('<div class="dash-hit-why"><div class="dash-news-head">'
+            f"걸린 이유</div><ul>{items}</ul></div>")
+
+
+def render_company_overview(profile, *, search_name: str = "") -> str:
+    """기업개황 표. DART 가 주는 것만 적습니다."""
+    if profile is None:
+        return render_footnote("기업개황을 불러오지 않았습니다.")
+    if getattr(profile, "error", ""):
+        return render_footnote(
+            f"<b>기업개황을 받지 못했습니다.</b> {_esc(profile.error)}")
+
+    rows = [
+        ("대표자", profile.ceo),
+        ("설립일", profile.established_ko),
+        ("결산월", profile.fiscal_ko),
+        ("표준산업분류 코드", profile.industry_code),
+        ("본사", profile.address),
+    ]
+    body = "".join(
+        f"<tr><th>{_esc(k)}</th><td>{_esc(v) if v else '—'}</td></tr>"
+        for k, v in rows
+    )
+    # DART 공시검색은 종목코드가 아니라 **회사명**으로 찾습니다
+    # (textCrpNm). 코드를 넣으면 결과가 비어서 링크가 고장난 것처럼
+    # 보입니다.
+    link = ""
+    if search_name:
+        import urllib.parse as _up  # noqa: PLC0415
+        q = _up.quote(search_name)
+        link = (f'<a class="dash-inline-link" target="_blank" '
+                f'rel="noopener noreferrer" '
+                f'href="https://dart.fss.or.kr/dsab007/main.do?'
+                f'option=corp&textCrpNm={q}">DART 공시 전체 ↗</a>')
+    home = ""
+    if profile.homepage and profile.homepage.startswith(("http://", "https://")):
+        home = (f' · <a class="dash-inline-link" target="_blank" '
+                f'rel="noopener noreferrer" href="{_esc(profile.homepage)}">'
+                "회사 홈페이지 ↗</a>")
+    return (
+        '<table class="dash-kv"><tbody>' + body + "</tbody></table>"
+        + (f'<div class="dash-hit-links">{link}{home}</div>'
+           if (link or home) else "")
+        + render_footnote(
+            "DART 기업개황(company.json) 그대로입니다. "
+            "<b>업종명은 적지 않습니다</b> — DART 는 표준산업분류 "
+            "<b>코드</b>만 주고 코드→이름 표는 이 API 에 없습니다. "
+            "제가 이름을 붙이면 틀릴 수 있습니다.")
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 분석 스킬 딥링크
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# 스트림릿 클라우드에서는 `claude -p` 가 돌지 않습니다. 대신 Claude 앱·웹을
+# **프롬프트가 채워진 채로** 여는 공식 딥링크를 씁니다:
+#
+#   claude://claude.ai/new?q=…   앱(데스크톱·모바일). 설치돼 있으면 앱이 열림
+#   https://claude.ai/new?q=…    웹. 앱이 없어도 열림 (휴대폰 브라우저 포함)
+#   claude://code/new?q=…        PC 의 Claude Code
+#
+# 값은 전부 URL 인코딩해야 합니다. q 는 1만 4천 자 근처에서 잘리는데,
+# 우리 프롬프트는 100자 미만이라 여유가 많습니다.
+
+APP_LINK = "claude://claude.ai/new?q={q}"
+WEB_LINK = "https://claude.ai/new?q={q}"
+CODE_LINK = "claude://code/new?q={q}"
+
+
+def render_skill_links(code: str, name: str) -> str:
+    """종목 하나에 대한 3대 분석 딥링크 묶음."""
+    import urllib.parse as _up  # noqa: PLC0415
+
+    import analysis_store as _store  # noqa: PLC0415
+
+    rows = []
+    for kind, label, desc in _store.KINDS:
+        cmd = _store.skill_command(kind, code, name)
+        if not cmd:
+            continue
+        q = _up.quote(cmd, safe="")
+        rows.append(
+            '<div class="dash-skill-row">'
+            f'<div class="dash-skill-name">{_esc(label)}'
+            f'<span class="dash-skill-desc">{_esc(desc)}</span></div>'
+            '<div class="dash-skill-links">'
+            f'<a class="dash-skill-btn" href="{APP_LINK.format(q=q)}">'
+            "앱에서 열기</a>"
+            f'<a class="dash-skill-btn" target="_blank" '
+            f'rel="noopener noreferrer" href="{WEB_LINK.format(q=q)}">'
+            "웹에서 열기</a>"
+            f'<a class="dash-skill-btn ghost" href="{CODE_LINK.format(q=q)}">'
+            "Claude Code</a>"
+            "</div></div>"
+        )
+    if not rows:
+        return ""
+    return (
+        '<div class="dash-skills">' + "".join(rows) + "</div>"
+        + render_footnote(
+            "<b>앱에서 열기</b>는 휴대폰·PC 모두에서 Claude 앱을 프롬프트가 "
+            "채워진 채로 엽니다. 앱이 없으면 <b>웹에서 열기</b>를 쓰십시오. "
+            "<b>Claude Code</b>는 PC 에 Claude Code 가 설치돼 있을 때만 "
+            "열립니다. 셋 다 <b>보내기 전에 내용을 확인</b>할 수 있습니다.")
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 뉴스 · 공시 · 지표
+# ──────────────────────────────────────────────────────────────────────────────
+
+_DIR_CLASS = {"재가속": "now", "둔화": "fyi", "비슷": "soon"}
+
+
+def render_inflation_table(readings: list) -> str:
+    """물가 — 지수가 아니라 **속도 세 가지**를 나란히."""
+    usable = [r for r in readings if r.ok]
+    if not usable:
+        return render_footnote(
+            "<b>물가 계열을 하나도 받지 못했습니다.</b> FRED 키가 설정돼 "
+            "있는지 확인하십시오.")
+
+    def cell(v, suffix="%"):
+        return "—" if v is None else f"{v:+.2f}{suffix}"
+
+    rows = "".join(
+        "<tr>"
+        f"<td class='name'>{_esc(r.label)}</td>"
+        f"<td class='num'>{cell(r.mom)}</td>"
+        f"<td class='num'>{cell(r.yoy)}</td>"
+        f"<td class='num'>{cell(r.saar3)}</td>"
+        f"<td><span class='dash-sig-chip "
+        f"{_DIR_CLASS.get(r.direction, 'fyi')}'>{_esc(r.direction)}</span></td>"
+        f"<td class='meta'>{_esc(r.period)}</td>"
+        "</tr>"
+        for r in usable
+    )
+    missing = [r for r in readings if not r.ok]
+    note = ""
+    if missing:
+        note = render_footnote(
+            f"<b>못 받은 계열 {len(missing)}개:</b> "
+            + " · ".join(f"{_esc(r.label)} ({_esc(r.error[:40])})"
+                         for r in missing[:4]))
+    return (
+        '<div class="dash-tablewrap"><table class="dash-table">'
+        "<thead><tr><th>지표</th><th class='num'>전월비</th>"
+        "<th class='num'>전년동월비</th><th class='num'>3개월 연율</th>"
+        "<th>방향</th><th>기준</th></tr></thead>"
+        f"<tbody>{rows}</tbody></table></div>" + note
+    )
+
+
+def fmt_usd_bn(billions: float | None, *, signed: bool = False) -> str:
+    """십억 달러 → 한국식 단위.
+
+    '30십억' 은 한국어가 아닙니다. 1십억 달러 = 10억 달러이므로
+    조·억으로 바꿔 적습니다.
+    """
+    if billions is None:
+        return "—"
+    eok = billions * 10.0                      # 십억 달러 → 억 달러
+    sign = "+" if (signed and eok > 0) else ("-" if signed and eok < 0 else "")
+    a = abs(eok)
+    if a >= 10_000:
+        return f"{sign}{a / 10_000:,.2f}조 달러"
+    return f"{sign}{a:,.0f}억 달러"
+
+
+def render_liquidity(nl, extra: list | None = None) -> str:
+    """순유동성 + 구성요소."""
+    if not nl.ok:
+        return render_footnote(
+            f"<b>순유동성을 계산하지 않았습니다.</b> {_safe_inline(nl.error)}<br>"
+            "부분값으로 '순유동성' 이라고 적으면 틀린 숫자가 됩니다.")
+
+    arrow = "▲" if (nl.change or 0) > 0 else ("▼" if (nl.change or 0) < 0 else "–")
+    parts = "".join(
+        f'<div class="dash-hit-cell"><div class="dash-hit-label">'
+        f'{_esc(p.label)}</div><div class="dash-hit-value">'
+        f'{fmt_usd_bn(p.billions)}</div></div>'
+        for p in (nl.parts or []) if p.billions is not None
+    )
+    chg = ("" if nl.change is None
+           else f'<span class="dash-exp-delta">{arrow} '
+                f'{fmt_usd_bn(abs(nl.change))} (4주)</span>')
+    return (
+        '<div class="dash-exp">'
+        '<div class="dash-exp-top">'
+        '<span class="dash-exp-label">연준 순유동성</span>'
+        f'<span class="dash-exp-period">{_esc(nl.period)}</span></div>'
+        f'<div class="dash-exp-value">{fmt_usd_bn(nl.value)} {chg}</div>'
+        f'<div class="dash-hit-row">{parts}</div>'
+        "</div>"
+        + render_footnote(
+            "<b>순유동성 = 연준 총자산 − 역레포 − 재무부 계정.</b> "
+            "뒤 둘은 연준 장부에 있지만 <b>시장에 없는 돈</b>이라 뺍니다. "
+            "총자산만 보면 2022~23년처럼 자산이 주는데 순유동성은 느는 "
+            "구간을 놓칩니다.<br><b>인과가 아니라 배경입니다</b> — 늘었다고 "
+            "주가가 오르는 게 아니고, 상관도 구간마다 다릅니다.")
+        + (render_simple_rows(extra) if extra else "")
+    )
+
+
+def render_simple_rows(rows: list) -> str:
+    """(라벨, 값문자열, 메모) 목록을 간단한 표로."""
+    items = [r for r in rows if r]
+    if not items:
+        return ""
+    body = "".join(
+        f"<tr><th>{_esc(a)}</th><td>{_esc(b)}</td>"
+        f"<td class='meta'>{_esc(c)}</td></tr>"
+        for a, b, c in items
+    )
+    return f'<table class="dash-kv"><tbody>{body}</tbody></table>'
+
+
+def render_sector_news(sectors, headlines: dict, errors: dict) -> str:
+    """섹터별 뉴스 — 섹터당 몇 줄씩, 한 화면에."""
+    blocks = []
+    for key, label, query in sectors:
+        items = headlines.get(key) or []
+        if not items:
+            blocks.append(
+                '<div class="dash-sector">'
+                f'<div class="dash-sector-name">{_esc(label)}</div>'
+                '<div class="dash-sector-empty">'
+                f'{_esc(errors.get(key) or "헤드라인 없음")}</div></div>')
+            continue
+        lis = "".join(
+            "<li>"
+            + (f'<a class="dash-inline-link" href="{_esc(h.url)}" '
+               f'target="_blank" rel="noopener noreferrer">{_esc(h.title)}</a>'
+               if h.url else _esc(h.title))
+            + (f' <span class="dash-news-meta">{_esc(h.source)}</span>'
+               if h.source else "")
+            + "</li>"
+            for h in items
+        )
+        blocks.append(
+            '<div class="dash-sector">'
+            f'<div class="dash-sector-name">{_esc(label)}'
+            f'<span class="dash-sector-q">{_esc(query)}</span></div>'
+            f"<ul>{lis}</ul></div>")
+    return f'<div class="dash-sectors">{"".join(blocks)}</div>'
+
+
+_FILING_CLASS = {
+    "실적": "now", "경고": "now", "자본조달": "soon",
+    "지배구조": "soon", "주주환원": "fyi", "계약": "fyi",
+}
+
+
+def render_market_filings(filings: list, error: str = "") -> str:
+    """시장 전체 주요 공시."""
+    if error:
+        return render_footnote(f"<b>공시를 받지 못했습니다.</b> {_esc(error)}")
+    if not filings:
+        return render_footnote(
+            "<b>최근 주요 공시가 없습니다.</b> 전체 공시가 없다는 뜻이 "
+            "아니라, 추려내는 유형(실적·증자·자사주·최대주주변경 등)에 "
+            "해당하는 것이 없다는 뜻입니다.")
+    rows = "".join(
+        "<tr>"
+        f"<td class='meta'>{_esc(f.date)}</td>"
+        f"<td><span class='dash-sig-chip "
+        f"{_FILING_CLASS.get(f.kind, 'fyi')}'>{_esc(f.kind)}</span></td>"
+        f"<td class='name'>{_esc(f.corp_name)}</td>"
+        "<td>"
+        + (f'<a class="dash-inline-link" href="{_esc(f.url)}" target="_blank" '
+           f'rel="noopener noreferrer">{_esc(f.title)}</a>'
+           if f.url else _esc(f.title))
+        + "</td></tr>"
+        for f in filings
+    )
+    return (
+        '<div class="dash-tablewrap"><table class="dash-table">'
+        "<thead><tr><th>날짜</th><th>분류</th><th>회사</th>"
+        "<th>보고서</th></tr></thead>"
+        f"<tbody>{rows}</tbody></table></div>"
+        + render_footnote(
+            "<b>제목으로 추렸습니다.</b> DART 전체 공시는 하루 수백 건이라 "
+            "주가에 바로 영향을 주는 유형만 남깁니다. 놓치는 쪽을 택했으니 "
+            "<b>빠진 게 있을 수 있습니다</b> — 전체는 DART 에서 보십시오.")
+    )

@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import math
+import random
 
 import config
 from sources.model import MarketStatus, Quote
@@ -980,3 +982,164 @@ def demo_kr_exports():
         title="(데모) 2026년 9월 수출입 동향",
         matched="금액+증감률",
     )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 국내 스크리너 데모
+# ──────────────────────────────────────────────────────────────────────────────
+
+def demo_kr_vol_profiles(candidates):
+    """국내 변동성 프로파일 — 고정 난수로 만든 가짜 일봉.
+
+    seed 를 고정해 매번 같은 화면이 나오게 합니다. 레이아웃 확인용이라
+    매번 달라지면 '바뀐 게 내 코드 때문인가' 를 판단할 수 없습니다.
+    """
+    import kr_screen  # noqa: PLC0415 - 순환 참조를 피해 지연 임포트
+
+    profiles, errors = [], {}
+    for idx, (code, name) in enumerate(candidates):
+        rnd = random.Random(f"vol-{code}")
+        # 앞 240일은 시끄럽게, 뒤 60일은 종목마다 다른 강도로 잦아들게
+        calm = 0.004 + (idx % 5) * 0.004
+        trend = 0.0012 if idx % 3 == 0 else (-0.0008 if idx % 3 == 1 else 0.0)
+        price, closes = 50_000.0, []
+        for day in range(300):
+            sd = 0.022 if day < 240 else calm
+            price *= math.exp(rnd.gauss(trend, sd))
+            closes.append(price)
+        if idx % 11 == 7:          # 몇 종목은 일부러 데이터 부족
+            closes = closes[:60]
+        p = kr_screen.profile(code, name, closes)
+        profiles.append(p)
+        if p.error:
+            errors[code] = p.error
+    return profiles, errors
+
+
+def demo_kr_value_rows(candidates):
+    """국내 전통 밸류 지표 — 고정 가짜값."""
+    import kr_screen  # noqa: PLC0415
+
+    rows = []
+    for code, name in candidates:
+        rnd = random.Random(f"val-{code}")
+        rows.append(kr_screen.ValueRow(
+            ticker=code, name=name,
+            pbr=round(rnd.uniform(0.3, 2.4), 2),
+            per=round(rnd.uniform(4.0, 28.0), 1),
+            div_yield=round(rnd.uniform(0.0, 6.0), 2),
+        ))
+    return rows
+
+
+def demo_kr_companies(codes):
+    """국내 기업개황 데모."""
+    import sources.dart as _dart  # noqa: PLC0415
+
+    names = dict(config.screen_kr_candidates())
+    out = {}
+    for idx, code in enumerate(codes):
+        rnd = random.Random(f"co-{code}")
+        out[code] = _dart.CompanyProfile(
+            stock_code=code,
+            corp_name=names.get(code, code),
+            ceo=f"(데모) 대표이사 {rnd.choice('김이박최정')}OO",
+            industry_code=str(rnd.randint(10, 99)) + str(rnd.randint(10, 99)),
+            established=f"{1950 + idx % 50}{rnd.randint(1, 12):02d}"
+                        f"{rnd.randint(1, 28):02d}",
+            fiscal_month="12",
+            homepage="(데모) 홈페이지 주소",
+            address="(데모) 본사 주소",
+        )
+    return out
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 뉴스 · 공시 · 지표 데모
+# ──────────────────────────────────────────────────────────────────────────────
+
+def demo_inflation(specs):
+    """물가 — 계열마다 다른 속도를 주어 '재가속/둔화' 가 둘 다 보이게."""
+    import inflation  # noqa: PLC0415
+
+    out = []
+    for idx, (sid, label, sa) in enumerate(specs):
+        base, recent = 0.0016, (0.0030 if idx % 3 == 0 else
+                                0.0008 if idx % 3 == 1 else 0.0016)
+        vals, p = [], 100.0
+        for m in range(26):
+            p *= (1 + (recent if m >= 23 else base))
+            vals.append((f"2024-{(m % 12) + 1:02d}-01", p))
+        vals = [(f"{2024 + i // 12}-{(i % 12) + 1:02d}-01", v)
+                for i, (_d, v) in enumerate(vals)]
+        out.append(inflation.build(sid, label, vals, seasonally_adjusted=sa))
+    return out
+
+
+def demo_liquidity():
+    import liquidity  # noqa: PLC0415
+
+    parts = [
+        liquidity.Component("fed_assets", "연준 총자산", raw=6_580_000,
+                            unit="millions", prev=6_612_000,
+                            period="2026-11-05"),
+        liquidity.Component("rrp", "역레포 (ON RRP)", raw=96.4,
+                            unit="billions", prev=141.2),
+        liquidity.Component("tga", "재무부 일반계정 (TGA)", raw=812.0,
+                            unit="billions", prev=769.5),
+    ]
+    nl = liquidity.net_liquidity(*parts)
+    extra = [
+        ("미국 M2 통화량", "22.15조 (현지통화)", "2026-09-01"),
+        ("ECB 총자산", "6.04조 (현지통화)", "2026-10-31"),
+        ("일본은행 총자산", "7.41조 (현지통화)", "2026-10-31"),
+    ]
+    return nl, extra
+
+
+def demo_kr_macro(specs):
+    rows = []
+    for idx, (sid, label) in enumerate(specs):
+        rnd = random.Random(f"krm-{sid}")
+        val = rnd.uniform(90, 130)
+        yoy = rnd.uniform(-4, 9)
+        rows.append((label, f"{val:,.2f}  ({yoy:+.1f}% YoY)", "2026-09-01"))
+    rows[-1] = (specs[-1][1], "—", "(데모) 계열이 중단됐을 수 있습니다")
+    return rows
+
+
+def demo_sector_news(sectors):
+    from sources.news import Headline  # noqa: PLC0415
+
+    out, errors = {}, {}
+    for idx, (key, label, _q) in enumerate(sectors):
+        if idx == len(sectors) - 1:
+            errors[key] = "(데모) 헤드라인이 비었습니다."
+            continue
+        out[key] = [
+            Headline(title=f"(데모) {label} 관련 헤드라인 {n}",
+                     url="https://example.com",
+                     source=f"데모 {['경제', '일보', '뉴스'][n % 3]}",
+                     published="2026-11-11")
+            for n in range(1, 4)
+        ]
+    return out, errors
+
+
+def demo_market_filings():
+    import sources.dart as _dart  # noqa: PLC0415
+
+    rows = [
+        ("2026-11-11", "삼성전자", "005930", "영업(잠정)실적(공정공시)", "실적"),
+        ("2026-11-11", "에코프로비엠", "247540", "단일판매ㆍ공급계약체결", "계약"),
+        ("2026-11-10", "SK하이닉스", "000660", "자기주식취득결정", "주주환원"),
+        ("2026-11-10", "알테오젠", "196170", "전환사채권발행결정", "자본조달"),
+        ("2026-11-10", "현대차", "005380", "현금ㆍ현물배당결정", "주주환원"),
+        ("2026-11-09", "(데모) 어떤기업", "000000", "최대주주변경", "지배구조"),
+        ("2026-11-09", "(데모) 다른기업", "111111", "불성실공시법인지정", "경고"),
+    ]
+    return [
+        _dart.MarketFiling(date=d, corp_name=n, stock_code=c,
+                           title=t, kind=k, rcept_no=f"2026111{i:07d}")
+        for i, (d, n, c, t, k) in enumerate(rows)
+    ]

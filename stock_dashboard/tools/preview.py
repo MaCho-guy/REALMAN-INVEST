@@ -39,23 +39,38 @@ EXTRA_CSS = """
   @media (max-width: 1100px) { .dash-grid { --cols: 2 !important; } }
   @media (max-width: 680px)  { .dash-grid { --cols: 1 !important; } }
 
-  /* 탭 */
-  .pv-tabs {
-    display: flex; gap: 2px; flex-wrap: wrap;
-    border-bottom: 1px solid var(--dash-divider);
-    margin-bottom: 18px;
-  }
+  /* 섹션 내비 — 앱과 같이 세로입니다 */
+  .pv-shell { display: flex; gap: 26px; align-items: flex-start; }
+  .pv-side { flex: 0 0 150px; position: sticky; top: 14px; }
+  .pv-main { flex: 1 1 auto; min-width: 0; }
+  .pv-tabs { display: flex; flex-direction: column; gap: 1px; }
   .pv-tab {
-    appearance: none; background: none; cursor: pointer;
-    border: none; border-bottom: 2px solid transparent;
+    appearance: none; background: none; cursor: pointer; text-align: left;
+    border: none; border-left: 2px solid transparent;
     color: var(--dash-ink-muted);
-    font: inherit; font-size: 0.82rem; font-weight: 600;
-    padding: 9px 14px; margin-bottom: -1px;
-    transition: color 0.12s ease, border-color 0.12s ease;
+    font: inherit; font-size: var(--fs-4); font-weight: 600;
+    padding: 7px 11px; border-radius: 0 var(--r-inner) var(--r-inner) 0;
+    transition: color 0.12s ease, border-color 0.12s ease,
+                background 0.12s ease;
   }
-  .pv-tab:hover { color: var(--dash-ink-2); }
+  .pv-tab:hover {
+    color: var(--dash-ink-2); background: var(--dash-surface-raised);
+  }
   .pv-tab[aria-selected="true"] {
-    color: var(--dash-ink); border-bottom-color: var(--dash-up);
+    color: var(--dash-ink); border-left-color: var(--dash-up);
+    background: var(--dash-surface);
+  }
+  @media (max-width: 760px) {
+    .pv-shell { display: block; }
+    .pv-side { position: static; margin-bottom: 14px; }
+    .pv-tabs { flex-direction: row; flex-wrap: wrap; }
+    .pv-tab {
+      border-left: none; border-bottom: 2px solid transparent;
+      border-radius: var(--r-inner) var(--r-inner) 0 0;
+    }
+    .pv-tab[aria-selected="true"] {
+      border-left-color: transparent; border-bottom-color: var(--dash-up);
+    }
   }
   .pv-fold > summary {
     cursor: pointer; font-size: .8rem; font-weight: 600;
@@ -302,7 +317,7 @@ def _prelim_block(use_demo: bool) -> str:
         ui.render_footnote(
             "한국 반도체 수출은 <b>월초에 전월치</b>가 나옵니다 — 분기 실적을 "
             "기다리지 않고 메모리 수요를 읽을 수 있는 유일한 월간 지표입니다. "
-            "<b>다만 이 긁어오기 경로는 검증되지 않았습니다</b> — 사이드바 "
+            "<b>다만 이 긁어오기 경로는 검증되지 않았습니다</b> — 화면 위쪽 "
             "진단으로 실제로 되는지 먼저 확인하십시오."),
     ])
 
@@ -668,80 +683,164 @@ def _holdings_panel(data, fx, use_demo: bool) -> str:
     return "".join(parts)
 
 
-def _discover_positions(use_demo: bool, market: str):
-    """발굴 위치 목록 — 데모만 지원합니다 (실데이터는 앱에서)."""
-    import buffett
-    import discover as disc
-    from config import Instrument
+def _flows_panel(use_demo: bool) -> str:
+    """뉴스 · 공시 · 지표 — 앱에서는 왼쪽 시장 선택을 따릅니다."""
+    import inflation
+    import liquidity  # noqa: F401 - 데모가 반환하는 타입
 
-    quotes = (demo_mod.demo_discovery_quotes() if use_demo
-              else {"yahoo": {}, "naver": {}})
-    known = {i.symbol: i for i in config.all_instruments()}
-    if market == "us":
-        instruments = [
-            known.get(t) or Instrument(name=t, symbol=t, source="yahoo",
-                                       currency="USD", verified=False)
-            for t in config.screen_tickers()]
-        screens, _ = (demo_mod.demo_screens() if use_demo else ({}, {}))
-        threshold = 4
+    parts = [
+        ui.render_footnote(
+            "<b>앱에서는 왼쪽 시장 선택을 따릅니다</b> — '한국' 을 고르면 "
+            "섹터 뉴스·공시·한국 지표만, '미국' 을 고르면 물가·유동성만 "
+            "나옵니다. 프리뷰는 둘 다 보여줍니다."),
+        ui.render_section_head(
+            "한국 — 섹터별 뉴스", "업종 바람이 먼저 불고 종목이 따라갑니다",
+            len(config.KR_SECTORS)),
+        ui.render_footnote(
+            "종목 뉴스와 다릅니다. 종목 뉴스는 '내 종목에 무슨 일이' 고, "
+            "이건 '내 종목이 속한 업종에 무슨 바람이' 입니다. "
+            "구글 뉴스를 한국어로 부르며 <b>제목과 링크만</b> 가져옵니다."),
+    ]
+    sn, se = (demo_mod.demo_sector_news(config.KR_SECTORS)
+              if use_demo else ({}, {}))
+    parts.append(ui.render_sector_news(config.KR_SECTORS, sn, se))
+
+    filings = demo_mod.demo_market_filings() if use_demo else []
+    parts.append(ui.render_section_head(
+        "한국 — 주요 공시", "최근 3일 · 전체 시장에서 추렸습니다", len(filings)))
+    parts.append(ui.render_market_filings(filings))
+
+    kr_rows = (demo_mod.demo_kr_macro(config.KR_MACRO_SERIES)
+               if use_demo else [])
+    parts.append(ui.render_section_head(
+        "한국 — 경제지표", "FRED 경유 · 전년동월비 병기", len(kr_rows)))
+    parts.append(ui.render_simple_rows(kr_rows))
+    parts.append(ui.render_footnote(
+        "<b>한국 계열 ID 는 전부 미검증입니다.</b> FRED 의 한국 통계는 "
+        "OECD 경유라 ID 체계가 미국 계열과 다르고 중단된 것도 많습니다. "
+        "'—' 로 나오면 그 계열이 없는 것입니다."))
+
+    readings = (demo_mod.demo_inflation(config.INFLATION_SERIES)
+                if use_demo else [])
+    parts.append(ui.render_section_head(
+        "미국 — 물가 속도", "지수가 아니라 속도로",
+        len([r for r in readings if r.ok])))
+    parts.append(ui.render_footnote(
+        "<b>전년동월비 하나만 보면 늦습니다</b> — 12개월 전 숫자를 아직 "
+        "끌고 다니기 때문입니다. <b>3개월 연율</b>은 최근 3개월 변화를 "
+        "1년치로 환산한 것이라 가장 빠릅니다. 3개월 연율이 전년동월비보다 "
+        "높으면 물가가 다시 붙는 중이고, 낮으면 식는 중입니다 — "
+        "이건 해석이 아니라 산술입니다.<br>"
+        "비계절조정 계열(PPI 전체상품)은 전월비·연율을 내지 않습니다."))
+    parts.append(ui.render_inflation_table(readings))
+    if readings:
+        parts.append(ui.render_footnote(inflation.summary_line(readings)))
+
+    parts.append(ui.render_section_head(
+        "글로벌 — 유동성", "연준 순유동성 + 주요국 중앙은행"))
+    if use_demo:
+        nl, extra = demo_mod.demo_liquidity()
+        parts.append(ui.render_liquidity(nl, extra))
     else:
-        instruments = [
-            known.get(c) or Instrument(name=n, symbol=c, source="naver",
-                                       currency="KRW", verified=False,
-                                       decimals=0, suffix="원")
-            for c, n in config.screen_kr_candidates()]
-        screens, _ = (demo_mod.demo_kr_screens() if use_demo else ({}, {}))
-        threshold = 3
-    return disc.build_positions(instruments, quotes, screens=screens), threshold
+        parts.append(ui.render_footnote("실데이터 프리뷰는 앱에서 확인하십시오."))
+    return "".join(parts)
 
 
 def _discover_panel(use_demo: bool) -> str:
-    """2. 종목 발굴 — 52주 위치 × 버핏식 품질."""
-    import discover as disc
+    """2. 종목 발굴 — 미국은 품질 기준만, 국내는 변동성·밸류 스크리너."""
+    import buffett
+    import kr_screen
 
     parts = [
         ui.render_section_head(
-            "종목 발굴", "52주 위치 × 버핏식 품질 기준 — 읽을 목록을 줄입니다"),
+            "종목 발굴 · 미국",
+            f"버핏식 품질 기준 {len(buffett.CRITERIA)}개 — 읽을 목록을 줄입니다"),
         ui.render_footnote(
-            "<b>52주 신고가는 모멘텀 지표입니다.</b> '좋은 주식' 이 아니라 "
-            "'최근 많이 오른 주식' 입니다 — 신고가인 이유가 비싸서일 수도 "
-            "있습니다. 그래서 단독으로 쓰지 않고 <b>버핏식 품질 기준과 "
-            "교차</b>합니다. ③ 저가권 + 품질 통과가 가치투자가 전통적으로 찾는 "
-            "자리이고, ① 고가권 + 품질 통과는 시장이 이미 알아본 자리입니다.<br>"
-            "앱에서는 <b>미국/국내 전환</b>과 <b>품질 기준선 슬라이더</b>가 "
-            "있습니다. 아래는 미국 기준입니다."),
+            "<b>52주 위치 축을 뺐습니다.</b> 신고가는 '최근 많이 오른 주식' "
+            "이지 '좋은 주식' 이 아닙니다 — 품질 기준을 통과한 목록을 주가 "
+            "흐름으로 한 번 더 자를 근거가 장기 보유 판단에는 없습니다. "
+            "가격은 <b>밸류에이션 탭</b>에서 공시 숫자(FCF·순부채)와 "
+            "견줍니다.<br>앱에서는 <b>품질 기준선 슬라이더</b>로 조절합니다."),
     ]
-    positions, threshold = _discover_positions(use_demo, "us")
-    counts = disc.summary_counts(positions)
+    screens_map, _errs = (demo_mod.demo_screens() if use_demo else ({}, {}))
+    screens = buffett.rank(list(screens_map.values()))
+    threshold = round(len(buffett.CRITERIA) * 2 / 3)
+    passed = [s for s in screens if s.passed_count >= threshold]
     parts.append(ui.render_footnote(
-        " · ".join(f"<b>{k}</b> {v}" for k, v in counts.items())))
-
-    usable = [p for p in positions if p.ok]
-    with_quality = [p for p in usable if p.has_quality]
-    if usable and len(with_quality) < len(usable) * 0.5:
-        parts.append(ui.render_footnote(
-            f"<b>사분면 지도가 비어 보이는 이유:</b> 52주 데이터는 "
-            f"{len(usable)}종목에 있는데 <b>품질 스크리닝 결과는 "
-            f"{len(with_quality)}종목</b>에만 있습니다. 사분면은 두 축이 모두 "
-            "있어야 분류되므로 나머지는 '중간 구간 · 판정 없음' 으로 갑니다 — "
-            "해당하는 종목이 없다는 뜻이 아닙니다. 데모 모드라 재무가 몇 "
-            "종목만 들어 있습니다."))
-
-    groups = disc.group_by_quadrant(positions, threshold)
-    parts.append(ui.render_discover_map(groups))
-    ranked = [p for p in disc.rank_by_high(positions) if p.ok][:20]
+        f"<b>후보 {len(screens)}종목</b> 중 <b>{len(passed)}종목</b>이 "
+        f"{threshold}개 이상 통과"))
     parts.append(ui.render_section_head(
-        "고가권부터", "표의 ○ 는 품질 기준 통과, ✗ 는 미달, ? 는 판정 불가",
-        len(ranked)))
-    parts.append(ui.render_discover_table(ranked, threshold))
+        "통과 종목", "통과 수 많은 순", len(passed)))
+    for screen in passed[:6]:
+        parts.append(
+            '<details class="pv-fold"><summary>'
+            f"{screen.ticker} · {screen.passed_count}"
+            f"/{len(buffett.CRITERIA)} 통과</summary>"
+            f'<div class="pv-fold-body">{ui.render_screen(screen)}</div>'
+            "</details>")
 
-    focus = (groups[1] + groups[3])[:6]
-    if focus:
-        parts.append(ui.render_section_head(
-            "주목 구간 (① · ③)", "품질 기준을 넘은 종목만", len(focus)))
-        for pos in focus:
-            parts.append(ui.render_discover_card(
-                pos, threshold, prompt=disc.prompt_for(pos, threshold)))
+    # ── 국내 ────────────────────────────────────────────────────────────
+    parts.append(ui.render_section_head(
+        "종목 발굴 · 한국",
+        "변동성 × 신고가 × 전통 밸류 — 국내는 재무만으로 안 걸러집니다"))
+    parts.append(ui.render_footnote(
+        "<b>왜 미국과 기준이 다른가.</b> 국내 후보는 30종목뿐이라 재무 "
+        "기준만으로는 거의 걸러지지 않습니다. 대신 주가 변동성이 미국보다 "
+        "큽니다 — 52주 신고가를 단독으로 쓰면 급등 후 되돌림 구간이 대거 "
+        "섞입니다. 그래서 <b>변동성이 잦아든 상태</b>를 같이 봅니다.<br>"
+        "앱에서는 아래 세 묶음을 <b>버튼으로 전환</b>하고, 종목마다 카드를 "
+        "펼쳐 기업 개요·최근 뉴스·3대 분석 버튼을 봅니다."))
+
+    cands = list(config.screen_kr_candidates())
+    if use_demo:
+        profiles, vol_errors = demo_mod.demo_kr_vol_profiles(cands)
+        value_rows = demo_mod.demo_kr_value_rows(cands)
+    else:
+        profiles, vol_errors, value_rows = [], {}, []
+    hits = {
+        "contraction": kr_screen.contraction_hits(profiles),
+        "near_high": kr_screen.near_high_hits(profiles),
+        "value_trad": kr_screen.value_hits(value_rows),
+    }
+    companies = demo_mod.demo_kr_companies(
+        tuple(c for c, _n in cands)) if use_demo else {}
+    news_demo = demo_mod.demo_news([c for c, _n in cands]) if use_demo else {}
+
+    for key, title, rule, caveat in kr_screen.KR_SCREENS:
+        picked = hits.get(key, [])
+        parts.append(ui.render_screener_head(title, rule, len(picked), caveat))
+        if not picked:
+            parts.append(ui.render_footnote(
+                "<b>이 기준을 통과한 종목이 없습니다.</b> 기준을 느슨하게 "
+                "하지 않고 그대로 둡니다."))
+            continue
+        for hit in picked[:3]:
+            inner = (
+                ui.render_hit_metrics(hit)
+                + ui.render_hit_reasons(hit)
+                + ui.render_section_head("기업 개요", "DART 기업개황")
+                + ui.render_company_overview(companies.get(hit.ticker),
+                                             search_name=hit.name)
+                + ui.render_section_head("최근 뉴스", "구글 뉴스 · 제목과 링크만",
+                                         len(news_demo.get(hit.ticker) or []))
+                + (ui.render_news_block(news_demo.get(hit.ticker) or [], limit=5)
+                   or ui.render_footnote("최근 헤드라인을 찾지 못했습니다."))
+                + ui.render_section_head("3대 분석", "어디서 돌릴지 고르십시오", 3)
+                + ui.render_footnote(
+                    "로컬에서 <code>streamlit run app.py</code> 로 띄우면 "
+                    "여기에 <b>바로 실행</b> 버튼이 붙습니다. 클라우드에는 "
+                    "<code>claude</code> 실행 파일이 없어 아래 링크로 "
+                    "대신합니다.")
+                + ui.render_skill_links(hit.ticker, hit.name)
+            )
+            parts.append(
+                '<details class="pv-fold"><summary>'
+                f"{hit.name} · {hit.ticker}</summary>"
+                f'<div class="pv-fold-body">{inner}</div></details>')
+    if vol_errors:
+        parts.append(ui.render_footnote(
+            f"<b>일봉을 못 받은 종목 {len(vol_errors)}건</b> — 신규 상장이나 "
+            "거래정지 구간이 있으면 변동성을 신뢰할 수 없어 뺍니다."))
     return "".join(parts)
 
 
@@ -950,7 +1049,7 @@ def _macro_panel(section, data, fx, use_demo: bool) -> str:
             'target="_blank" rel="noopener noreferrer">CNN 공식 페이지</a>'
             " 와 직접 대조해 보십시오. "
             "<b>이 프리뷰는 데모 데이터라 당연히 다릅니다</b> — 실제 앱에서 "
-            "다르면 사이드바 진단 → 경제지표 확인을 돌려 출력을 "
+            "다르면 화면 위쪽 진단 패널 → 경제지표 확인을 돌려 출력을 "
             "알려주십시오."))
         if fg.ok and fg.extremes:
             parts.append(ui.render_footnote(
@@ -1143,6 +1242,8 @@ def build_html(convention: str, use_demo: bool) -> str:
             body = _holdings_panel(data, fx, use_demo)
         elif key == "discover":
             body = _discover_panel(use_demo)
+        elif key == "flows":
+            body = _flows_panel(use_demo)
         elif key == "valuation":
             body = _valuation_tab_panel(data, fx, use_demo)
         elif key == "macro":
@@ -1169,7 +1270,8 @@ def build_html(convention: str, use_demo: bool) -> str:
     banner = (
         '<div class="demo-banner"><b>레이아웃 프리뷰 (데모 데이터)</b><br>'
         "숫자는 레이아웃 확인용 가짜 값이며 실제 시세가 아닙니다. "
-        "탭을 눌러 섹션을 넘기고, 우측 상단에서 나이트·데이 모드를 바꿔 보십시오. "
+        "왼쪽 목록에서 섹션을 고르고, 우측 상단에서 나이트·데이 모드를 "
+            "바꿔 보십시오. "
         "카드 제목을 누르면 해당 종목 페이지로 이동합니다. "
         "실제 시세는 <code>streamlit run app.py</code> 로 확인하십시오.</div>"
         if use_demo
@@ -1188,8 +1290,22 @@ def build_html(convention: str, use_demo: bool) -> str:
         '<span class="dash-logo-sub">야간 대체시세 · 시장 지표 · 관심종목</span>'
         f"{theme_toggle}</div>",
         banner,
-        f'<div class="pv-tabs" role="tablist">{tab_buttons}</div>',
-        "".join(panels),
+        '<div class="pv-shell">',
+        '<div class="pv-side">'
+        '<div class="dash-navhead">섹션</div>'
+        f'<div class="pv-tabs" role="tablist">{tab_buttons}</div>'
+        '<div class="dash-navhead">시장</div>'
+        '<div class="pv-tabs">'
+        '<button class="pv-tab" aria-selected="true" type="button">전체</button>'
+        '<button class="pv-tab" type="button">미국</button>'
+        '<button class="pv-tab" type="button">한국</button>'
+        "</div>"
+        '<div class="dash-footnote" style="margin-top:10px">'
+        "프리뷰에서는 시장 선택이 표시만 됩니다 — 실제 앱에서 목록이 "
+        "걸러집니다.</div>"
+        "</div>",
+        f'<div class="pv-main">{"".join(panels)}</div>',
+        "</div>",
         ui.render_footnote(
             "정보 제공 목적이며 투자 판단의 근거가 아닙니다. 시세는 지연될 수 있고, "
             "사용하는 데이터 소스는 어느 것도 공식 API 가 아닙니다."

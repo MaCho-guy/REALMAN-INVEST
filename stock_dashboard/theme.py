@@ -26,21 +26,21 @@ PALETTE: dict[Mode, dict[str, str]] = {
         "surface_raised": "#222221",
         "ink": "#f0efec",
         "ink_secondary": "#c3c2b7",
-        "ink_muted": "#898781",
+        "ink_muted": "#adaca7",
         "border": "rgba(255,255,255,0.10)",
         "divider": "#2c2c2a",
         # 등락
-        "up_kr": "#e66767",
-        "down_kr": "#3987e5",
-        "up_us": "#0ca30c",
-        "down_us": "#d03b3b",
-        "flat": "#898781",
+        "up_kr": "#ff6b6b",
+        "down_kr": "#5aa0f0",
+        "up_us": "#2eb82e",
+        "down_us": "#ff6b6b",
+        "flat": "#adaca7",
         # 상태 배지
-        "badge_live": "#0ca30c",
+        "badge_live": "#2eb82e",
         "badge_pre": "#fab219",
-        "badge_post": "#9085e9",
-        "badge_closed": "#898781",
-        "badge_error": "#d03b3b",
+        "badge_post": "#a79ef0",
+        "badge_closed": "#adaca7",
+        "badge_error": "#ff6b6b",
     },
     "light": {
         "page": "#f9f9f7",
@@ -48,19 +48,19 @@ PALETTE: dict[Mode, dict[str, str]] = {
         "surface_raised": "#ffffff",
         "ink": "#0b0b0b",
         "ink_secondary": "#52514e",
-        "ink_muted": "#898781",
+        "ink_muted": "#6d6b67",
         "border": "rgba(11,11,11,0.10)",
         "divider": "#e1e0d9",
-        "up_kr": "#e34948",
-        "down_kr": "#2a78d6",
+        "up_kr": "#cc2d2b",
+        "down_kr": "#256bc0",
         "up_us": "#006300",
-        "down_us": "#d03b3b",
-        "flat": "#898781",
-        "badge_live": "#0ca30c",
-        "badge_pre": "#b07d00",
+        "down_us": "#ca3030",
+        "flat": "#6d6b67",
+        "badge_live": "#097d09",
+        "badge_pre": "#8e6400",
         "badge_post": "#6250d6",
-        "badge_closed": "#898781",
-        "badge_error": "#d03b3b",
+        "badge_closed": "#6d6b67",
+        "badge_error": "#ca3030",
     },
 }
 
@@ -106,13 +106,16 @@ def build_vars(mode: Mode, convention: str, scope: str = ":root") -> str:
     /* 타입 스케일 — 9단. 고치기 전에는 38종이 쓰였고 0.58·0.60·0.61·0.62·
        0.63·0.64rem 이 전부 1px 안에 몰려 있었습니다. 눈에는 안 보이면서
        정렬만 미묘하게 어긋나고, 고칠 때마다 어느 값을 쓸지 헷갈립니다.
-       아래 칸 사이는 좁고(UI 글자) 위로 갈수록 넓습니다(수치 강조). */
-    --fs-1: 0.64rem;   /* 10px — 출처 태그, 작은 칩 */
-    --fs-2: 0.70rem;   /* 11px — 캡션, 세부 설명 */
-    --fs-3: 0.76rem;   /* 12px — 표 본문, 판정 줄 */
-    --fs-4: 0.84rem;   /* 13px — 본문, 카드 라벨 */
-    --fs-5: 0.94rem;   /* 15px — 카드 제목 */
-    --fs-6: 1.08rem;   /* 17px — 섹션 제목 */
+       아래 칸 사이는 좁고(UI 글자) 위로 갈수록 넓습니다(수치 강조).
+       2026-11-11: 아래 여섯 칸을 한 단계씩 올렸습니다. 10·11px 짜리 보조
+       글자가 대비까지 낮아 야간 모드에서 읽히지 않는다는 지적을 받았습니다.
+       큰 수치 쪽(7~9)은 이미 충분해서 건드리지 않았습니다. */
+    --fs-1: 0.72rem;   /* 11.5px — 출처 태그, 작은 칩 */
+    --fs-2: 0.78rem;   /* 12.5px — 캡션, 세부 설명 */
+    --fs-3: 0.84rem;   /* 13.5px — 표 본문, 판정 줄 */
+    --fs-4: 0.90rem;   /* 14.5px — 본문, 카드 라벨 */
+    --fs-5: 0.98rem;   /* 16px — 카드 제목 */
+    --fs-6: 1.10rem;   /* 18px — 섹션 제목 */
     --fs-7: 1.30rem;   /* 21px — 중간 수치 */
     --fs-8: 1.60rem;   /* 26px — 큰 수치 */
     --fs-9: 2.00rem;   /* 32px — 최대 수치 */
@@ -182,7 +185,7 @@ def build_rules() -> str:
     font-family: {FONT_STACK};
     max-width: 78ch;              /* 긴 줄은 눈이 되돌아올 곳을 잃습니다 */
   }}
-  /* 사이드바에서 설명을 끄면 데이터만 남습니다 */
+  /* 표시 패널에서 설명을 끄면 데이터만 남습니다 */
   .dash-nonotes .dash-footnote,
   .dash-nonotes .dash-check-detail {{ display: none; }}
 
@@ -1056,6 +1059,169 @@ def build_rules() -> str:
   /* 사이드바가 빠진 만큼 본문이 왼쪽 끝에 붙지 않게 여백을 둡니다 */
   section[data-testid="stMain"] .block-container {{
     padding-top: var(--sp-4);
+  }}
+
+  /* ── 세로 섹션 내비 ───────────────────────────────────────────────── */
+  /* 가로 한 줄짜리 segmented_control 은 섹션이 늘어날수록 글자가 줄고
+     휴대폰에서 줄바꿈이 됩니다. 세로 목록은 지금 어디에 있는지가 항상
+     보이고, 아래에 시장 선택을 붙일 자리도 생깁니다. */
+  .dash-navhead {{
+    font-size: var(--fs-1); font-weight: 700; letter-spacing: .04em;
+    color: var(--dash-ink-muted); text-transform: none;
+    margin: var(--sp-3) 0 var(--sp-2);
+  }}
+  .dash-navhead:first-child {{ margin-top: 0; }}
+
+  /* 라디오를 목록처럼 보이게 합니다 — 점은 남기되 간격과 적중 영역을 키워
+     손가락으로도 눌리게 합니다. */
+  div[data-testid="stVerticalBlock"] div[role="radiogroup"] {{
+    gap: 1px;
+  }}
+  div[role="radiogroup"] > label {{
+    padding: 6px 9px; border-radius: var(--r-inner);
+    font-size: var(--fs-4);
+  }}
+  div[role="radiogroup"] > label:hover {{
+    background: var(--dash-surface-raised);
+  }}
+
+  /* ── 국내 스크리너 ────────────────────────────────────────────────── */
+  .dash-scr-head {{
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+    border-bottom: 1px solid var(--dash-divider);
+    padding-bottom: var(--sp-2); margin: var(--sp-5) 0 var(--sp-2);
+  }}
+  .dash-scr-title {{
+    font-size: var(--fs-6); font-weight: 750; color: var(--dash-ink);
+    flex: 0 0 auto; white-space: nowrap;
+  }}
+  .dash-scr-rule {{
+    font-size: var(--fs-3); color: var(--dash-ink-2); flex: 1 1 240px;
+  }}
+  .dash-scr-caveat {{
+    font-size: var(--fs-2); color: var(--dash-ink-muted);
+    border-left: 2px solid var(--dash-border);
+    padding: 2px 0 2px 10px; margin: 0 0 var(--sp-3);
+  }}
+
+  /* 통과 종목의 지표 — 가로 한 줄. 세로 목록으로 쌓으면 종목 간 비교가
+     안 됩니다. 좁아지면 줄바꿈되게 둡니다. */
+  .dash-hit-row {{
+    display: flex; flex-wrap: wrap; gap: var(--sp-3) 22px;
+    padding: var(--sp-3) 0;
+    border-bottom: 1px solid var(--dash-divider);
+  }}
+  .dash-hit-cell {{ min-width: 92px; }}
+  .dash-hit-label {{
+    font-size: var(--fs-1); color: var(--dash-ink-muted);
+    margin-bottom: 2px; white-space: nowrap;
+  }}
+  .dash-hit-value {{
+    font-size: var(--fs-5); font-weight: 650; color: var(--dash-ink);
+    font-variant-numeric: tabular-nums;
+  }}
+  .dash-hit-why {{ padding: var(--sp-3) 0 0; }}
+  .dash-hit-why ul {{ margin: 0; padding-left: 17px; }}
+  .dash-hit-why li {{
+    font-size: var(--fs-3); color: var(--dash-ink-2); margin-bottom: 4px;
+    line-height: 1.55;
+  }}
+  .dash-hit-links {{
+    font-size: var(--fs-3); padding: var(--sp-2) 0 0;
+  }}
+
+  /* 키-값 표 (기업개황) */
+  .dash-kv {{
+    width: 100%; border-collapse: collapse; margin: var(--sp-2) 0;
+  }}
+  .dash-kv th, .dash-kv td {{
+    text-align: left; padding: 6px 10px 6px 0; vertical-align: top;
+    border-bottom: 1px solid var(--dash-divider);
+    font-size: var(--fs-3); line-height: 1.5;
+  }}
+  .dash-kv th {{
+    color: var(--dash-ink-muted); font-weight: 600;
+    width: 130px; white-space: nowrap;
+  }}
+  .dash-kv td {{ color: var(--dash-ink); }}
+
+  /* ── 분석 스킬 딥링크 ─────────────────────────────────────────────── */
+  .dash-skills {{
+    border: 1px solid var(--dash-border); border-radius: var(--r-card);
+    background: var(--dash-surface); margin: var(--sp-2) 0;
+    overflow: hidden;
+  }}
+  .dash-skill-row {{
+    display: flex; align-items: center; justify-content: space-between;
+    gap: var(--sp-3); flex-wrap: wrap;
+    padding: var(--sp-3) 14px;
+    border-bottom: 1px solid var(--dash-divider);
+  }}
+  .dash-skill-row:last-child {{ border-bottom: none; }}
+  .dash-skill-name {{
+    font-size: var(--fs-4); font-weight: 650; color: var(--dash-ink);
+    display: flex; flex-direction: column; gap: 2px; min-width: 150px;
+  }}
+  .dash-skill-desc {{
+    font-size: var(--fs-2); font-weight: 400; color: var(--dash-ink-muted);
+  }}
+  .dash-skill-links {{ display: flex; gap: 6px; flex-wrap: wrap; }}
+  .dash-skill-btn {{
+    display: inline-block; text-decoration: none;
+    font-size: var(--fs-2); font-weight: 600;
+    padding: 6px 11px; border-radius: var(--r-inner);
+    border: 1px solid var(--dash-border);
+    background: var(--dash-surface-raised); color: var(--dash-ink);
+    white-space: nowrap;
+  }}
+  .dash-skill-btn:hover {{ border-color: var(--dash-ink-muted); }}
+  .dash-skill-btn.ghost {{
+    background: transparent; color: var(--dash-ink-2);
+  }}
+  @media (max-width: 620px) {{
+    .dash-skill-row {{ flex-direction: column; align-items: stretch; }}
+    .dash-skill-links {{ display: grid; grid-template-columns: 1fr 1fr; }}
+    .dash-skill-btn {{ text-align: center; }}
+    .dash-skill-btn.ghost {{ grid-column: 1 / -1; }}
+  }}
+
+  /* ── 섹터별 뉴스 ──────────────────────────────────────────────────── */
+  .dash-sectors {{
+    display: grid; gap: var(--sp-3);
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    margin: var(--sp-2) 0;
+  }}
+  .dash-sector {{
+    border: 1px solid var(--dash-border); border-radius: var(--r-card);
+    background: var(--dash-surface); padding: 11px 13px;
+  }}
+  .dash-sector-name {{
+    font-size: var(--fs-4); font-weight: 700; color: var(--dash-ink);
+    display: flex; flex-direction: column; gap: 2px;
+    margin-bottom: var(--sp-2);
+    padding-bottom: var(--sp-2);
+    border-bottom: 1px solid var(--dash-divider);
+  }}
+  .dash-sector-q {{
+    font-size: var(--fs-1); font-weight: 400; color: var(--dash-ink-muted);
+  }}
+  .dash-sector ul {{ margin: 0; padding-left: 16px; }}
+  .dash-sector li {{
+    font-size: var(--fs-3); color: var(--dash-ink-2);
+    margin-bottom: 5px; line-height: 1.5;
+  }}
+  .dash-sector li::marker {{ color: var(--dash-ink-muted); }}
+  .dash-sector-empty {{
+    font-size: var(--fs-2); color: var(--dash-ink-muted);
+  }}
+  .dash-exp-value {{
+    font-size: var(--fs-8); font-weight: 700; color: var(--dash-ink);
+    font-variant-numeric: tabular-nums; margin: 6px 0 2px;
+  }}
+  /* 변화량은 본값보다 작게 — 같은 크기면 뭐가 현재값인지 안 보입니다 */
+  .dash-exp-value .dash-exp-delta {{
+    font-size: var(--fs-4); font-weight: 650; margin-left: 8px;
+    color: var(--dash-ink-2);
   }}
 
   /* ── 한국 반도체 수출 ─────────────────────────────────────────────── */

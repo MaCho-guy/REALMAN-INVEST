@@ -26,6 +26,9 @@ import streamlit as st
 import brief
 import buildstamp
 import briefing_store as bfs
+import inflation
+import kr_screen
+import liquidity
 import value as vl
 import analysis_store
 import components as ui
@@ -34,7 +37,6 @@ import cycle
 import buffett
 import buffett_kr
 import demo as demo_mod
-import discover as disc
 import macro as macro_mod
 import reverse_dcf as rdcf
 import runner
@@ -286,6 +288,212 @@ def load_news(targets: tuple[tuple[str, str, str], ...], use_demo: bool) -> dict
         return news.fetch_for_many(list(targets), limit=config.NEWS_PER_TICKER)
     except Exception:  # noqa: BLE001 - 뉴스는 보조이므로 조용히 비웁니다
         return {}
+
+
+@st.cache_data(ttl=3_600, show_spinner=False)
+def load_kr_vol_profiles(use_demo: bool):
+    """국내 후보 30종목의 1년 일봉 → 변동성 프로파일.
+
+    일봉은 하루 한 번만 바뀌므로 캐시를 1시간으로 둡니다. 코드마다
+    `.KS` · `.KQ` 두 심볼을 시도하므로 최대 60회 호출이고, 야후는
+    병렬을 받아주므로 체감 10~20초입니다.
+    """
+    cands = list(config.screen_kr_candidates())
+    if use_demo:
+        return demo_mod.demo_kr_vol_profiles(cands), {}
+    try:
+        closes, _errs = yahoo.fetch_closes(kr_screen.all_symbols(cands))
+    except Exception as exc:  # noqa: BLE001
+        return [], {"_": f"일봉을 받지 못했습니다: {exc}"}
+    return kr_screen.build_profiles(cands, closes)
+
+
+@st.cache_data(ttl=3_600, show_spinner=False)
+def load_kr_value_rows(use_demo: bool):
+    """국내 후보의 PBR · PER · 배당수익률 (야후 집계값).
+
+    공시 기반 가격 조건(value.py)과 **다른 출처**입니다. 야후가 집계한
+    값이라 기준 시점이 종목마다 다를 수 있습니다 — 화면에 그렇게 적습니다.
+    """
+    cands = list(config.screen_kr_candidates())
+    if use_demo:
+        return demo_mod.demo_kr_value_rows(cands)
+    fields = (("priceToBook", "PBR", "num2"),
+              ("trailingPE", "PER", "num2"),
+              ("dividendYield", "배당수익률", "pct"))
+    syms: list[str] = []
+    first: dict[str, str] = {}
+    for code, _n in cands:
+        cand = kr_screen.yahoo_symbols(code)
+        if cand:
+            first[code] = cand[0]
+            syms.extend(cand)
+    try:
+        raw = yahoo.fetch_fundamentals(syms, fields)
+    except Exception as exc:  # noqa: BLE001
+        return [kr_screen.ValueRow(c, n, error=str(exc)) for c, n in cands]
+    rows = []
+    for code, name in cands:
+        got = {}
+        for sym in kr_screen.yahoo_symbols(code):
+            cell = raw.get(sym) or {}
+            if cell.get("_error") is None and any(
+                    cell.get(k) is not None for k in
+                    ("priceToBook", "trailingPE", "dividendYield")):
+                got = cell
+                break
+        dy = got.get("dividendYield")
+        # 야후는 배당수익률을 0.025(비율) 로 줄 때와 2.5(%) 로 줄 때가
+        # 둘 다 있습니다. 1 미만이면 비율로 보고 100 을 곱합니다.
+        if dy is not None and dy < 1.0:
+            dy *= 100.0
+        rows.append(kr_screen.ValueRow(
+            ticker=code, name=name,
+            pbr=got.get("priceToBook"), per=got.get("trailingPE"),
+            div_yield=dy,
+            error="" if got else "집계 지표를 받지 못했습니다.",
+        ))
+    return rows
+
+
+@st.cache_data(ttl=3_600, show_spinner=False)
+def load_inflation(use_demo: bool, key_fp: str = ""):
+    """물가 계열 → 속도 분석. 월 1회 발표라 캐시를 1시간으로 둡니다."""
+    specs = config.INFLATION_SERIES
+    if use_demo:
+        return demo_mod.demo_inflation(specs), {}
+    series, errors = fred.fetch_many([sid for sid, _l, _sa in specs], years=3)
+    out = []
+    for sid, label, sa in specs:
+        ser = series.get(sid)
+        if ser is None:
+            out.append(inflation.Reading(
+                key=sid, label=label, seasonally_adjusted=sa,
+                error=errors.get(sid, "계열을 받지 못했습니다.")))
+            continue
+        pts = [(o.date.isoformat(), o.value) for o in ser.observations]
+        out.append(inflation.build(sid, label, pts, seasonally_adjusted=sa))
+    return out, errors
+
+
+@st.cache_data(ttl=3_600, show_spinner=False)
+def load_liquidity(use_demo: bool, key_fp: str = ""):
+    """순유동성 + 참고 계열."""
+    if use_demo:
+        return demo_mod.demo_liquidity()
+    ids = [sid for _k, sid, _l, _u in config.LIQUIDITY_SERIES]
+    ids += [sid for sid, _l, _u in config.LIQUIDITY_EXTRA]
+    series, errors = fred.fetch_many(ids, years=2)
+
+    def comp(key, sid, label, unit):
+        ser = series.get(sid)
+        if ser is None or not ser.observations:
+            return liquidity.Component(
+                key=key, label=label, unit=unit,
+                error=errors.get(sid, f"{sid} 를 받지 못했습니다."))
+        obs = ser.observations
+        # 4주 전 — 주간 계열이면 4개 전, 일간이면 20개 전쯤입니다.
+        back = 4 if len(obs) < 200 else 20
+        prev = obs[-back].value if len(obs) > back else None
+        return liquidity.Component(
+            key=key, label=label, unit=unit, raw=obs[-1].value,
+            period=obs[-1].date.isoformat(), prev=prev)
+
+    parts = [comp(k, sid, lab, u)
+             for k, sid, lab, u in config.LIQUIDITY_SERIES]
+    nl = liquidity.net_liquidity(*parts)
+
+    extra = []
+    for sid, label, unit in config.LIQUIDITY_EXTRA:
+        ser = series.get(sid)
+        if ser is None or not ser.observations:
+            extra.append((label, "—", errors.get(sid, "받지 못함")[:40]))
+            continue
+        c = liquidity.Component(key=sid, label=label, unit=unit,
+                                raw=ser.observations[-1].value)
+        b = c.billions
+        extra.append((label,
+                      "—" if b is None else f"{b / 1000:,.2f}조 (현지통화)",
+                      ser.observations[-1].date.isoformat()))
+    return nl, extra
+
+
+@st.cache_data(ttl=3_600, show_spinner=False)
+def load_kr_macro(use_demo: bool, key_fp: str = ""):
+    """한국 경제지표 (FRED 경유). 계열 ID 는 전부 미검증입니다."""
+    if use_demo:
+        return demo_mod.demo_kr_macro(config.KR_MACRO_SERIES)
+    series, errors = fred.fetch_many(
+        [sid for sid, _l in config.KR_MACRO_SERIES], years=3)
+    rows = []
+    for sid, label in config.KR_MACRO_SERIES:
+        ser = series.get(sid)
+        if ser is None or len(ser.observations) < 13:
+            rows.append((label, "—",
+                         (errors.get(sid) or "관측치 부족")[:46]))
+            continue
+        obs = ser.observations
+        last, year_ago = obs[-1].value, obs[-13].value
+        yoy = ((last / year_ago - 1.0) * 100.0) if year_ago else None
+        rows.append((
+            label,
+            f"{last:,.2f}" + (f"  ({yoy:+.1f}% YoY)" if yoy is not None else ""),
+            obs[-1].date.isoformat()))
+    return rows
+
+
+@st.cache_data(ttl=1_800, show_spinner=False)
+def load_sector_news(use_demo: bool):
+    """섹터별 헤드라인. 30분 캐시 — 뉴스는 보조입니다."""
+    if use_demo:
+        return demo_mod.demo_sector_news(config.KR_SECTORS)
+    try:
+        return news.fetch_sector_news(config.KR_SECTORS,
+                                      limit=config.SECTOR_NEWS_PER)
+    except Exception as exc:  # noqa: BLE001
+        return {}, {"_": f"{type(exc).__name__}: {exc}"}
+
+
+@st.cache_data(ttl=1_800, show_spinner=False)
+def load_market_filings(use_demo: bool, key_fp: str = ""):
+    """시장 전체 주요 공시."""
+    if use_demo:
+        return demo_mod.demo_market_filings(), ""
+    try:
+        return dart.fetch_market_filings(days=3, pages=3, limit=60), ""
+    except Exception as exc:  # noqa: BLE001
+        return [], f"{type(exc).__name__}: {exc}"
+
+
+@st.cache_data(ttl=86_400, show_spinner=False)
+def load_kr_companies(codes: tuple[str, ...], use_demo: bool,
+                      key_fp: str = "") -> dict:
+    """국내 기업개황. 회사 정보는 거의 안 바뀌므로 캐시를 하루로 둡니다.
+
+    key_fp 는 DART 키 지문입니다 — 키를 바꿨는데 실패한 결과가 캐시에
+    남아 있으면 넣어도 안 바뀝니다. 캐시 키에 넣어 자동 무효화합니다.
+    """
+    if not codes:
+        return {}
+    if use_demo:
+        return demo_mod.demo_kr_companies(codes)
+    out: dict = {}
+    try:
+        corp_map = dart.fetch_corp_codes()
+    except Exception as exc:  # noqa: BLE001
+        return {c: dart.CompanyProfile(stock_code=c, error=str(exc))
+                for c in codes}
+    for code in codes:
+        try:
+            corp = dart.resolve_corp_code(code, corp_map)
+            if not corp:
+                out[code] = dart.CompanyProfile(
+                    stock_code=code, error="DART 고유번호를 찾지 못했습니다.")
+                continue
+            out[code] = dart.fetch_company(corp, code)
+        except Exception as exc:  # noqa: BLE001
+            out[code] = dart.CompanyProfile(stock_code=code, error=str(exc))
+    return out
 
 
 @st.cache_data(ttl=21_600, show_spinner=False)
@@ -577,14 +785,14 @@ def render_premium_tab(data: dict[str, dict[str, Quote]], fx,
 # ──────────────────────────────────────────────────────────────────────────────
 
 def render_summary_tab(data: dict[str, dict[str, Quote]], fx,
-                       use_demo: bool) -> None:
+                       use_demo: bool, *, market: str = "all") -> None:
     """요약. 다른 탭에서 이미 캐시된 것만 씁니다 — 휴대폰에서 느려지면 안 됩니다.
 
     발굴·밸류에이션은 일부러 빼둡니다. 68종목의 10년 재무를 받아오는 작업이라
     휴대폰 글랜스에 맞지 않습니다 — 어디로 가면 되는지만 적습니다.
     """
     found, instruments, trends, _filings, _errors = _detect_signals(
-        data, use_demo)
+        data, use_demo, market=market)
     # 요약은 "지금 N건" 과 "이번 주 N건" 을 구분해 적어야 해서 세 갈래가
     # 필요합니다. signals.split_by_urgency 는 둘을 합쳐 두 갈래로 주므로
     # **여기서 직접 나눕니다** — 다른 파일을 함께 고쳐야 하는 변경을 피하려는
@@ -644,7 +852,8 @@ def render_summary_tab(data: dict[str, dict[str, Quote]], fx,
 # ──────────────────────────────────────────────────────────────────────────────
 
 def render_holdings_tab(data: dict[str, dict[str, Quote]], fx,
-                        use_demo: bool, phone: bool = False) -> None:
+                        use_demo: bool, phone: bool = False,
+                        *, market: str = "all") -> None:
     """내가 가진 종목에 대해 알아야 할 전부를 한 화면에.
 
     예전에는 '변화 감지' · '관심종목' · '공시 분석' 세 탭이었습니다. 보유 종목을
@@ -654,22 +863,25 @@ def render_holdings_tab(data: dict[str, dict[str, Quote]], fx,
     watchlist = config.SECTION_WATCHLIST
     local = config.SECTION_LOCAL
 
-    render_signals_tab(data, use_demo)
+    render_signals_tab(data, use_demo, market=market)
 
+    shown = config.filter_instruments(watchlist.instruments, market)
     st.markdown(
         ui.render_section_head("보유 · 관심 종목", watchlist.subtitle,
-                               len(watchlist.instruments)),
+                               len(shown)),
         unsafe_allow_html=True,
     )
     cards = "".join(
         ui.render_card(inst, (data.get(inst.source) or {}).get(inst.symbol), fx)
-        for inst in watchlist.instruments
+        for inst in shown
     )
     st.markdown(f'<div class="dash-grid cols-4">{cards}</div>',
                 unsafe_allow_html=True)
 
+    # 국내 본주 목록은 한국 쪽입니다 — 미국만 볼 때는 보일 이유가 없습니다
     others = [i for i in local.instruments
-              if i.symbol not in {w.symbol for w in watchlist.instruments}]
+              if i.symbol not in {w.symbol for w in watchlist.instruments}
+              and config.in_market(i, market)]
     if others:
         with st.expander(f"국내 본주 {len(others)}종목 더 보기", expanded=False):
             more = "".join(
@@ -712,156 +924,379 @@ def _analysis_summary() -> str:
 # 2. 종목 발굴 — 52주 위치 × 버핏식 품질
 # ──────────────────────────────────────────────────────────────────────────────
 
-@st.cache_data(ttl=300, show_spinner=False)
-def load_discovery_quotes(use_demo: bool) -> dict[str, dict[str, Quote]]:
-    """발굴 대상 전체의 시세. 52주 고가·저가가 필요합니다."""
-    if use_demo:
-        return demo_mod.demo_discovery_quotes()
-    us = config.screen_tickers()
-    kr = [code for code, _n in config.screen_kr_candidates()]
-    out: dict[str, dict[str, Quote]] = {"yahoo": {}, "naver": {}}
-    try:
-        out["yahoo"] = yahoo.fetch_quotes(us)
-    except Exception:  # noqa: BLE001
-        pass
-    try:
-        out["naver"] = naver.fetch_quotes(kr)
-    except Exception:  # noqa: BLE001
-        pass
-    return out
+# load_discovery_quotes / _discovery_instruments 는 2026-11-11 에 지웠습니다.
+# 52주 위치 축을 발굴에서 뺐고(미국), 국내는 야후 일봉에서 직접 고·저를
+# 계산하므로(kr_screen) 시세 스냅샷이 더 필요하지 않습니다. 빈 함수로
+# 남겨두면 다음에 "이건 왜 안 쓰지" 를 다시 따져야 합니다.
 
 
-def _discovery_instruments() -> tuple[list, list]:
-    """발굴 대상을 Instrument 로 만듭니다 (미국, 국내).
+def render_discover_tab(use_demo: bool, *, market: str = "all") -> None:
+    """종목 발굴 — 시장마다 **다른 도구**를 씁니다.
 
-    이미 config 에 정의된 종목은 그 정보를 재사용하고, 후보 목록에만 있는
-    종목은 최소 정보로 만듭니다.
+    전에는 한·미 모두 '52주 위치 × 버핏식 품질' 사분면이었습니다. 미국에는
+    맞지만 국내에는 맞지 않았습니다:
+
+    - 미국은 후보가 68종목이고 재무가 안정적이라 **품질 기준만으로도**
+      목록이 줄어듭니다. 52주 위치는 거기에 모멘텀을 섞는 축이라, 장기
+      보유 판단에는 오히려 잡음이었습니다. 그래서 뺐습니다.
+    - 국내는 후보가 30종목뿐이라 재무 기준으로 거의 안 걸러지고, 대신
+      **주가 변동성이 훨씬 큽니다.** 그래서 변동성을 축으로 씁니다.
     """
-    from config import Instrument
-
-    known = {i.symbol: i for i in config.all_instruments()}
-    us = [known.get(t) or Instrument(name=t, symbol=t, source="yahoo",
-                                     currency="USD", verified=False)
-          for t in config.screen_tickers()]
-    kr = [known.get(c) or Instrument(name=n, symbol=c, source="naver",
-                                     currency="KRW", verified=False,
-                                     decimals=0, suffix="원")
-          for c, n in config.screen_kr_candidates()]
-    return us, kr
+    if market == "kr":
+        _discover_kr(use_demo)
+    else:
+        if market == "all":
+            st.caption("발굴은 한 시장씩만 봅니다 — 지금은 **미국**입니다. "
+                       "왼쪽에서 '한국' 을 고르면 국내 스크리너로 바뀝니다.")
+        _discover_us(use_demo)
 
 
-def render_discover_tab(use_demo: bool) -> None:
-    """종목 발굴 — 52주 위치와 품질을 교차합니다."""
+# ── 미국 — 버핏식 품질 기준만 ────────────────────────────────────────────
+
+def _discover_us(use_demo: bool) -> None:
+    """미국 발굴 — 52주 위치를 뺐습니다.
+
+    **왜 뺐는가.** 52주 신고가는 '최근 많이 오른 주식' 이지 '좋은 주식' 이
+    아닙니다. 품질 기준과 교차하면 그럴듯해 보이지만, 실제로 하는 일은
+    품질을 통과한 목록을 **주가 흐름으로 한 번 더 자르는 것**입니다.
+    장기 보유 판단에서 그 자르기는 근거가 없습니다. 시세는 밸류에이션
+    탭의 가격 조건(FCF 수익률·기대 괴리)이 다룹니다 — 거기는 가격을
+    **공시 숫자와 견주는** 자리라 성격이 다릅니다.
+    """
     st.markdown(
         ui.render_section_head(
-            "종목 발굴", "52주 위치 × 버핏식 품질 기준 — 읽을 목록을 줄입니다"),
+            "종목 발굴 · 미국",
+            f"버핏식 품질 기준 {len(buffett.CRITERIA)}개 — 읽을 목록을 줄입니다"),
         unsafe_allow_html=True,
     )
     st.markdown(
         ui.render_footnote(
-            "<b>52주 신고가는 모멘텀 지표입니다.</b> '좋은 주식' 이 아니라 "
-            "'최근 많이 오른 주식' 입니다 — 신고가인 이유가 비싸서일 수도 "
-            "있습니다. 그래서 단독으로 쓰지 않고 <b>버핏식 품질 기준과 "
-            "교차</b>합니다. ③ 저가권 + 품질 통과가 가치투자가 전통적으로 찾는 "
-            "자리이고, ① 고가권 + 품질 통과는 시장이 이미 알아본 자리입니다."
-        ),
+            "<b>52주 위치 축을 뺐습니다.</b> 신고가는 '최근 많이 오른 주식' "
+            "이지 '좋은 주식' 이 아닙니다 — 품질 기준을 통과한 목록을 주가 "
+            "흐름으로 한 번 더 자를 근거가 장기 보유 판단에는 없습니다. "
+            "가격은 <b>밸류에이션 탭</b>에서 공시 숫자(FCF·순부채)와 "
+            "견줍니다."),
         unsafe_allow_html=True,
     )
 
-    market = st.radio("시장", ["미국", "국내"], horizontal=True,
-                      key="disc_market")
     col1, col2 = st.columns([1, 1])
     with col1:
-        # 기준이 6개에서 9개로 늘었습니다. 기본값을 4로 두면 전보다
-        # 느슨해지므로, 같은 비율(약 2/3)을 유지합니다.
-        quality_min = st.slider("품질 기준 통과 수 (이상이면 '통과')",
-                                1, len(buffett.CRITERIA),
-                                round(len(buffett.CRITERIA) * 2 / 3),
-                                key="disc_q")
+        quality_min = st.slider(
+            "품질 기준 통과 수 (이상이면 '통과')",
+            1, len(buffett.CRITERIA),
+            round(len(buffett.CRITERIA) * 2 / 3), key="disc_q")
     with col2:
-        view = st.radio("정렬", ["고가권부터", "저가권부터"], horizontal=True,
-                        key="disc_sort")
+        show_source = st.toggle("기준 출처·한계 표시", value=False,
+                                key="disc_src")
 
-    quotes = load_discovery_quotes(use_demo)
-    us_inst, kr_inst = _discovery_instruments()
-
-    if market == "미국":
-        instruments = us_inst
-        screens_map, errors = load_screens(use_demo)
-    else:
-        instruments = kr_inst
-        screens_map, errors = load_kr_screens(use_demo, dart.key_fingerprint())
-
-    positions = disc.build_positions(instruments, quotes, screens=screens_map)
-    counts = disc.summary_counts(positions)
+    screens_map, errors = load_screens(use_demo)
+    screens = buffett.rank(list(screens_map.values()))
+    passed = [s for s in screens if s.passed_count >= quality_min]
 
     st.markdown(
         ui.render_footnote(
-            " · ".join(f"<b>{k}</b> {v}" for k, v in counts.items())
-            + (f" · 품질 스크리닝 실패 {len(errors)}건" if errors else "")
-        ),
+            f"<b>후보 {len(screens)}종목</b> 중 "
+            f"<b>{len(passed)}종목</b>이 {quality_min}개 이상 통과"
+            + (f" · 재무를 못 받은 종목 {len(errors)}건" if errors else "")),
         unsafe_allow_html=True,
     )
 
-    groups = disc.group_by_quadrant(positions, quality_min)
-
-    # 품질 축이 없는 종목이 대부분이면 지도가 오해를 부릅니다 — 사분면이
-    # 비어 보이는 게 '해당 종목이 없다' 가 아니라 '재무를 못 받았다' 일 수
-    # 있으므로 반드시 구분해서 말해야 합니다.
-    usable = [p for p in positions if p.ok]
-    with_quality = [p for p in usable if p.has_quality]
-    if usable and len(with_quality) < len(usable) * 0.5:
+    if not passed:
         st.markdown(
             ui.render_footnote(
-                f"<b>사분면 지도가 비어 보이는 이유:</b> 52주 데이터는 "
-                f"{len(usable)}종목에 있는데 <b>품질 스크리닝 결과는 "
-                f"{len(with_quality)}종목</b>에만 있습니다. 사분면은 두 축이 "
-                "모두 있어야 분류되므로, 나머지는 '중간 구간 · 판정 없음' 으로 "
-                "갑니다 — 해당하는 종목이 없다는 뜻이 아닙니다."
-                + ("<br>데모 모드에서는 재무 데이터가 몇 종목만 들어 있습니다. "
-                   "실제 데이터로 보려면 화면 위쪽 표시 패널에서 데모 모드를 끄십시오."
-                   if use_demo else "")
-            ),
+                "<b>통과한 종목이 없습니다.</b> 기준을 한두 칸 낮춰 보십시오 — "
+                f"{len(buffett.CRITERIA)}개를 전부 넘는 기업은 드뭅니다."),
             unsafe_allow_html=True,
         )
-    st.markdown(ui.render_discover_map(groups), unsafe_allow_html=True)
-
-    order = (disc.rank_by_high(positions) if view == "고가권부터"
-             else disc.rank_by_low(positions))
-    shown = [p for p in order if p.ok][:30]
+        return
 
     st.markdown(
-        ui.render_section_head(
-            view, "표의 ○ 는 품질 기준 통과, ✗ 는 미달, ? 는 판정 불가",
-            len(shown)),
+        ui.render_section_head("통과 종목", "통과 수 많은 순", len(passed)),
         unsafe_allow_html=True,
     )
-    st.markdown(ui.render_discover_table(shown, quality_min),
-                unsafe_allow_html=True)
+    for idx, screen in enumerate(passed[:30]):
+        label = (f"{screen.ticker} · {screen.passed_count}"
+                 f"/{len(buffett.CRITERIA)} 통과")
+        with st.expander(label, expanded=(idx == 0)):
+            st.markdown(ui.render_screen(screen, show_source=show_source),
+                        unsafe_allow_html=True)
 
-    focus = (groups[1] + groups[3])[:8]
-    if focus:
+    if errors:
         st.markdown(
-            ui.render_section_head(
-                "주목 구간 (① · ③)", "품질 기준을 넘은 종목만", len(focus)),
+            ui.render_footnote(
+                f"<b>재무를 못 받은 종목 {len(errors)}건:</b> "
+                + " · ".join(f"{t} ({e[:34]})"
+                             for t, e in list(errors.items())[:6])),
             unsafe_allow_html=True,
         )
-        for pos in focus:
+
+
+# ── 국내 — 변동성 + 밸류 ────────────────────────────────────────────────
+
+def _discover_kr(use_demo: bool) -> None:
+    """국내 발굴 — 스크리너 → 종목 카드(개요·뉴스·스킬) 순서."""
+    st.markdown(
+        ui.render_section_head(
+            "종목 발굴 · 한국",
+            "변동성 × 신고가 × 전통 밸류 — 국내는 재무만으로 안 걸러집니다"),
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        ui.render_footnote(
+            "<b>왜 미국과 기준이 다른가.</b> 국내 후보는 30종목뿐이라 재무 "
+            "기준만으로는 거의 걸러지지 않습니다. 대신 주가 변동성이 "
+            "미국보다 큽니다 — 52주 신고가를 단독으로 쓰면 급등 후 되돌림 "
+            "구간이 대거 섞입니다. 그래서 <b>변동성이 잦아든 상태</b>를 "
+            "같이 봅니다."),
+        unsafe_allow_html=True,
+    )
+
+    profiles, vol_errors = load_kr_vol_profiles(use_demo)
+    value_rows = load_kr_value_rows(use_demo)
+
+    hits = {
+        "contraction": kr_screen.contraction_hits(profiles),
+        "near_high": kr_screen.near_high_hits(profiles),
+        "value_trad": kr_screen.value_hits(value_rows),
+    }
+
+    picker = getattr(st, "segmented_control", None)
+    labels = {k: t for k, t, _r, _c in kr_screen.KR_SCREENS}
+    keys = [k for k, _t, _r, _c in kr_screen.KR_SCREENS]
+    choice = None
+    if picker is not None:
+        try:
+            choice = picker(
+                "스크리너", keys, default=keys[0], key="kr_scr",
+                format_func=lambda k: f"{labels[k]} ({len(hits[k])})",
+                label_visibility="collapsed")
+        except Exception:  # noqa: BLE001
+            choice = None
+    if choice is None:
+        choice = st.radio(
+            "스크리너", keys, horizontal=True, key="kr_scr_r",
+            format_func=lambda k: f"{labels[k]} ({len(hits[k])})",
+            label_visibility="collapsed")
+    if choice not in labels:
+        choice = keys[0]
+
+    _key, title, rule, caveat = next(
+        x for x in kr_screen.KR_SCREENS if x[0] == choice)
+    picked = hits[choice]
+    st.markdown(ui.render_screener_head(title, rule, len(picked), caveat),
+                unsafe_allow_html=True)
+
+    if vol_errors and choice in ("contraction", "near_high"):
+        st.markdown(
+            ui.render_footnote(
+                f"<b>일봉을 못 받은 종목 {len(vol_errors)}건:</b> "
+                + " · ".join(f"{t} ({e[:30]})"
+                             for t, e in list(vol_errors.items())[:5])),
+            unsafe_allow_html=True,
+        )
+
+    if not picked:
+        st.markdown(
+            ui.render_footnote(
+                "<b>이 기준을 통과한 종목이 없습니다.</b> 기준을 느슨하게 "
+                "하지 않고 그대로 둡니다 — 억지로 채운 목록은 읽을 가치가 "
+                "없습니다. 다른 스크리너를 눌러 보십시오."),
+            unsafe_allow_html=True,
+        )
+        return
+
+    companies = load_kr_companies(
+        tuple(h.ticker for h in picked[:12]), use_demo, dart.key_fingerprint())
+    headlines = load_news(
+        tuple((h.ticker, h.name, "naver") for h in picked[:12]), use_demo)
+    cli = runner.cli_info()
+
+    for idx, hit in enumerate(picked[:12]):
+        with st.expander(f"{hit.name} · {hit.ticker}", expanded=(idx == 0)):
+            st.markdown(ui.render_hit_metrics(hit), unsafe_allow_html=True)
+            st.markdown(ui.render_hit_reasons(hit), unsafe_allow_html=True)
+
+            st.markdown(ui.render_section_head("기업 개요", "DART 기업개황"),
+                        unsafe_allow_html=True)
             st.markdown(
-                ui.render_discover_card(
-                    pos, quality_min, prompt=disc.prompt_for(pos, quality_min)),
+                ui.render_company_overview(companies.get(hit.ticker),
+                                           search_name=hit.name),
                 unsafe_allow_html=True,
             )
 
-    failed = [p for p in positions if not p.ok]
-    if failed:
-        st.markdown(
-            ui.render_footnote(
-                f"<b>조회 실패 {len(failed)}건:</b> "
-                + " · ".join(f"{p.ticker} ({p.error[:34]})" for p in failed[:6])
-            ),
-            unsafe_allow_html=True,
+            items = headlines.get(hit.ticker) or []
+            st.markdown(
+                ui.render_section_head("최근 뉴스", "구글 뉴스 · 제목과 링크만",
+                                       len(items)),
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                ui.render_news_block(items, limit=5)
+                or ui.render_footnote("최근 헤드라인을 찾지 못했습니다."),
+                unsafe_allow_html=True,
+            )
+
+            _render_skill_buttons(hit.ticker, hit.name, cli)
+
+
+def _render_skill_buttons(code: str, name: str, cli) -> None:
+    """3대 분석 스킬 — 어디서든 돌릴 수 있게.
+
+    **스트림릿 클라우드에서는 `claude -p` 가 돌지 않습니다.** 컨테이너에
+    실행 파일도 로그인 세션도 없습니다. '느려서' 가 아니라 '없어서' 안
+    됩니다. 그래서 실행 경로를 셋으로 나눴습니다:
+
+      1. 로컬에서 `streamlit run app.py` — 버튼이 그대로 돕니다
+      2. 휴대폰·PC 어디서든 — Claude 앱/웹을 **프롬프트가 채워진 채로**
+         열어주는 링크 (`claude://claude.ai/new?q=` / `claude.ai/new?q=`).
+         공식 딥링크라 앱이 깔려 있으면 앱이 열리고, 없으면 웹이 열립니다.
+      3. PC 에서 Claude Code 로 — `claude://code/new?q=…&folder=…`
+
+    2번이 휴대폰에서 쓰는 길입니다. 누르면 프롬프트가 입력창에 채워진
+    채로 열리므로, 읽어보고 보내기만 하면 됩니다.
+    """
+    st.markdown(
+        ui.render_section_head("3대 분석", "어디서 돌릴지 고르십시오",
+                               len(analysis_store.KINDS)),
+        unsafe_allow_html=True,
+    )
+
+    if cli.available:
+        cols = st.columns(len(analysis_store.KINDS))
+        for col, (kind, label, desc) in zip(cols, analysis_store.KINDS):
+            with col:
+                if st.button(f"▶ {label}", key=f"kr_run_{code}_{kind}",
+                             help=f"{desc} — 이 컴퓨터에서 바로 실행",
+                             use_container_width=True):
+                    runner.start_job(
+                        ANALYSIS_PATH, BASE_DIR, code, name, kind,
+                        max_turns=st.session_state.get(
+                            "max_turns", runner.DEFAULT_MAX_TURNS),
+                        permission_mode=st.session_state.get(
+                            "permission_mode", runner.DEFAULT_PERMISSION_MODE),
+                        skill_commands=st.session_state.get("skill_commands"),
+                    )
+                    st.rerun()
+        st.caption(f"이 컴퓨터에서 바로 실행합니다 ({cli.label}). "
+                   "결과는 `analysis/` 폴더에 쌓이고 '공시 분석' 탭에서 읽힙니다.")
+    else:
+        st.caption(
+            "**이 환경에는 `claude` 실행 파일이 없습니다** — 느린 게 아니라 "
+            "아예 없습니다. 대신 아래 링크를 누르면 Claude 앱(또는 웹)이 "
+            "**프롬프트가 채워진 채로** 열립니다. 휴대폰에서도 됩니다."
         )
+
+    st.markdown(ui.render_skill_links(code, name), unsafe_allow_html=True)
+
+    with st.expander("직접 붙여넣을 명령", expanded=False):
+        st.code("\n".join(analysis_store.skill_command(k, code, name)
+                          for k, _l, _d in analysis_store.KINDS),
+                language="text")
+        st.caption(
+            "Claude 앱·웹 어디든 붙여넣으면 됩니다. 이 프로젝트에 스킬이 "
+            "등록돼 있어야 슬래시 명령이 동작합니다."
+        )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 뉴스 · 공시 · 지표
+# ──────────────────────────────────────────────────────────────────────────────
+
+def render_flows_tab(use_demo: bool, *, market: str = "all") -> None:
+    """시장 배경 — 종목이 아니라 **흐름**을 보는 화면.
+
+    다른 탭과 축이 다릅니다. 발굴·밸류에이션은 '어느 종목인가' 이고,
+    여기는 '지금 무슨 바람이 부나' 입니다. 한국 쪽은 섹터 뉴스·주요
+    공시·경제지표, 미국 쪽은 물가 속도와 유동성입니다.
+
+    **왼쪽 시장 선택을 따릅니다** — 한국만 보면 물가·유동성이 빠지는데,
+    그건 매크로 탭과 달라도 됩니다. 매크로는 '금리·환율' 처럼 어느
+    시장이든 같은 배경이고, 여기 미국 쪽은 미국 지표 해석입니다.
+    """
+    show_kr = market in ("all", "kr")
+    show_us = market in ("all", "us")
+
+    if show_kr:
+        _flows_korea(use_demo)
+    if show_us:
+        _flows_us(use_demo)
+
+
+def _flows_korea(use_demo: bool) -> None:
+    st.markdown(
+        ui.render_section_head(
+            "한국 — 섹터별 뉴스", "업종 바람이 먼저 불고 종목이 따라갑니다",
+            len(config.KR_SECTORS)),
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        ui.render_footnote(
+            "종목 뉴스와 다릅니다. 종목 뉴스는 '내 종목에 무슨 일이' 고, "
+            "이건 '내 종목이 속한 업종에 무슨 바람이' 입니다. "
+            "구글 뉴스를 한국어로 부르며 <b>제목과 링크만</b> 가져옵니다."),
+        unsafe_allow_html=True,
+    )
+    sector_news, sector_errors = load_sector_news(use_demo)
+    st.markdown(
+        ui.render_sector_news(config.KR_SECTORS, sector_news, sector_errors),
+        unsafe_allow_html=True,
+    )
+
+    filings, f_err = load_market_filings(use_demo, dart.key_fingerprint())
+    st.markdown(
+        ui.render_section_head(
+            "한국 — 주요 공시", "최근 3일 · 전체 시장에서 추렸습니다",
+            len(filings)),
+        unsafe_allow_html=True,
+    )
+    st.markdown(ui.render_market_filings(filings, error=f_err),
+                unsafe_allow_html=True)
+
+    kr_rows = load_kr_macro(use_demo, fred.key_fingerprint())
+    st.markdown(
+        ui.render_section_head("한국 — 경제지표", "FRED 경유 · 전년동월비 병기",
+                               len(kr_rows)),
+        unsafe_allow_html=True,
+    )
+    st.markdown(ui.render_simple_rows(kr_rows), unsafe_allow_html=True)
+    st.markdown(
+        ui.render_footnote(
+            "<b>한국 계열 ID 는 전부 미검증입니다.</b> FRED 의 한국 통계는 "
+            "OECD 경유라 ID 체계가 미국 계열과 다르고 중단된 것도 많습니다. "
+            "'—' 로 나오면 그 계열이 없는 것이니 진단 패널에서 확인하고 "
+            "config 에서 지우십시오. 원자료는 한국은행 ECOS 가 정확하지만 "
+            "별도 키가 필요합니다."),
+        unsafe_allow_html=True,
+    )
+
+
+def _flows_us(use_demo: bool) -> None:
+    readings, _errs = load_inflation(use_demo, fred.key_fingerprint())
+    st.markdown(
+        ui.render_section_head("미국 — 물가 속도", "지수가 아니라 속도로",
+                               len([r for r in readings if r.ok])),
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        ui.render_footnote(
+            "<b>전년동월비 하나만 보면 늦습니다</b> — 12개월 전 숫자를 아직 "
+            "끌고 다니기 때문입니다. <b>3개월 연율</b>은 최근 3개월 변화를 "
+            "1년치로 환산한 것이라 가장 빠릅니다. 3개월 연율이 전년동월비보다 "
+            "높으면 물가가 다시 붙는 중이고, 낮으면 식는 중입니다 — "
+            "이건 해석이 아니라 산술입니다.<br>"
+            "비계절조정 계열(PPI 전체상품)은 전월비·연율을 내지 않습니다. "
+            "계절 패턴이 물가 상승으로 보이기 때문입니다."),
+        unsafe_allow_html=True,
+    )
+    st.markdown(ui.render_inflation_table(readings), unsafe_allow_html=True)
+    st.caption(inflation.summary_line(readings))
+
+    nl, extra = load_liquidity(use_demo, fred.key_fingerprint())
+    st.markdown(
+        ui.render_section_head("글로벌 — 유동성", "연준 순유동성 + 주요국 중앙은행"),
+        unsafe_allow_html=True,
+    )
+    st.markdown(ui.render_liquidity(nl, extra), unsafe_allow_html=True)
 
 
 def render_diag_panel() -> None:
@@ -911,6 +1346,11 @@ def render_diag_panel() -> None:
          "산업통상부 보도자료 긁기. **한 번도 성공한 적 없는 경로입니다** — "
          "막혀 있으면 쓰지 않는 게 맞습니다. 키 불필요.",
          diag.diagnose_kr_exports),
+        ("krcode", "국내 종목코드 대조",
+         "config 의 6자리 코드가 실제로 그 회사인지 DART corpCode.xml 로 "
+         "맞춰봅니다. 코드가 틀리면 **다른 회사 재무를 조용히 가져옵니다.** "
+         "코스닥을 추가한 뒤 한 번은 돌려야 합니다. **인증키 필요.**",
+         diag.diagnose_kr_codes),
     )
 
     for key, title, desc, fn in checks:
@@ -1241,7 +1681,8 @@ def render_briefing_section(use_demo: bool, *, readings=None,
                 _render_briefing_body(bf)
 
 
-def render_macro_tab(data: dict[str, dict[str, Quote]], fx, use_demo: bool) -> None:
+def render_macro_tab(data: dict[str, dict[str, Quote]], fx, use_demo: bool,
+                     *, market: str = "all") -> None:
     """매크로 — 시장가격(실시간)과 통계(지연)를 분리해서 보여줍니다."""
     section = config.SECTION_BY_KEY.get("macro")
 
@@ -1250,8 +1691,21 @@ def render_macro_tab(data: dict[str, dict[str, Quote]], fx, use_demo: bool) -> N
     render_briefing_section(use_demo)
 
     # 1) 시장가격 — 야후, 실시간
+    #
+    # 매크로는 **일부러 시장별로 나누지 않습니다.** 미국 10년 국채 금리와
+    # 달러인덱스는 국내 종목만 보는 날에도 봐야 하는 숫자입니다. 나누면
+    # 한국을 고른 날 금리가 사라져서, 분리가 아니라 누락이 됩니다.
     if section is not None:
         render_section(section, data, fx)
+    if market != "all":
+        st.markdown(
+            ui.render_footnote(
+                f"<b>매크로는 {config.MARKETS.get(market, market)}만 "
+                "골라도 그대로 전부 보여줍니다.</b> 금리·환율·유가는 어느 "
+                "시장을 보든 같은 배경이라 가려 두면 누락이 됩니다. "
+                "종목 목록만 왼쪽 선택을 따릅니다."),
+            unsafe_allow_html=True,
+        )
 
     # 2) 공포탐욕지수 — 시장 심리. 가격도 통계도 아닌 제3의 성격이라
     #    둘 사이에 둡니다.
@@ -1450,13 +1904,22 @@ def render_macro_tab(data: dict[str, dict[str, Quote]], fx, use_demo: bool) -> N
 # 섹션 렌더링
 # ──────────────────────────────────────────────────────────────────────────────
 
-def render_section(section: Section, data: dict[str, dict[str, Quote]], fx) -> None:
+def render_section(section: Section, data: dict[str, dict[str, Quote]], fx,
+                   *, market: str = "all") -> None:
+    instruments = config.filter_instruments(section.instruments, market)
     st.markdown(
-        ui.render_section_head(section.title, section.subtitle, len(section.instruments)),
+        ui.render_section_head(section.title, section.subtitle, len(instruments)),
         unsafe_allow_html=True,
     )
+    if not instruments:
+        st.markdown(
+            ui.render_footnote(
+                f"<b>{config.MARKETS.get(market, market)} 종목이 이 구역에 "
+                "없습니다.</b> 왼쪽에서 시장을 '전체' 로 바꾸십시오."),
+            unsafe_allow_html=True,
+        )
+        return
 
-    instruments = list(section.instruments)
     cols_per_row = max(1, section.columns)
 
     for start in range(0, len(instruments), cols_per_row):
@@ -1500,7 +1963,8 @@ def _valuation_label(screen, result, price, *, held: bool) -> str:
 
 
 def render_valuation_tab(data: dict[str, dict[str, Quote]], fx,
-                         use_demo: bool, phone: bool = False) -> None:
+                         use_demo: bool, phone: bool = False,
+                         *, market: str = "all") -> None:
     """4. 걸러낸 종목 밸류에이션 — 역DCF 가 중심, 지표표는 보조.
 
     '걸러낸 종목' 은 두 갈래입니다: **내가 가진 것**(판단이 이미 필요함)과
@@ -1521,27 +1985,31 @@ def render_valuation_tab(data: dict[str, dict[str, Quote]], fx,
         unsafe_allow_html=True,
     )
 
-    col1, col2, col3 = st.columns([1, 1, 1])
+    col1, col2 = st.columns([1, 1])
     with col1:
-        market = st.radio("시장", ["미국", "국내"], horizontal=True,
-                          key="val_market")
-    with col2:
         scope = st.radio("대상", ["보유 + 발굴 통과", "전체"], horizontal=True,
                          key="val_scope")
-    with col3:
+    with col2:
         show_source = st.toggle("기준 출처·한계 표시", value=False,
                                 key="val_src")
 
-    if market == "미국":
-        screens_map, errors = load_screens(use_demo)
-        currency = "USD"
-        held = {i.symbol for i in config.SECTION_WATCHLIST.instruments
-                if i.source == "yahoo"}
-    else:
+    # 시장은 왼쪽 내비에서 고릅니다. 역DCF 는 통화가 섞이면 비교가 안 되고
+    # (달러 FCF 와 원화 FCF 를 같은 표에 둘 수 없습니다) 재무 출처도
+    # SEC/DART 로 갈리므로, '전체' 는 미국으로 봅니다.
+    kr_only = market == "kr"
+    if market == "all":
+        st.caption("역DCF 는 통화가 섞이면 비교가 안 돼 한 시장씩만 봅니다 — "
+                   "지금은 **미국**입니다.")
+    if kr_only:
         screens_map, errors = load_kr_screens(use_demo, dart.key_fingerprint())
         currency = "KRW"
         held = {i.symbol for i in config.SECTION_WATCHLIST.instruments
                 if i.source == "naver"}
+    else:
+        screens_map, errors = load_screens(use_demo)
+        currency = "USD"
+        held = {i.symbol for i in config.SECTION_WATCHLIST.instruments
+                if i.source == "yahoo"}
 
     screens = buffett.rank(list(screens_map.values()))
     if scope == "보유 + 발굴 통과":
@@ -1660,7 +2128,8 @@ def render_valuation(use_demo: bool) -> None:
 # 공시 분석 탭
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _detect_signals(data: dict[str, dict[str, Quote]], use_demo: bool):
+def _detect_signals(data: dict[str, dict[str, Quote]], use_demo: bool,
+                    *, market: str = "all"):
     """변화 감지 한 번. 요약 탭과 변화 감지 탭이 **같은 경로**를 씁니다.
 
     두 화면이 다른 결과를 보여주면 신뢰를 잃으므로 함수 하나로 모았습니다.
@@ -1668,7 +2137,8 @@ def _detect_signals(data: dict[str, dict[str, Quote]], use_demo: bool):
     오류 모음은 {"edgar": {...}, "dart": {...}, "trend": {...}} 입니다 —
     화면에 "무엇을 못 받았는지" 를 적어야 하므로 버리지 않고 넘깁니다.
     """
-    instruments = list(config.SECTION_WATCHLIST.instruments)
+    instruments = config.filter_instruments(
+        config.SECTION_WATCHLIST.instruments, market)
 
     docs = analysis_store.load_all(
         ANALYSIS_PATH, [i.analysis_key for i in instruments if i.analysis_key]
@@ -1707,9 +2177,11 @@ def _detect_signals(data: dict[str, dict[str, Quote]], use_demo: bool):
     return found, instruments, trends, merged_filings, errors
 
 
-def render_signals_tab(data: dict[str, dict[str, Quote]], use_demo: bool) -> None:
+def render_signals_tab(data: dict[str, dict[str, Quote]], use_demo: bool,
+                       *, market: str = "all") -> None:
     """변화 감지 — 뭘 봐야 하는지 알려주는 화면."""
-    instruments = list(config.SECTION_WATCHLIST.instruments)
+    instruments = config.filter_instruments(
+        config.SECTION_WATCHLIST.instruments, market)
 
     st.markdown(
         ui.render_section_head(
@@ -1722,7 +2194,8 @@ def render_signals_tab(data: dict[str, dict[str, Quote]], use_demo: bool) -> Non
 
     # 요약 탭과 **같은 경로**를 씁니다 (_detect_signals). 두 화면이 다른 결과를
     # 보여주면 신뢰를 잃습니다.
-    found, _inst, _trends, _filings, errs = _detect_signals(data, use_demo)
+    found, _inst, _trends, _filings, errs = _detect_signals(
+        data, use_demo, market=market)
     filing_errors = errs["edgar"]
     dart_errors, trend_errors = errs["dart"], errs["trend"]
 
@@ -1828,8 +2301,12 @@ def render_signals_tab(data: dict[str, dict[str, Quote]], use_demo: bool) -> Non
     )
 
 
-def render_cycle_tab(use_demo: bool) -> None:
+def render_cycle_tab(use_demo: bool, *, market: str = "all") -> None:
     """재고 지표 — 반도체 사이클 레이어 2. 메모리 3사를 한 화면에서 비교."""
+    # 이 화면만은 **시장 선택을 따르지 않습니다.** 메모리 재고 사이클은
+    # 삼성전자·SK하이닉스·마이크론 셋을 나란히 놓아야 읽히는 지표입니다.
+    # 한쪽을 숨기면 "하이닉스 재고가 늘었다" 가 업황인지 회사 사정인지
+    # 구분이 안 됩니다. 분리가 목적이 아니라 비교가 목적인 화면입니다.
     kr_instruments = config.cycle_instruments()
     us_tickers = list(config.CYCLE_US_TICKERS)
 
@@ -1841,8 +2318,17 @@ def render_cycle_tab(use_demo: bool) -> None:
         ),
         unsafe_allow_html=True,
     )
+    if market != "all":
+        st.markdown(
+            ui.render_footnote(
+                "<b>이 화면은 시장 선택과 무관하게 한·미를 함께 보여줍니다.</b> "
+                "삼성전자·SK하이닉스·마이크론의 재고를 나란히 놓아야 "
+                "업황인지 회사 사정인지 구분이 됩니다."),
+            unsafe_allow_html=True,
+        )
 
-    kr_trends, kr_errors = load_inventory_trends(use_demo, dart.key_fingerprint())
+    kr_trends, kr_errors = load_inventory_trends(
+        use_demo, dart.key_fingerprint())
     us_trends, us_errors = load_us_inventory_trends(use_demo)
 
     # 잠정실적 레이더 — 재고 지표는 정식 분기보고서가 있어야 계산되는데,
@@ -1878,9 +2364,12 @@ def render_cycle_tab(use_demo: bool) -> None:
 
     # 한국 반도체 수출 — 공시보다도 빠릅니다. 월초에 전월치가 나오므로
     # 분기 실적을 기다리지 않고 수요를 읽는 유일한 월간 지표입니다.
-    _exp, _exp_err = load_kr_exports(use_demo)
-    st.markdown(ui.render_kr_exports(_exp, error=_exp_err),
-                unsafe_allow_html=True)
+    # 미국만 볼 때도 의미가 있지만(마이크론 수요의 선행 지표), 출처가
+    # 산업통상자원부라 '한국' 쪽에 둡니다.
+    if market in ("all", "kr"):
+        _exp, _exp_err = load_kr_exports(use_demo)
+        st.markdown(ui.render_kr_exports(_exp, error=_exp_err),
+                    unsafe_allow_html=True)
     st.markdown(
         ui.render_footnote(
             "<b>공시 안의 숫자를 읽어오지 않습니다.</b> 공정공시 본문 표는 "
@@ -2173,7 +2662,7 @@ def render_analysis_tab(*, embed: bool = False,
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 사이드바
+# 설정 패널 (페이지 상단)
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _pane(label: str, help_text: str = ""):
@@ -2324,6 +2813,7 @@ SECTION_LOADING = {
     "holdings": "내 종목 — 시세와 공시를 불러옵니다 (처음 10~30초)",
     "discover": "종목 발굴 — 95개 기업 재무제표를 받아옵니다 (처음 1~3분)",
     "macro": "매크로 — FRED 13종·VIX·공포탐욕 (처음 10~20초)",
+    "flows": "뉴스·공시·지표 — 섹터 뉴스·DART 공시·물가·유동성 (처음 20~40초)",
     "valuation": "밸류에이션 — 스크리닝 결과로 역DCF 를 계산합니다 (처음 1~3분)",
     "cycle": "메모리 사이클 — 재고 추이를 받아옵니다 (처음 20~60초)",
 }
@@ -2369,49 +2859,60 @@ def render_body(opts: dict) -> None:
     # DART 30×4)과 재고 추이까지 돌아 요청이 250건 가까이 나갔습니다.
     # 선택한 섹션 하나만 실행하도록 바꿉니다. 탭 전환 때 서버를 한 번
     # 왕복하는 대신, 첫 로딩에서 안 볼 섹션 값을 치르지 않습니다.
-    picker = getattr(st, "segmented_control", None)
-    try:
-        if picker is not None:
-            active = picker(
-                "섹션", keys, default=keys[0], key="nav",
-                format_func=lambda k: labels.get(k, k),
-                label_visibility="collapsed",
-            )
-        else:
-            active = st.radio(
-                "섹션", keys, horizontal=True, key="nav",
-                format_func=lambda k: labels.get(k, k),
-                label_visibility="collapsed",
-            )
-    except Exception:  # noqa: BLE001 - 위젯 인자는 버전마다 다릅니다
-        active = st.radio("섹션", keys, horizontal=True, key="nav_fallback",
-                          format_func=lambda k: labels.get(k, k))
+    # 섹션은 **세로**로 둡니다. 가로 한 줄이면 섹션이 늘어날 때마다 글자가
+    # 줄고 휴대폰에서는 줄바꿈이 됩니다. 세로 목록은 지금 어디에 있는지가
+    # 항상 보이고, 바로 아래에 시장 선택을 붙일 자리도 생깁니다.
+    nav_col, body_col = st.columns([1, 5], gap="medium")
 
-    # segmented_control 은 같은 칸을 다시 눌러 선택 해제가 됩니다.
-    # 그 상태로 두면 화면이 빈 채로 남으니 요약으로 되돌립니다.
+    with nav_col:
+        st.markdown('<div class="dash-navhead">섹션</div>',
+                    unsafe_allow_html=True)
+        active = st.radio(
+            "섹션", keys, key="nav",
+            format_func=lambda k: labels.get(k, k),
+            label_visibility="collapsed",
+        )
+        st.markdown('<div class="dash-navhead">시장</div>',
+                    unsafe_allow_html=True)
+        market = st.radio(
+            "시장", list(config.MARKETS), key="market",
+            format_func=lambda k: config.MARKETS[k],
+            label_visibility="collapsed",
+            help="한국과 미국은 거래 시간·회계 기준·공시 출처가 전부 달라서 "
+                 "한 화면에 섞으면 비교가 아니라 잡음이 됩니다.",
+        )
+
     if active not in labels:
         active = keys[0]
+    if market not in config.MARKETS:
+        market = "all"
+    opts["market"] = market
 
-    if opts["demo"]:
-        st.markdown(ui.render_demo_banner(), unsafe_allow_html=True)
+    with body_col:
+        if opts["demo"]:
+            st.markdown(ui.render_demo_banner(), unsafe_allow_html=True)
 
-    with st.spinner(SECTION_LOADING.get(active, "불러오는 중…")):
-        if active == "summary":
-            render_summary_tab(data, fx, opts["demo"])
-        elif active == "holdings":
-            render_holdings_tab(data, fx, opts["demo"], opts["phone"])
-        elif active == "discover":
-            render_discover_tab(opts["demo"])
-        elif active == "macro":
-            render_macro_tab(data, fx, opts["demo"])
-        elif active == "valuation":
-            render_valuation_tab(data, fx, opts["demo"], opts["phone"])
-        elif active == "cycle":
-            render_cycle_tab(opts["demo"])
-        else:
-            section = config.SECTION_BY_KEY.get(active)
-            if section is not None:
-                render_section(section, data, fx)
+        with st.spinner(SECTION_LOADING.get(active, "불러오는 중…")):
+            if active == "summary":
+                render_summary_tab(data, fx, opts["demo"], market=market)
+            elif active == "holdings":
+                render_holdings_tab(data, fx, opts["demo"], opts["phone"],
+                                    market=market)
+            elif active == "discover":
+                render_discover_tab(opts["demo"], market=market)
+            elif active == "macro":
+                render_macro_tab(data, fx, opts["demo"], market=market)
+            elif active == "valuation":
+                render_valuation_tab(data, fx, opts["demo"], opts["phone"],
+                                     market=market)
+            elif active == "flows":
+                render_flows_tab(opts["demo"], market=market)
+            elif active == "cycle":
+                render_cycle_tab(opts["demo"], market=market)
+            else:
+                section = config.SECTION_BY_KEY.get(active)
+                if section is not None:
+                    render_section(section, data, fx, market=market)
 
     # 고지 문구 — 전에는 사이드바 맨 아래 있었는데 사이드바를 없앴습니다.
     # 본문 끝이 제자리입니다: 읽고 난 뒤에 보여야 합니다.

@@ -18,6 +18,7 @@
     python -m tools.diagnose --dart       # DART(한국 2사)만
     python -m tools.diagnose --xbrl       # EDGAR XBRL(MU)만
     python -m tools.diagnose --fred       # FRED 계열 ID 검증만 (키 불필요)
+    python -m tools.diagnose --codes      # 국내 종목코드 대조 (인증키 필요)
     python -m tools.diagnose --screen     # 스크리닝 대상 검증 (키 불필요, 느림)
     python -m tools.diagnose > report.txt # 파일로 저장
 
@@ -482,7 +483,9 @@ def main(argv: list[str]) -> int:
     only_xbrl = "--xbrl" in argv
     only_fred = "--fred" in argv
     only_screen = "--screen" in argv
-    picked = only_dart or only_xbrl or only_fred or only_screen
+    only_codes = "--codes" in argv
+    picked = (only_dart or only_xbrl or only_fred or only_screen
+              or only_codes)
 
     print(LINE)
     print("주식 대시보드 진단 리포트")
@@ -514,6 +517,12 @@ def main(argv: list[str]) -> int:
         except Exception as exc:  # noqa: BLE001
             print(f"\n스크리너 진단 중 예외: {type(exc).__name__}: {exc}")
 
+    if only_codes or not picked:
+        try:
+            diagnose_kr_codes()
+        except Exception as exc:  # noqa: BLE001
+            print(f"\n종목코드 대조 중 예외: {type(exc).__name__}: {exc}")
+
     head("진단 완료")
     print("확인해야 할 것:")
     print("  1. 재고 구성 계정이 있나 → 있으면 체크리스트 3번째 항목이 살아납니다")
@@ -523,6 +532,7 @@ def main(argv: list[str]) -> int:
     print("  5. FRED '신규✓' 계열 → config.py 에서 verified=True 로 바꾸십시오")
     print("     '✗' 계열 → ID 가 틀렸습니다. fred.stlouisfed.org 에서 찾아 고치십시오")
     print("  6. 스크리너 '못 찾은 계정' → buffett.TAGS 의 태그 후보를 늘려야 합니다")
+    print("  7. 종목코드 '✗ 불일치' → config.py 의 그 줄이 다른 회사를 가리킵니다")
     print()
     return 0
 
@@ -569,3 +579,61 @@ def diagnose_kr_exports() -> None:
     print()
     print("성공했다면 이 출력을 Claude 에 붙여넣어 주십시오 —")
     print("실제 응답을 보고 파서를 맞출 수 있습니다.")
+
+
+def diagnose_kr_codes() -> None:
+    """국내 종목코드가 실제로 그 회사인지 DART 로 대조합니다.
+
+    **왜 필요한가.** config.py 의 6자리 코드는 사람이 손으로 적은
+    것입니다. 한 자리만 틀려도 *존재하는 다른 회사*의 재무를 가져오는데,
+    화면에는 아무 이상이 없어 보입니다. 조용히 틀린 숫자가 제일 나쁩니다.
+    DART 의 corpCode.xml 에 실제 회사명이 들어 있으니 기계가 맞춰봅니다.
+    """
+    import config
+    from sources import dart
+
+    print("[국내 종목코드 대조]")
+    ok, why = dart.key_status()
+    if not ok:
+        print(f"  건너뜀 — {why}")
+        return
+    try:
+        corp_map = dart.fetch_corp_codes()
+    except Exception as exc:  # noqa: BLE001
+        print(f"  corpCode.xml 을 받지 못했습니다: {type(exc).__name__}: {exc}")
+        return
+    print(f"  DART 매핑 {len(corp_map):,}건 수신")
+
+    def norm(text: str) -> str:
+        """비교용 정규화 — 공백·점·㈜ 같은 장식을 뺍니다."""
+        out = (text or "").strip().lower()
+        for junk in (" ", ".", "(주)", "㈜", "주식회사", "㈐", "-"):
+            out = out.replace(junk, "")
+        return out
+
+    rows = list(config.screen_kr_candidates())
+    kq = config.kosdaq_codes()
+    bad, missing, good = [], [], 0
+    for code, name in rows:
+        entry = corp_map.get(code)
+        if not entry:
+            missing.append((code, name))
+            continue
+        real = entry.get("corp_name", "")
+        if norm(real) == norm(name):
+            good += 1
+        else:
+            bad.append((code, name, real, "코스닥" if code in kq else "코스피"))
+
+    print(f"  일치 {good} · 불일치 {len(bad)} · DART 에 없음 {len(missing)}"
+          f"  (전체 {len(rows)})")
+    for code, name, real, mkt in bad:
+        print(f"  ✗ {code} [{mkt}] config='{name}'  ←→  DART='{real}'")
+    for code, name in missing:
+        print(f"  ? {code} config='{name}' — DART 매핑에 없습니다 "
+              "(상장폐지·코드 오타·비상장)")
+    if bad:
+        print("  → config.py 의 SCREEN_KR_CANDIDATES / SCREEN_KQ_CANDIDATES "
+              "에서 해당 줄을 DART 쪽 이름·코드로 고치십시오.")
+    elif not missing:
+        print("  → 전부 일치합니다. 코드 목록을 신뢰해도 됩니다.")

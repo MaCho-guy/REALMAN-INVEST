@@ -486,3 +486,176 @@ def previous_quarter(year: int, quarter: str) -> tuple[int, str]:
     if idx == 0:
         return year - 1, "FY"
     return year, order[idx - 1]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 기업개황 (company.json)
+# ──────────────────────────────────────────────────────────────────────────────
+
+@dataclass
+class CompanyProfile:
+    """DART 기업개황. 숫자가 아니라 '이 회사가 뭐 하는 곳인가' 입니다."""
+
+    stock_code: str
+    corp_name: str = ""
+    ceo: str = ""
+    industry_code: str = ""       # 표준산업분류 코드
+    established: str = ""         # YYYYMMDD
+    fiscal_month: str = ""        # 결산월 (MM)
+    homepage: str = ""
+    address: str = ""
+    error: str = ""
+
+    @property
+    def established_ko(self) -> str:
+        d = (self.established or "").strip()
+        if len(d) == 8 and d.isdigit():
+            return f"{d[:4]}-{d[4:6]}-{d[6:]}"
+        return d
+
+    @property
+    def fiscal_ko(self) -> str:
+        m = (self.fiscal_month or "").strip().lstrip("0")
+        return f"{m}월" if m else ""
+
+
+def fetch_company(corp_code: str, stock_code: str = "") -> CompanyProfile:
+    """기업개황 한 건.
+
+    **업종명은 돌려주지 않습니다.** DART 가 주는 건 표준산업분류
+    *코드*(induty_code)뿐이고, 코드→이름 표는 이 API 에 없습니다.
+    코드를 제가 임의로 이름으로 바꾸면 틀릴 수 있어서 코드 그대로 둡니다.
+    """
+    payload = _get("company.json", {"corp_code": corp_code})
+    assert isinstance(payload, dict)
+    return CompanyProfile(
+        stock_code=stock_code or str(payload.get("stock_code") or "").strip(),
+        corp_name=str(payload.get("corp_name") or "").strip(),
+        ceo=str(payload.get("ceo_nm") or "").strip(),
+        industry_code=str(payload.get("induty_code") or "").strip(),
+        established=str(payload.get("est_dt") or "").strip(),
+        fiscal_month=str(payload.get("acc_mt") or "").strip(),
+        homepage=str(payload.get("hm_url") or "").strip(),
+        address=str(payload.get("adres") or "").strip(),
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 시장 전체 주요 공시
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# corp_code 없이 list.json 을 부르면 **전체 시장**의 공시가 돌아옵니다.
+# 하루에 수백 건이라 그대로 보면 못 읽습니다. 그래서 보고서 제목으로
+# 추립니다 — 주가에 바로 영향을 주는 유형만 남깁니다.
+#
+# 제목 매칭의 한계: DART 보고서명은 정해진 양식이라 비교적 안정적이지만,
+# 같은 사건이 회사마다 조금씩 다른 이름으로 올라올 수 있습니다. 놓치는
+# 쪽(false negative)이 있어도 **엉뚱한 걸 올리는 것보다 낫다**고 보고
+# 좁게 잡았습니다.
+
+#: (분류, 제목에 들어가는 말들). 위에 있을수록 중요하게 봅니다.
+DISCLOSURE_KINDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("실적", ("영업(잠정)실적", "매출액또는손익구조")),
+    ("자본조달", ("유상증자결정", "전환사채권발행결정",
+                  "신주인수권부사채권발행결정", "교환사채권발행결정")),
+    ("주주환원", ("자기주식취득", "자기주식소각", "현금·현물배당",
+                  "무상증자결정")),
+    ("지배구조", ("최대주주변경", "주식등의대량보유상황보고",
+                  "합병결정", "분할결정", "영업양수도")),
+    ("계약", ("단일판매·공급계약체결", "수주")),
+    ("경고", ("관리종목", "상장폐지", "감사의견", "불성실공시")),
+)
+
+
+@dataclass
+class MarketFiling:
+    """시장 전체 공시 한 건."""
+
+    date: str              # YYYY-MM-DD
+    corp_name: str
+    stock_code: str
+    title: str
+    kind: str              # DISCLOSURE_KINDS 의 분류
+    rcept_no: str = ""
+
+    @property
+    def url(self) -> str:
+        if not self.rcept_no:
+            return ""
+        return f"https://dart.fss.or.kr/dsaf001/main.do?rcpNo={self.rcept_no}"
+
+
+#: 가운뎃점은 DART 가 ㆍ(U+318D) 를 쓰고 사람은 ·(U+00B7) 를 씁니다.
+#: 생긴 게 거의 같아서 눈으로는 못 잡고, 매칭만 조용히 실패합니다.
+_SEPARATORS = (" ", "·", "ㆍ", "・", "．", ".", ",", "ㆍ")
+
+
+def _flatten(text: str) -> str:
+    out = text or ""
+    for ch in _SEPARATORS:
+        out = out.replace(ch, "")
+    return out
+
+
+def classify(title: str) -> str:
+    """보고서명 → 분류. 해당 없으면 빈 문자열."""
+    flat = _flatten(title)
+    for kind, needles in DISCLOSURE_KINDS:
+        if any(_flatten(n) in flat for n in needles):
+            return kind
+    return ""
+
+
+def fetch_market_filings(*, days: int = 3, pages: int = 3,
+                         limit: int = 60) -> list[MarketFiling]:
+    """최근 며칠간 시장 전체 공시 중 **주요 유형만**.
+
+    corp_code 를 넣지 않으면 전체 시장이 돌아옵니다. 하루 수백 건이므로
+    페이지를 몇 장만 받고 제목으로 추립니다. 유가증권·코스닥만 봅니다
+    (corp_cls Y/K) — 기타법인까지 넣으면 비상장 공시가 대부분입니다.
+    """
+    today = dt.date.today()
+    begin = today - dt.timedelta(days=max(1, days))
+    out: list[MarketFiling] = []
+    seen: set[str] = set()
+
+    for corp_cls in ("Y", "K"):          # Y=유가증권, K=코스닥
+        for page in range(1, max(1, pages) + 1):
+            payload = _get("list.json", {
+                "bgn_de": begin.strftime("%Y%m%d"),
+                "end_de": today.strftime("%Y%m%d"),
+                "corp_cls": corp_cls,
+                "page_no": str(page),
+                "page_count": "100",
+                "sort": "date",
+                "sort_mth": "desc",
+            })
+            assert isinstance(payload, dict)
+            rows = payload.get("list")
+            if not isinstance(rows, list) or not rows:
+                break
+            for row in rows:
+                title = str(row.get("report_nm") or "").strip()
+                kind = classify(title)
+                if not kind:
+                    continue
+                rcept = str(row.get("rcept_no") or "").strip()
+                if rcept in seen:
+                    continue
+                seen.add(rcept)
+                raw_date = str(row.get("rcept_dt") or "").strip()
+                nice = (f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}"
+                        if len(raw_date) == 8 else raw_date)
+                out.append(MarketFiling(
+                    date=nice,
+                    corp_name=str(row.get("corp_name") or "").strip(),
+                    stock_code=str(row.get("stock_code") or "").strip(),
+                    title=title, kind=kind, rcept_no=rcept,
+                ))
+            total_page = int(payload.get("total_page") or 1)
+            if page >= total_page:
+                break
+
+    order = {k: i for i, (k, _n) in enumerate(DISCLOSURE_KINDS)}
+    out.sort(key=lambda f: (f.date, -order.get(f.kind, 99)), reverse=True)
+    return out[:limit]

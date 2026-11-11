@@ -40,8 +40,15 @@ from dataclasses import dataclass, field
 MANIFEST = "BUILD.json"
 
 #: 검사하지 않는 경로. 사용자가 직접 넣는 것들이라 달라서 정상입니다.
+#:
+#: 2026-11-11: **tools/ 를 다시 넣었습니다.** 앱이 돌 때 app.py 가
+#: `from tools import diagnose` 를 합니다 — 개발용 폴더가 아니라
+#: 런타임 의존입니다. 빼 두었더니 tools/diagnose.py 만 옛날 파일인
+#: 상태가 검사를 **통과**했고, 진단 패널에서 AttributeError 로 죽었습니다.
+#: 검사에서 빠진 파일은 검사를 통과하는 게 아니라 안 보이는 것입니다.
+#: tests/ 는 앱이 임포트하지 않으므로 그대로 둡니다.
 SKIP_DIRS = ("__pycache__", ".git", ".streamlit", "briefings", "analysis",
-             ".jobs", "tests", "tools")
+             ".jobs", "tests")
 SKIP_FILES = ("BUILD.json",)
 
 

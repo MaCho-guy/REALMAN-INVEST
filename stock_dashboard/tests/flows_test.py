@@ -283,7 +283,9 @@ check("종목코드 대조 진단이 있다", "def diagnose_kr_codes" in _diag)
 check("DART 이름과 맞춰본다",
       "corp_name" in _diag.split("def diagnose_kr_codes")[-1],
       "corpCode.xml 의 실제 회사명과 대조해야 의미가 있습니다")
-check("진단 패널에 등록됐다", "diag.diagnose_kr_codes" in _app)
+check("진단 패널에 등록됐다", '"diagnose_kr_codes"' in _app,
+      "이름 문자열로 등록합니다 — 직접 참조하면 파일이 낡았을 때 "
+      "앱 전체가 죽습니다")
 
 print("\n" + "=" * 54)
 if FAILURES:

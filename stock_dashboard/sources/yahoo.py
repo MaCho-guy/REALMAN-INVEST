@@ -249,3 +249,50 @@ def fetch_market_cap(symbol: str) -> float | None:
             if isinstance(value, (int, float)) and value > 0:
                 return float(value)
     return None
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 일봉 — 국내 변동성 스크리너용
+# ──────────────────────────────────────────────────────────────────────────────
+
+def fetch_closes(symbols: list[str], *, period: str = "1y"
+                 ) -> tuple[dict[str, list[float]], dict[str, str]]:
+    """심볼마다 일봉 종가 목록을 가져옵니다.
+
+    반환: ({심볼: [종가…]}, {심볼: 오류})
+
+    **한 종목에 심볼 후보가 여럿일 수 있습니다.** 국내 코드는 코스피(.KS)
+    인지 코스닥(.KQ)인지 코드만 봐서는 모르므로, 호출하는 쪽이 후보를
+    순서대로 넣고 먼저 값이 오는 것을 씁니다 — 여기서는 심볼 하나를
+    심볼 하나로만 다루고, 그 선택은 kr_screen 쪽에서 합니다.
+
+    실패를 예외로 올리지 않는 이유: 30종목 중 한둘이 비는 건 정상이고,
+    그 때문에 화면 전체가 멈추면 안 됩니다.
+    """
+    yf = _import_yfinance()
+    unique = list(dict.fromkeys(s for s in symbols if s))
+    out: dict[str, list[float]] = {}
+    errors: dict[str, str] = {}
+
+    def one(sym: str) -> tuple[str, list[float], str]:
+        try:
+            hist = yf.Ticker(sym).history(period=period, interval="1d",
+                                          auto_adjust=True)
+            if hist is None or hist.empty or "Close" not in hist:
+                return sym, [], "일봉이 비어 있습니다."
+            closes = [float(v) for v in hist["Close"].tolist()
+                      if v is not None and not (isinstance(v, float)
+                                                and v != v)]
+            return sym, closes, "" if closes else "유효한 종가가 없습니다."
+        except Exception as exc:  # noqa: BLE001
+            return sym, [], f"{type(exc).__name__}: {exc}"
+
+    if not unique:
+        return out, errors
+    with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(unique))) as pool:
+        for sym, closes, err in pool.map(one, unique):
+            if closes:
+                out[sym] = closes
+            if err:
+                errors[sym] = err
+    return out, errors

@@ -12,6 +12,7 @@ Streamlit 레이어(app.py)는 streamlit 설치 후 `streamlit run app.py` 로 �
 
 from __future__ import annotations
 
+import ast
 import os
 import sys
 
@@ -1724,6 +1725,94 @@ for _f in sorted(pathlib.Path(".").glob("*.py")) + \
             _bad.append(_st[:60])
     check_true(f"{_f.as_posix()} 에 사라진 UI 안내가 없다", not _bad,
                str(_bad[:2]))
+
+# ──────────────────────────────────────────────────────────────────────────────
+print("\n=== 버전 검사가 실제로 덮는 범위 ===")
+# 2026-11-11: tools/diagnose.py 만 옛날 파일인 상태가 BUILD.json 검사를
+# **통과**했습니다. tools/ 가 SKIP_DIRS 에 있었기 때문입니다. 그런데
+# app.py 는 돌 때 `from tools import diagnose` 를 합니다 — 개발용이
+# 아니라 런타임 의존이었습니다. 검사에서 빠진 파일은 통과하는 게 아니라
+# 안 보이는 것입니다.
+import buildstamp as _bs  # noqa: E402
+
+_manifest = set(_bs.build_manifest("."))
+check_true("매니페스트가 비어 있지 않다", len(_manifest) > 20, str(len(_manifest)))
+
+# app.py 가 임포트하는 **1차 모듈**이 전부 매니페스트에 있어야 합니다.
+_tree = ast.parse(pathlib.Path("app.py").read_text(encoding="utf-8"))
+_imported: set[str] = set()
+for _n in ast.walk(_tree):
+    if isinstance(_n, ast.Import):
+        for _a in _n.names:
+            _imported.add(_a.name)
+    elif isinstance(_n, ast.ImportFrom) and _n.module and _n.level == 0:
+        _imported.add(_n.module)
+        for _a in _n.names:
+            _imported.add(f"{_n.module}.{_a.name}")
+
+_local_missing = []
+for _mod in sorted(_imported):
+    _as_file = _mod.replace(".", "/") + ".py"
+    _as_pkg = _mod.replace(".", "/") + "/__init__.py"
+    if not (os.path.exists(_as_file) or os.path.exists(_as_pkg)):
+        continue                     # 표준·서드파티 라이브러리
+    if _as_file in _manifest or _as_pkg in _manifest:
+        continue
+    _local_missing.append(_mod)
+check_true("app.py 가 쓰는 모듈이 전부 검사 대상", not _local_missing,
+           f"빠진 것: {_local_missing} — 이 파일들은 옛날 버전이어도 "
+           "검사를 통과합니다")
+
+check_true("tools 를 건너뛰지 않는다", "tools" not in _bs.SKIP_DIRS,
+           "app.py 가 tools.diagnose 를 임포트합니다")
+check_true("tests 는 건너뛴다", "tests" in _bs.SKIP_DIRS,
+           "앱이 임포트하지 않으므로 올릴 필요가 없습니다")
+check_true("tools/diagnose.py 가 매니페스트에 있다",
+           "tools/diagnose.py" in _manifest)
+
+print("\n=== 진단 패널은 파일이 낡아도 안 죽는다 ===")
+# 모듈 속성을 직접 참조하면 목록을 만드는 순간 AttributeError 가 나고,
+# 그게 controls() 안이라 **앱 전체가 안 켜집니다.**
+_panel = _app_src.split("def render_diag_panel")[1].split("\ndef ")[0]
+check_true("진단 함수를 이름으로 찾는다", "getattr(diag," in _panel,
+           "직접 참조하면 함수 하나가 없을 때 앱이 통째로 죽습니다")
+check_true("직접 참조가 남아 있지 않다", "diag.diagnose_" not in _panel,
+           "한 군데라도 남으면 같은 방식으로 죽습니다")
+check_true("없는 진단은 이름을 말해준다", "없는 진단:" in _panel)
+check_true("나머지는 계속 쓴다", "if c[3] is not None" in _panel)
+
+# 실제로 함수가 전부 있는지 (지금 버전 기준)
+from tools import diagnose as _diag_mod  # noqa: E402
+for _fname in ("diagnose_fred", "diagnose_screen", "diagnose_xbrl",
+               "diagnose_dart", "diagnose_kr_exports", "diagnose_kr_codes"):
+    check_true(f"diagnose.{_fname} 가 있다",
+               callable(getattr(_diag_mod, _fname, None)))
+
+# ──────────────────────────────────────────────────────────────────────────────
+print("\n=== 보낼 파일 목록을 기계가 정한다 ===")
+# 2026-11-11: '변경된 파일만' 을 손으로 골랐다가 두 번 연속 빠뜨렸습니다
+# (tools/diagnose.py, 그다음 sources/kr_exports.py · sources/yahoo.py).
+# 기억으로 고르면 반드시 틀립니다. 해시로 비교합니다.
+from tools import ship as _ship  # noqa: E402
+
+check_true("보낸 기록 파일명이 정해져 있다", _ship.SHIPPED == ".shipped.json")
+check_true("기록이 .gitignore 에 있다",
+           ".shipped.json" in pathlib.Path(".gitignore").read_text(
+               encoding="utf-8"),
+           "저장소에 올라가면 받는 쪽 상태와 섞입니다")
+_mod, _add, _rm = _ship.changed(".")
+check_true("지금은 보낼 것이 없다", not (_mod or _add),
+           f"바뀜 {_mod} · 새것 {_add} — 패키징 전에 --mark 를 돌리십시오")
+check_true("기록이 매니페스트와 같은 범위를 본다",
+           set(_ship.load_shipped(".")) == set(_bs.build_manifest(".")),
+           "범위가 다르면 비교가 어긋납니다")
+
+print("\n=== 진단 패널이 앱을 죽이지 않는다 ===")
+_ctrl = _app_src.split("def controls()")[1].split("\ndef ")[0]
+check_true("진단 패널 호출을 감싼다",
+           "try:\n                render_diag_panel()" in _ctrl,
+           "controls() 안에서 죽으면 화면이 통째로 빕니다")
+check_true("실패해도 나머지는 그린다", "나머지 화면은 그대로 씁니다" in _ctrl)
 
 print("\n" + "=" * 54)
 if FAILURES:

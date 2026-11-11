@@ -1330,28 +1330,39 @@ def render_diag_panel() -> None:
 
     from tools import diagnose as diag
 
-    checks = (
-        # 개수를 적어 두면 계열을 늘릴 때마다 어긋납니다.
-        ("fred", "경제지표 계열 확인",
+    # 함수를 **이름으로** 찾습니다. 직접 참조하면 tools/diagnose.py 가
+    # 옛날 파일일 때 이 목록을 만드는 순간 AttributeError 로 앱 전체가
+    # 죽습니다 — 2026-11-11 에 실제로 그렇게 죽었습니다. 진단 하나가
+    # 없는 것과 앱이 안 켜지는 것은 심각도가 다릅니다.
+    specs = (
+        ("fred", "경제지표 계열 확인", "diagnose_fred",
          f"FRED 계열 {len(config.MACRO_SERIES)}개가 실제로 받아지는지. "
-         "연결 자체도 먼저 시험합니다. 키 불필요.",
-         diag.diagnose_fred),
-        ("screen", "미국 스크리너 확인", "companyfacts 에서 계정이 잡히는지 (앞 8개 기업). 키 불필요.",
-         diag.diagnose_screen),
-        ("xbrl", "재고 지표 확인 (미국)", "MU 의 XBRL 태그와 DIO 계산. 키 불필요.",
-         diag.diagnose_xbrl),
-        ("dart", "DART 확인 (국내)", "재고 구성 계정과 DIO. **인증키 필요.**",
-         diag.diagnose_dart),
-        ("krexp", "반도체 수출 확인 (한국)",
+         "연결 자체도 먼저 시험합니다. 키 불필요."),
+        ("screen", "미국 스크리너 확인", "diagnose_screen",
+         "companyfacts 에서 계정이 잡히는지 (앞 8개 기업). 키 불필요."),
+        ("xbrl", "재고 지표 확인 (미국)", "diagnose_xbrl",
+         "MU 의 XBRL 태그와 DIO 계산. 키 불필요."),
+        ("dart", "DART 확인 (국내)", "diagnose_dart",
+         "재고 구성 계정과 DIO. **인증키 필요.**"),
+        ("krexp", "반도체 수출 확인 (한국)", "diagnose_kr_exports",
          "산업통상부 보도자료 긁기. **한 번도 성공한 적 없는 경로입니다** — "
-         "막혀 있으면 쓰지 않는 게 맞습니다. 키 불필요.",
-         diag.diagnose_kr_exports),
-        ("krcode", "국내 종목코드 대조",
+         "막혀 있으면 쓰지 않는 게 맞습니다. 키 불필요."),
+        ("krcode", "국내 종목코드 대조", "diagnose_kr_codes",
          "config 의 6자리 코드가 실제로 그 회사인지 DART corpCode.xml 로 "
          "맞춰봅니다. 코드가 틀리면 **다른 회사 재무를 조용히 가져옵니다.** "
-         "코스닥을 추가한 뒤 한 번은 돌려야 합니다. **인증키 필요.**",
-         diag.diagnose_kr_codes),
+         "코스닥을 추가한 뒤 한 번은 돌려야 합니다. **인증키 필요.**"),
     )
+    checks = [(k, t, d, getattr(diag, fname, None))
+              for k, t, fname, d in specs]
+    stale = [t for _k, t, _d, fn in checks if fn is None]
+    if stale:
+        st.warning(
+            "**tools/diagnose.py 가 이 버전과 맞지 않습니다.** "
+            f"없는 진단: {', '.join(stale)}. 그 파일을 다시 올리십시오 — "
+            "나머지 진단은 그대로 씁니다.",
+            icon="⚠️",
+        )
+    checks = [c for c in checks if c[3] is not None]
 
     for key, title, desc, fn in checks:
         if st.button(title, key=f"diag_{key}", help=desc,
@@ -2749,7 +2760,21 @@ def controls() -> dict:
 
     with c4:
         with _pane("진단 · 실행", "데이터가 맞는지 확인 · 분석 실행 설정"):
-            render_diag_panel()
+            # 진단 패널 하나 때문에 앱 전체가 안 켜지면 안 됩니다.
+            # 2026-11-11 에 tools/diagnose.py 가 낡았다는 이유로 여기서
+            # AttributeError 가 났고, controls() 안이라 화면이 통째로
+            # 비었습니다. 파일이 섞였을 때 **고칠 방법을 보여줄 화면**
+            # 자체가 사라지는 게 제일 나쁩니다.
+            try:
+                render_diag_panel()
+            except Exception as exc:  # noqa: BLE001
+                st.error(
+                    f"**진단 패널을 그리지 못했습니다** ({type(exc).__name__}). "
+                    "`tools/` 안의 파일이 이 버전과 맞지 않을 수 있습니다. "
+                    "화면 맨 위 경고에 적힌 파일을 다시 올리십시오. "
+                    "나머지 화면은 그대로 씁니다.",
+                    icon="⚠️",
+                )
             st.divider()
             st.caption(
                 "공시 분석 탭의 '분석 실행' 은 Claude Code 를 "

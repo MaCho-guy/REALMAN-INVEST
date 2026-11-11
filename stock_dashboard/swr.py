@@ -37,6 +37,7 @@ import functools
 import hashlib
 import os
 import pickle
+import sys
 import tempfile
 import threading
 import time
@@ -118,8 +119,90 @@ def _entry(key: str) -> _Entry:
 
 
 def _disk_path(key: str) -> str:
-    h = hashlib.sha256(f"{CODE_VERSION}|{key}".encode("utf-8")).hexdigest()[:24]
+    h = hashlib.sha256(f"v2|{key}".encode("utf-8")).hexdigest()[:24]
     return os.path.join(DISK_DIR, f"{h}.pkl")
+
+
+# ── 파일 사본이 '지금 코드' 와 맞는지 ────────────────────────────────────────
+#
+# 예전에는 코드 판본(BUILD.json 해시)을 파일 이름에 넣어서, **파일 하나만
+# 고쳐도 모든 사본을 버렸습니다.** 새 판을 올릴 때마다 10년치 재무(12초)까지
+# 처음부터 다시 받은 이유입니다. 이제는 사본마다 '이 값 안의 객체를 정의한
+# 파일들' 의 해시를 같이 적어 두고, 읽을 때 그 파일들이 그대로인지만 봅니다.
+# 차트 지표 코드를 고쳐도 재무 심사 사본은 살아남습니다.
+
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+_file_hash_memo: dict[str, tuple[float, str]] = {}
+
+
+def _module_hash(name: str) -> str | None:
+    """모듈 파일의 해시. 앱 폴더 밖(표준·외부 라이브러리)이면 None."""
+    if name in ("__main__", "__mp_main__"):
+        return "main:" + CODE_VERSION          # 본문 스크립트 — 보수적으로
+    mod = sys.modules.get(name)
+    path = getattr(mod, "__file__", None)
+    if not path:
+        return None
+    path = os.path.abspath(path)
+    if not path.startswith(_APP_DIR + os.sep):
+        return None
+    try:
+        mtime = os.path.getmtime(path)
+        memo = _file_hash_memo.get(path)
+        if memo and memo[0] == mtime:
+            return memo[1]
+        with open(path, "rb") as fh:
+            digest = hashlib.sha256(fh.read()).hexdigest()[:16]
+        _file_hash_memo[path] = (mtime, digest)
+        return digest
+    except OSError:
+        return "missing"
+
+
+_PLAIN = (str, bytes, int, float, bool, type(None))
+
+
+def _class_modules(value, limit: int = 400_000) -> set[str]:
+    """값 안에 든 객체들의 클래스가 정의된 모듈 이름 (앱 폴더 것만 의미 있음)."""
+    found: set[str] = set()
+    stack = [value]
+    seen: set[int] = set()
+    count = 0
+    while stack:
+        v = stack.pop()
+        if isinstance(v, _PLAIN):
+            continue
+        count += 1
+        if count > limit:
+            found.add("__main__")              # 너무 큼 — 보수적으로 판본에 묶음
+            break
+        if id(v) in seen:
+            continue
+        seen.add(id(v))
+        if isinstance(v, dict):
+            stack.extend(v.keys())
+            stack.extend(v.values())
+        elif isinstance(v, (list, tuple, set, frozenset)):
+            stack.extend(v)
+        else:
+            found.add(type(v).__module__)
+            inner = getattr(v, "__dict__", None)
+            if isinstance(inner, dict):
+                stack.extend(inner.values())
+            slots = getattr(type(v), "__slots__", ())
+            for name in (slots if isinstance(slots, (list, tuple)) else (slots,)):
+                if isinstance(name, str) and hasattr(v, name):
+                    stack.append(getattr(v, name))
+    return found
+
+
+def _deps_of(value) -> dict[str, str]:
+    out = {}
+    for name in _class_modules(value):
+        digest = _module_hash(name)
+        if digest is not None:
+            out[name] = digest
+    return out
 
 
 def _disk_load(key: str, max_age: float) -> tuple[object, float] | None:
@@ -130,9 +213,21 @@ def _disk_load(key: str, max_age: float) -> tuple[object, float] | None:
         if time.time() - os.path.getmtime(path) > max_age:
             return None
         with open(path, "rb") as fh:
-            saved_key, at, value = pickle.load(fh)
-        # 해시가 겹치거나 코드가 바뀌어 다른 값이 들어 있을 수 있습니다
-        return (value, at) if saved_key == key else None
+            saved_key, at, deps = pickle.load(fh)        # 머리말 먼저
+            if saved_key != key:
+                return None
+            # 값 안의 객체를 정의한 파일이 하나라도 바뀌었으면 버립니다 —
+            # 칸이 늘어난 클래스에 옛 객체를 넣으면 화면이 없는 칸을 찾습니다.
+            for name, digest in deps.items():
+                if name not in sys.modules:
+                    try:
+                        __import__(name)
+                    except Exception:  # noqa: BLE001
+                        return None
+                if _module_hash(name) != digest:
+                    return None
+            value = pickle.load(fh)
+        return value, at
     except Exception:  # noqa: BLE001 - 파일 사본은 있으면 좋은 것
         return None
 
@@ -144,7 +239,9 @@ def _disk_save(key: str, at: float, value: object) -> None:
         os.makedirs(DISK_DIR, exist_ok=True)
         tmp = _disk_path(key) + f".{threading.get_ident()}.tmp"
         with open(tmp, "wb") as fh:
-            pickle.dump((key, at, value), fh, protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump((key, at, _deps_of(value)), fh,
+                        protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump(value, fh, protocol=pickle.HIGHEST_PROTOCOL)
         os.replace(tmp, _disk_path(key))
     except Exception:  # noqa: BLE001 - 저장 못 해도 메모리 값은 씁니다
         pass

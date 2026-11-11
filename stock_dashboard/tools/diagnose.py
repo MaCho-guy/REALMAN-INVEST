@@ -248,7 +248,7 @@ def diagnose_xbrl() -> None:
 # ──────────────────────────────────────────────────────────────────────────────
 
 def diagnose_fred() -> None:
-    head("FRED 매크로 계열 — 인증키 불필요")
+    head("FRED 매크로 계열 — 키가 있으면 공식 API, 없으면 CSV")
 
     specs = config.macro_series()
     unverified = [s for s in specs if not s.verified]
@@ -383,9 +383,13 @@ def diagnose_fred() -> None:
         was = "기존✓" if spec.verified else "신규✓"
         latest = series.latest
         lag = series.lag_days
-        print(f"  {spec.series_id:<13}{was:<6}{len(series.observations):>7}"
+        print(f"  {spec.series_id:<15} {was:<6}{len(series.observations):>7}"
               f"{series.missing_count:>6}{latest.date.isoformat():>12}"
               f"{str(lag) + '일':>7}  {spec.name}")
+        _gaps = series.gap_months()
+        if _gaps:
+            print(f"      ↳ 중간에 빠진 달: {', '.join(_gaps)} — 이 달이 기준이 "
+                  "되는 전년대비는 계산하지 않습니다")
 
     # 표시값·신호까지 한 번 돌려봅니다
     readings = macro_mod.build_readings(specs, series_map, errors)
@@ -397,6 +401,8 @@ def diagnose_fred() -> None:
                 extra = f"  (전년대비 {len(r.history)}포인트)"
             print(f"    {r.spec.name[:26]:<28}{r.value_label:>12}"
                   f"  관측 {r.observed_label}{extra}")
+            if r.warning:
+                print(f"        ⚠ {r.warning}")
         else:
             print(f"    {r.spec.name[:26]:<28}{'ERROR':>12}  {r.error[:46]}")
 
@@ -1049,20 +1055,47 @@ def diagnose_research() -> None:
                             print("  [후보 객체] " + ", ".join(
                                 f"{k}={str(v)[:40]!r}" for k, v in list(dd.items())[:14]))
                 if not nxt:
-                    import re as _re
-                    apis = sorted(set(_re.findall(
-                        r'https?://[A-Za-z0-9.\-]+/[^"\'\s<>]*(?:research|report)[^"\'\s<>]*',
-                        r.text)))[:10]
-                    print("  → 객체를 못 찾았습니다. 페이지가 데이터를 나중에 "
-                          "따로 받는 것 같습니다. 보이는 주소들:")
-                    for a in apis:
-                        print(f"    {a}")
-                    for word in ("증권", ".pdf", "title"):
-                        k = text.find(word) if text else r.text.find(word)
-                        src = text if text and k >= 0 else r.text
-                        k = src.find(word)
-                        if k >= 0:
-                            print(f"  '{word}' 주변: "
-                                  + repr(src[max(0, k - 160):k + 160]))
+                    print("  → 페이지 안에 목록이 없습니다 (브라우저가 따로 받아 옴). "
+                          "데이터 주소를 찾습니다.")
+                    urls = _rs.script_urls(r.text)
+                    print(f"  자바스크립트 묶음 {len(urls)}개")
+                    try:
+                        found = _rs.discover(r.text)
+                    except Exception as exc:  # noqa: BLE001
+                        found = []
+                        print(f"  묶음 받기 실패 — {type(exc).__name__}: {exc}")
+                    lits = list(dict.fromkeys(lit for lit, _f in found))
+                    print(f"  'research' 가 든 주소 모양 글자 {len(lits)}개:")
+                    for lit in lits[:40]:
+                        src = next(f for li, f in found if li == lit)
+                        print(f"    {lit[:150]}    ← {src[:40]}")
+                    print("  추측한 주소를 하나씩 불러 봅니다:")
+                    import requests as _rq2
+                    for alias in _rs.KIND_ALIASES.get(kind, (kind,)):
+                        for tpl in _rs.API_CANDIDATES:
+                            url = tpl.replace("{kind}", alias).replace("{page}", "1")
+                            try:
+                                rr = _rq2.get(url, headers={**_rs.HEADERS,
+                                              "Accept": "application/json"},
+                                              timeout=_rs.TIMEOUT)
+                                line = f"HTTP {rr.status_code} · {len(rr.content):,}B"
+                                if rr.ok:
+                                    try:
+                                        js = rr.json()
+                                        got = _rs.reports_from_json(js, kind)
+                                        top = (list(js)[:8] if isinstance(js, dict)
+                                               else f"list[{len(js)}]")
+                                        line += f" · JSON 키 {top} · 리포트 {len(got)}건"
+                                        first = next((dd for dd in _rs._walk_dicts(js)
+                                                      if _rs.report_like(dd)), None)
+                                        if first:
+                                            line += "\n        첫 객체: " + ", ".join(
+                                                f"{k}={str(v)[:28]!r}"
+                                                for k, v in list(first.items())[:14])
+                                    except ValueError:
+                                        line += " · JSON 아님: " + repr(rr.text[:80])
+                            except Exception as exc:  # noqa: BLE001
+                                line = f"실패 — {type(exc).__name__}"
+                            print(f"    {url[:92]}\n      → {line}")
         except Exception as exc:  # noqa: BLE001
             print(f"\n{name}: 요청 실패 — {type(exc).__name__}: {exc}")

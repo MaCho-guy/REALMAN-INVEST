@@ -124,6 +124,23 @@ def build_reading(spec: MacroSeries, series: Series | None,
         return Reading(spec=spec, error=error or "수집되지 않았습니다.")
 
     value = _display_value(spec, series)
+    gap_note = ""
+    if value is None and spec.mode == "yoy" and series.latest is not None:
+        # 최신 달의 '1년 전 같은 달' 이 비어 있는 경우 (2025-10 CPI 처럼
+        # 발표되지 않은 달). 13개월 전과 비교해 전년대비라고 적지 않고,
+        # **계산할 수 있는 가장 최근 달**을 그 달 이름으로 보여줍니다.
+        usable = series.yoy_series(24)
+        if usable:
+            last_day = dt.date.fromisoformat(usable[-1][0])
+            cut = [o for o in series.observations if o.date <= last_day]
+            latest_day = series.latest.date
+            gap_note = (
+                f"{latest_day:%Y-%m} 은 1년 전 같은 달({latest_day.year - 1}-"
+                f"{latest_day.month:02d}) 값이 발표되지 않아 전년대비를 계산할 수 "
+                f"없습니다 — 계산되는 가장 최근 달({last_day:%Y-%m})을 보여줍니다.")
+            series = Series(series_id=series.series_id, observations=cut,
+                            missing_count=series.missing_count)
+            value = usable[-1][1]
     if value is None:
         detail = (
             "전년 동기 관측치가 없어 전년대비를 계산할 수 없습니다"
@@ -133,16 +150,19 @@ def build_reading(spec: MacroSeries, series: Series | None,
 
     history = _display_history(spec, series)
     latest = series.latest
-    lag = (today - latest.date).days if latest else None
+    observed = latest.date if latest else None
+    lag = (today - observed).days if observed else None
 
     reading = Reading(
         spec=spec,
         value=value,
-        observed_at=latest.date if latest else None,
+        observed_at=observed,
         lag_days=lag,
         history=history,
         window_delta=_window_delta(spec, series, history),
     )
+    if gap_note:
+        reading.warning = gap_note
     if len(history) >= 2:
         reading.delta = history[-1][1] - history[-2][1]
     if spec.pct_vs_mean is not None:
@@ -154,7 +174,7 @@ def build_reading(spec: MacroSeries, series: Series | None,
     if lag is not None and lag > spec.period_days * MACRO_STALE_MULTIPLIER:
         reading.stale = True
 
-    if series.missing_count > len(series.observations):
+    if series.missing_count > len(series.observations) and not gap_note:
         reading.warning = (
             f"결측({series.missing_count}건)이 유효 관측치보다 많습니다 — "
             "계열 선택을 다시 보십시오."

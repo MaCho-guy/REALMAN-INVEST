@@ -248,7 +248,7 @@ def load_dart_disclosures(use_demo: bool,
     return out, errors
 
 
-@swr.cached(config.DART_FINANCIALS_CACHE_TTL_SEC)
+@swr.cached(config.DART_FINANCIALS_CACHE_TTL_SEC, stale=14 * 86_400)
 def load_us_inventory_trends(use_demo: bool) -> tuple[dict[str, object], dict[str, str]]:
     """미국 기업 재고 지표 — EDGAR XBRL. 키가 필요 없습니다."""
     if use_demo:
@@ -303,7 +303,7 @@ def load_us_inventory_trends(use_demo: bool) -> tuple[dict[str, object], dict[st
     return trends, errors
 
 
-@swr.cached(config.DART_FINANCIALS_CACHE_TTL_SEC)
+@swr.cached(config.DART_FINANCIALS_CACHE_TTL_SEC, stale=14 * 86_400)
 def load_inventory_trends(use_demo: bool, key_fp: str = "") -> tuple[dict[str, object], dict[str, str]]:
     """재고 지표(레이어 2). 분기별 재무제표를 모아 추세로 만듭니다."""
     if use_demo:
@@ -805,7 +805,7 @@ def load_macro(use_demo: bool, key_fp: str = "") -> tuple[dict, dict]:
         return {}, {sid: str(exc) for sid in config.macro_series_ids()}
 
 
-@swr.cached(config.SCREEN_CACHE_TTL_SEC)
+@swr.cached(config.SCREEN_CACHE_TTL_SEC, stale=config.SCREEN_STALE_SEC)
 def load_screens(use_demo: bool) -> tuple[dict, dict]:
     """버핏식 스크리닝. 기업당 companyfacts 1회 요청.
 
@@ -1327,7 +1327,10 @@ def _discover_us(use_demo: bool) -> None:
         show_source = st.toggle("기준 출처·한계 표시", value=False,
                                 key="disc_src")
 
-    screens_map, errors = load_screens(use_demo)
+    got = _soft_main(load_screens, use_demo, what="미국 10년치 재무 심사")
+    if got is None:
+        return
+    screens_map, errors = got
     screens = buffett.rank(list(screens_map.values()))
     passed = [s for s in screens if s.passed_count >= quality_min]
 
@@ -2486,7 +2489,11 @@ def render_screen_kr_tab(use_demo: bool) -> None:
         show_source = st.toggle("각 기준의 출처와 한계 표시", value=False,
                                 key="screen_kr_src")
 
-    screens_map, errors = load_kr_screens(use_demo, dart.key_fingerprint())
+    got = _soft_main(load_kr_screens, use_demo, dart.key_fingerprint(),
+                     what="국내 10년치 재무 심사")
+    if got is None:
+        return
+    screens_map, errors = got
     screens = buffett.rank(list(screens_map.values()))
     triples = _attach_dcf(screens, use_demo, currency="KRW")
 
@@ -2514,7 +2521,7 @@ def render_screen_kr_tab(use_demo: bool) -> None:
         )
 
 
-@swr.cached(config.SCREEN_CACHE_TTL_SEC)
+@swr.cached(config.SCREEN_CACHE_TTL_SEC, stale=config.SCREEN_STALE_SEC)
 def load_kr_screens(use_demo: bool, key_fp: str = "") -> tuple[dict, dict]:
     """국내 스크리닝. 종목당 사업보고서 4회 요청(각 3년)."""
     if use_demo:
@@ -2603,7 +2610,10 @@ def render_screen_tab(use_demo: bool) -> None:
             "각 기준의 출처와 한계 표시", value=False, key="screen_src",
             help="버핏 원문인지, 인용 관행인지, 제가 정한 기준인지")
 
-    screens_map, errors = load_screens(use_demo)
+    got = _soft_main(load_screens, use_demo, what="미국 10년치 재무 심사")
+    if got is None:
+        return
+    screens_map, errors = got
     screens = buffett.rank(list(screens_map.values()))
     triples = _attach_dcf(screens, use_demo, currency="USD")
     usable = [t[0] for t in triples]
@@ -3071,15 +3081,19 @@ def render_valuation_tab(data: dict[str, dict[str, Quote]], fx,
     # SEC/DART 로 갈리므로, '전체' 는 미국으로 봅니다.
     kr_only = market == "kr"
     if kr_only:
-        screens_map, errors = load_kr_screens(use_demo, dart.key_fingerprint())
+        got = _soft_main(load_kr_screens, use_demo, dart.key_fingerprint(),
+                         what="국내 10년치 재무 심사")
         currency = "KRW"
         held = {i.symbol for i in config.SECTION_WATCHLIST.instruments
                 if i.source == "naver"}
     else:
-        screens_map, errors = load_screens(use_demo)
+        got = _soft_main(load_screens, use_demo, what="미국 10년치 재무 심사")
         currency = "USD"
         held = {i.symbol for i in config.SECTION_WATCHLIST.instruments
                 if i.source == "yahoo"}
+    if got is None:
+        return
+    screens_map, errors = got
 
     screens = buffett.rank(list(screens_map.values()))
     if scope == "보유 + 발굴 통과":
@@ -3198,6 +3212,7 @@ SOFT_LABELS = {
     "load_us_inventory_trends": "미국 재고 추세",
     "load_close_headlines": "마감 기사", "load_research": "시황 리포트",
     "load_daily_brief": "전일 브리핑", "load_release_dates": "발표 일정",
+    "load_screens": "미국 재무 심사", "load_kr_screens": "국내 재무 심사",
 }
 
 
@@ -3214,6 +3229,25 @@ def _soft(loader, *args, default):
         return loader(*args)
     got = peek(*args)
     return default if got is None else got
+
+
+def _soft_main(loader, use_demo: bool, *rest, what: str, secs: str = "10~20초"):
+    """화면의 **본문** 데이터를 기다리지 않고 받습니다.
+
+    저장된 값이 있으면 그 값을 돌려주고, 없으면 '받는 중' 안내를 그린 뒤
+    None 을 돌려줍니다 (부른 쪽은 거기서 그리기를 멈춥니다). 받기가 끝나면
+    화면이 자동으로 다시 그려집니다. 10년치 재무처럼 처음 한 번이 긴 것에
+    씁니다 — 12초 동안 빈 화면에 붙잡혀 있는 대신 다른 곳을 볼 수 있습니다.
+    """
+    if use_demo:
+        return loader(use_demo, *rest)
+    got = _soft(loader, use_demo, *rest, default=None)
+    if got is None:
+        st.markdown(ui.render_notice(
+            f"<b>{what}을(를) 받는 중입니다</b> — 처음 한 번은 {secs} 걸립니다. "
+            "받으면 이 화면이 자동으로 채워집니다. 그동안 다른 화면을 봐도 "
+            "받기는 계속됩니다."), unsafe_allow_html=True)
+    return got
 
 
 def _detect_signals(data: dict[str, dict[str, Quote]], use_demo: bool,
@@ -3808,15 +3842,11 @@ def controls() -> dict:
     c2, c3, c4 = st.columns([2, 2, 2])
 
     with c2:
-        with _pane("표시 설정", "색상 · 휴대폰 · 설명 문구"):
-            convention_label = st.radio(
-                "등락 색상",
-                ["상승 적색 (한국)", "상승 녹색 (미국)"],
-                index=0 if config.COLOR_CONVENTION == "kr" else 1,
-                help="한국·일본 증시는 상승을 적색으로, 미국 증시는 녹색으로 "
-                     "표시합니다.",
-            )
-            convention = "kr" if convention_label.startswith("상승 적색") else "us"
+        with _pane("표시 설정", "휴대폰 · 표 모양 · 설명 문구"):
+            # 등락 색상 고르기를 없앴습니다 (2026-11-12 "빼고 한국식으로 고정").
+            # 상승 적색 · 하락 청색 하나만 씁니다. 쓰지 않는 선택지는 설정을
+            # 길게 만들 뿐입니다.
+            convention = "kr"
             phone = st.toggle(
                 "휴대폰 모드", value=_is_phone(),
                 help="무거운 것을 아예 싣지 않습니다 — 공시 분석 본문(수십 KB)과 "
@@ -4118,7 +4148,7 @@ def _prefetch(section: str, market: str, use_demo: bool, log) -> None:
 
 
 #: 먼저 그리고 나중에 채우는 화면과, 그 화면이 처음에 기다려 주는 시간(초)
-SOFT_SECTIONS = ("summary", "holdings")
+SOFT_SECTIONS = ("summary", "holdings", "valuation", "discover")
 PREFETCH_BUDGET = 3.0
 #: 이보다 묵은 값을 보여줬으면 화면 위에 알리고, 새 값이 오면 다시 그립니다
 STALE_NOTICE_SEC = 300.0

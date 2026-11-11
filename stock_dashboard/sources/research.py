@@ -286,6 +286,142 @@ def parse_next(page: str, kind: str) -> list[Report]:
     return out
 
 
+# ── 새 페이지의 데이터 주소 찾기 ────────────────────────────────────────────
+#
+# 2026-11-12 진단: 페이지 안에 리포트가 **없습니다** (__next_f 조각 40개에
+# 제목·메타뿐). 목록은 브라우저가 열린 뒤 따로 받아 옵니다. 그 주소는
+# 자바스크립트 묶음 안에 글자로 들어 있으므로, 페이지가 싣는 묶음을 받아
+# 'research' 가 든 주소 모양의 글자를 찾습니다. 진단 패널이 이 결과를
+# 찍어 주고, 주소가 확인되면 여기 API_CANDIDATES 에 고정합니다.
+
+_SCRIPT_SRC = re.compile(r'(?:src|href)="(https?://[^"]+?/_next/static/chunks/[^"]+?\.js)"')
+_F_CHUNK = re.compile(r'static/chunks/[A-Za-z0-9_./\-\[\]]+?\.js')
+_STR_LIT = re.compile(r'["\'`]([^"\'`\n]{4,220})["\'`]')
+
+#: 추측한 주소 — **확인되지 않았습니다.** {kind} 는 industry / market(또는 daily),
+#: {page} 는 쪽 번호. 진단이 하나씩 불러 보고 어느 것이 살아 있는지 알려줍니다.
+API_CANDIDATES: tuple[str, ...] = (
+    "https://m.stock.naver.com/front-api/research/list?category={kind}&pageSize=30&page={page}",
+    "https://m.stock.naver.com/api/research/{kind}?pageSize=30&page={page}",
+    "https://stock.naver.com/api/research/{kind}?pageSize=30&page={page}",
+    "https://stock.naver.com/api/domestic/research/{kind}?pageSize=30&page={page}",
+    "https://finance.naver.com/research/api/{kind}?pageSize=30&page={page}",
+)
+#: 우리 이름 → 주소에 넣어 볼 이름들
+KIND_ALIASES = {"industry": ("industry",), "market": ("market", "daily", "invest")}
+
+#: 살아 있는 주소를 찾으면 기억합니다 (kind → 주소 틀). 못 찾았으면 "".
+_api_memo: dict[str, str] = {}
+
+
+def script_urls(page: str) -> list[str]:
+    """페이지가 싣는 자바스크립트 묶음 주소들."""
+    urls = list(dict.fromkeys(_SCRIPT_SRC.findall(page or "")))
+    base = ""
+    if urls:
+        base = urls[0].split("/_next/")[0] + "/_next/"
+    for rel in dict.fromkeys(_F_CHUNK.findall(next_text(page) + (page or ""))):
+        full = base + rel if base else ""
+        if full and full not in urls:
+            urls.append(full)
+    return urls
+
+
+def api_strings(js: str) -> list[str]:
+    """묶음 안에서 리서치 데이터 주소처럼 생긴 글자들."""
+    out = []
+    for lit in _STR_LIT.findall(js or ""):
+        low = lit.lower()
+        if "research" not in low or "/" not in lit:
+            continue
+        if low.endswith((".js", ".css", ".png", ".svg")) or "static/chunks" in low:
+            continue
+        out.append(lit)
+    return list(dict.fromkeys(out))
+
+
+def discover(page: str, get=None, limit: int = 80) -> list[tuple[str, str]]:
+    """[(주소처럼 생긴 글자, 그 글자가 나온 묶음 파일 이름)]."""
+    get = get or (lambda u: requests.get(u, headers=HEADERS, timeout=TIMEOUT).text)
+    urls = script_urls(page)[:limit]
+    found: list[tuple[str, str]] = []
+    if not urls:
+        return found
+
+    def one(url: str):
+        try:
+            return url, api_strings(get(url))
+        except Exception:  # noqa: BLE001
+            return url, []
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for url, lits in pool.map(one, urls):
+            for lit in lits:
+                found.append((lit, url.rsplit("/", 1)[-1]))
+    return found
+
+
+def reports_from_json(payload, kind: str) -> list[Report]:
+    """JSON 어디에 있든 리포트처럼 생긴 객체를 읽습니다 (parse_next 와 같은 규칙)."""
+    out: list[Report] = []
+    seen: set[str] = set()
+    for d in _walk_dicts(payload):
+        if not report_like(d):
+            continue
+        title = _html.unescape(_pick(d, "title", "subject"))
+        date = _pick_date(d)
+        pdf = next((str(v) for v in d.values()
+                    if isinstance(v, str) and ".pdf" in v.lower()), "")
+        url = _pick(d, "url", "link", "href", avoid=("pdf", "image", "img", "thumb"))
+        if ".pdf" in url.lower():
+            url = ""
+        cat = ""
+        for needle in ("upjong", "industry", "sector", "category"):
+            cat = _pick(d, needle)
+            # 'industry' · 'market' 같은 값은 업종이 아니라 목록 종류 이름
+            if cat and cat.lower() not in ("industry", "market", "daily",
+                                           "invest", "company"):
+                break
+            cat = ""
+        if title + date in seen:
+            continue
+        seen.add(title + date)
+        out.append(Report(
+            kind=kind, title=title,
+            broker=_pick(d, "broker", "office", "securit", "provider", "firm"),
+            category=cat if kind == "industry" else "", date=date,
+            url=_abs(url) if url else "", pdf=_abs(pdf) if pdf else ""))
+    return out
+
+
+def fetch_api(kind: str, page: int = 1, get=None) -> tuple[list[Report], str]:
+    """추측한 주소들을 차례로 불러 봅니다. (리포트, 쓴 주소 틀)"""
+    def default_get(url: str):
+        r = requests.get(url, headers={**HEADERS, "Accept": "application/json"},
+                         timeout=TIMEOUT)
+        r.raise_for_status()
+        return r.json()
+
+    get = get or default_get
+    memo = _api_memo.get(kind)
+    if memo == "":
+        return [], ""
+    templates = [memo] if memo else [
+        t.replace("{kind}", alias) for alias in KIND_ALIASES.get(kind, (kind,))
+        for t in API_CANDIDATES]
+    for tpl in templates:
+        try:
+            items = reports_from_json(get(tpl.replace("{page}", str(page))), kind)
+        except Exception:  # noqa: BLE001
+            continue
+        if len(items) >= 3:
+            _api_memo[kind] = tpl
+            return items, tpl
+    if not memo:
+        _api_memo[kind] = ""             # 이번 실행 동안은 다시 두드리지 않음
+    return [], ""
+
+
 def fetch_page(kind: str, page: int = 1) -> tuple[list[Report], str]:
     try:
         resp = requests.get(BASE + LISTS[kind], params={"page": page},
@@ -297,12 +433,16 @@ def fetch_page(kind: str, page: int = 1) -> tuple[list[Report], str]:
         if enc in ("", "iso-8859-1"):
             resp.encoding = resp.apparent_encoding or "euc-kr"
         items = parse_list(resp.text, kind) or parse_next(resp.text, kind)
+        if not items:
+            # 페이지에 목록이 없으면(새 페이지) 데이터 주소를 직접 불러 봅니다
+            items = fetch_api(kind, page)[0]
     except requests.RequestException as exc:
         return [], f"요청 실패: {type(exc).__name__}"
     except Exception as exc:  # noqa: BLE001
         return [], f"해석 실패: {type(exc).__name__}"
     if not items:
-        return [], "목록이 비었습니다 (페이지 형식이 바뀌었을 수 있음)"
+        return [], ("네이버 리서치가 새 페이지로 바뀌어 목록을 아직 못 읽습니다 "
+                    "— 설정 → 진단 → '리서치 목록 확인' 결과가 필요합니다")
     return items, ""
 
 

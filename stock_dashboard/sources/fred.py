@@ -210,36 +210,73 @@ class Series:
             return None
         return (self.observations[-1].value / base - 1.0) * 100.0
 
+    def _spacing_days(self) -> float:
+        """관측 간격의 중앙값(일). 월간 ≈ 30, 주간 7, 일간 1."""
+        dates = [o.date for o in self.observations[-14:]]
+        gaps = sorted((b - a).days for a, b in zip(dates, dates[1:]))
+        return float(gaps[len(gaps) // 2]) if gaps else 0.0
+
+    def year_ago_base(self, when: dt.date) -> Observation | None:
+        """when 의 **1년 전 같은 시기** 관측치. 그 시기가 비어 있으면 None.
+
+        2026-11-12 진단에서 드러난 문제: 2025년 10월 CPI 는 미 연방정부
+        셧다운으로 **발표되지 않았습니다** (FRED 에 그 달이 없음). 예전
+        코드는 '1년 전 이전의 가장 최신 관측치' 를 골라서, 2026-10 의
+        전년대비를 2025-**09** 와 비교했습니다 — 13개월 변화를 12개월이라고
+        적은 셈이고, 그 한 달치(+0.3%p 안팎)가 '급등' 으로 잡혔습니다.
+        이제는 기준 관측치가 1년 전 날짜에서 관측 간격의 절반(최소 5일)보다
+        멀면 '없음' 으로 봅니다. 없는 숫자를 비슷한 숫자로 메우지 않습니다.
+        """
+        try:
+            target = when.replace(year=when.year - 1)
+        except ValueError:                      # 2월 29일
+            target = when.replace(year=when.year - 1, day=28)
+        base = self.at_or_before(target)
+        if base is None or base.value == 0:
+            return None
+        allowed = max(5.0, self._spacing_days() * 0.5)
+        if (target - base.date).days > allowed:
+            return None
+        return base
+
     def yoy_pct(self) -> float | None:
         """전년 동기 대비 변화율(%). 지수 계열의 기준연도 문제를 피합니다.
 
-        달력으로 1년 전 날짜를 찾고, 그 이전의 가장 최신 관측치와 비교합니다.
-        월간이든 주간이든 일간이든 같은 로직으로 동작합니다.
+        1년 전 같은 시기의 관측치와 비교합니다. 그 시기가 비어 있으면 None.
         """
         if self.latest is None:
             return None
-        try:
-            a_year_ago = self.latest.date.replace(year=self.latest.date.year - 1)
-        except ValueError:                      # 2월 29일
-            a_year_ago = self.latest.date.replace(
-                year=self.latest.date.year - 1, day=28)
-        base = self.at_or_before(a_year_ago)
-        if base is None or base.value == 0:
+        base = self.year_ago_base(self.latest.date)
+        if base is None:
             return None
         return (self.latest.value / base.value - 1.0) * 100.0
 
     def yoy_series(self, points: int = 24) -> list[tuple[str, float]]:
-        """최근 points 개 관측치의 전년 대비 변화율 시계열 — 방향 전환 판정용."""
+        """최근 points 개 관측치의 전년 대비 변화율 시계열 — 방향 전환 판정용.
+
+        1년 전 같은 시기가 비어 있는 관측치는 **건너뜁니다** (틀린 값을 넣는
+        것보다 한 점이 비는 편이 낫습니다)."""
         out: list[tuple[str, float]] = []
         for obs in self.observations[-points:]:
-            try:
-                prior_date = obs.date.replace(year=obs.date.year - 1)
-            except ValueError:
-                prior_date = obs.date.replace(year=obs.date.year - 1, day=28)
-            base = self.at_or_before(prior_date)
-            if base is None or base.value == 0:
+            base = self.year_ago_base(obs.date)
+            if base is None:
                 continue
             out.append((obs.date.isoformat(), (obs.value / base.value - 1.0) * 100.0))
+        return out
+
+    def gap_months(self) -> list[str]:
+        """월간 계열에서 중간에 빠진 달 (YYYY-MM). 월간이 아니면 빈 목록."""
+        if not 25 <= self._spacing_days() <= 35:
+            return []
+        out: list[str] = []
+        for a, b in zip(self.observations, self.observations[1:]):
+            months = (b.date.year - a.date.year) * 12 + b.date.month - a.date.month
+            y, m = a.date.year, a.date.month
+            for _ in range(max(0, months - 1)):
+                m += 1
+                if m > 12:
+                    y, m = y + 1, 1
+                out.append(f"{y}-{m:02d}")
         return out
 
     def mean(self, periods: int) -> float | None:
@@ -410,9 +447,11 @@ def _fetch_via_api(series_id: str, key: str,
         raise FredError(f"{series_id}: FRED API 응답에 observations 가 없습니다.")
 
     obs: list[Observation] = []
+    missing = 0
     for row in rows:
         raw = str(row.get("value", "")).strip()
         if not raw or raw == MISSING:        # 결측은 '.' 입니다 (CSV 와 같음)
+            missing += 1
             continue
         try:
             value = float(raw.replace(",", ""))
@@ -427,7 +466,7 @@ def _fetch_via_api(series_id: str, key: str,
     if not obs:
         raise FredError(f"{series_id}: FRED API 가 관측치를 주지 않았습니다.")
     obs.sort(key=lambda o: o.date)
-    return Series(series_id=series_id, observations=obs)
+    return Series(series_id=series_id, observations=obs, missing_count=missing)
 
 
 def fetch_many(series_ids: list[str], *, years: int = 4,

@@ -9,6 +9,7 @@ Streamlit 기본 위젯으로는 jusikbot 같은 밀도 높은 카드 그리드�
 
 from __future__ import annotations
 
+import datetime as dt
 import html
 import re
 
@@ -3485,3 +3486,398 @@ def render_prompt_links(prompt: str, label: str = "Claude 에 요약 요청") ->
             f'<a class="dash-skill-btn" href="{APP_LINK.format(q=q)}">{_esc(label)} (앱)</a>'
             f'<a class="dash-skill-btn ghost" target="_blank" rel="noopener noreferrer" '
             f'href="{WEB_LINK.format(q=q)}">웹에서 열기</a></div>')
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 수급 · 배당 · 실적 서프라이즈
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _updown(v: float | None) -> str:
+    if v is None or v == 0:
+        return ""
+    return "up" if v > 0 else "down"
+
+
+def _eok(amount_won: float | None) -> str:
+    """원 → '+123억' / '−4,560만' (부호 포함)."""
+    if amount_won is None:
+        return "—"
+    a = abs(amount_won)
+    sign = "+" if amount_won > 0 else "−" if amount_won < 0 else ""
+    if a >= 1e12:
+        return f"{sign}{a / 1e12:,.2f}조"
+    if a >= 1e8:
+        return f"{sign}{a / 1e8:,.0f}억"
+    if a >= 1e4:
+        return f"{sign}{a / 1e4:,.0f}만"
+    return f"{sign}{a:,.0f}"
+
+
+def _shares(q: float | None) -> str:
+    if q is None:
+        return ""
+    a = abs(q)
+    sign = "+" if q > 0 else "−" if q < 0 else ""
+    if a >= 1e4:
+        return f"{sign}{a / 1e4:,.1f}만주"
+    return f"{sign}{a:,.0f}주"
+
+
+def render_spark_bars(values, width: int = 84, height: int = 22) -> str:
+    """일별 순매매 막대 (오래된 → 최신). 0 선 위는 순매수, 아래는 순매도."""
+    vals = [v or 0.0 for v in (values or [])]
+    if not vals or not any(vals):
+        return ""
+    peak = max(abs(v) for v in vals) or 1.0
+    n = len(vals)
+    bw = width / n
+    mid = height / 2
+    bars = []
+    for i, v in enumerate(vals):
+        h = abs(v) / peak * (mid - 1)
+        y = mid - h if v > 0 else mid
+        cls = "up" if v > 0 else "down"
+        bars.append(f'<rect class="{cls}" x="{i * bw + 0.5:.1f}" y="{y:.1f}" '
+                    f'width="{max(bw - 1, 1):.1f}" height="{max(h, 0.6):.1f}"/>')
+    return (f'<svg class="dash-spark" viewBox="0 0 {width} {height}" '
+            f'width="{width}" height="{height}" role="img" '
+            f'aria-label="최근 {n}일 외국인 순매매">'
+            f'<line x1="0" y1="{mid}" x2="{width}" y2="{mid}"/>{"".join(bars)}</svg>')
+
+
+def _flow_cell(s, who: str, n: int) -> str:
+    amt = (s.amount.get(who) or {}).get(n)
+    qty = (s.net.get(who) or {}).get(n)
+    if amt is None and qty is None:
+        return "<td class='na'>—</td>"
+    return (f"<td class='{_updown(amt if amt is not None else qty)}'>"
+            f"<b>{_eok(amt)}</b><span class='sub'>{_shares(qty)}</span></td>")
+
+
+def _streak_txt(n: int | None) -> str:
+    if not n:
+        return "—"
+    return f"<span class='{_updown(n)}'>{'+' if n > 0 else '−'}{abs(n)}일</span>"
+
+
+def render_flow_table(sums) -> str:
+    """종목별 외국인·기관 순매매 표."""
+    if not sums:
+        return render_footnote("<b>볼 종목이 없습니다.</b> 관심종목이나 보유에 "
+                               "국내 종목을 넣으십시오.")
+    ok = [s for s in sums if not s.error and s.days]
+    bad = [s for s in sums if s.error or not s.days]
+    rows = []
+    for s in ok:
+        star = "<i class='ct-star' title='보유'>★</i>" if s.held else ""
+        ratio = "—" if s.ratio is None else f"{s.ratio:.2f}%"
+        chg = ("" if s.ratio_change is None else
+               f"<span class='sub {_updown(s.ratio_change)}'>"
+               f"{s.ratio_change:+.2f}%p · 20일</span>")
+        share = ("" if s.vol_share20 is None else
+                 f"<span class='sub'>거래량의 {s.vol_share20:+.1f}%</span>")
+        rows.append(
+            "<tr>"
+            f"<td>{star}<b>{_esc(s.name)}</b><span class='sub'>{_esc(s.code)}</span></td>"
+            + _flow_cell(s, "foreign", 5) + _flow_cell(s, "foreign", 20)
+            + _flow_cell(s, "inst", 5) + _flow_cell(s, "inst", 20)
+            + f"<td>외 {_streak_txt(s.streak.get('foreign'))}"
+              f"<span class='sub'>기 {_streak_txt(s.streak.get('inst'))}</span></td>"
+            + f"<td>{ratio}{chg}</td>"
+            + f"<td class='spark'>{render_spark_bars(s.spark)}{share}</td>"
+            "</tr>")
+    table = ""
+    if rows:
+        table = (
+            '<div class="dash-table-wrap"><table class="dash-table dash-flowt">'
+            "<thead><tr><th>종목</th><th>외국인 5일</th><th>외국인 20일</th>"
+            "<th>기관 5일</th><th>기관 20일</th><th>연속</th>"
+            "<th>외국인 보유율</th><th>외국인 20일 흐름</th></tr></thead>"
+            f"<tbody>{''.join(rows)}</tbody></table></div>")
+    miss = ""
+    if bad:
+        miss = render_notice(
+            "<b>받지 못한 종목:</b> " + " · ".join(
+                f"{_esc(s.name)}({_esc(s.error or '데이터 없음')})" for s in bad[:8])
+            + (f" 외 {len(bad) - 8}" if len(bad) > 8 else ""))
+    return table + miss
+
+
+def render_dividend_table(views, today, market: str = "kr") -> str:
+    """배당 일정 표 — 고른 시장 먼저, 그 안에서 다음 배당락이 가까운 순."""
+    has = [v for v in views if v.count]
+    none = [v for v in views if not v.count]
+
+    def key(v):
+        d = v.days_to_next(today)
+        return (0 if v.market == market else 1, d if d is not None else 9999,
+                v.name)
+
+    rows = []
+    for v in sorted(has, key=key):
+        d = v.days_to_next(today)
+        dd = ("" if d is None else "오늘" if d == 0 else f"D-{d}")
+        basis = (f"<span class='dv-b {'ann' if v.next_basis == '발표' else 'est'}'>"
+                 f"{_esc(v.next_basis)}</span>" if v.next_basis else "")
+        money = (lambda x: "—" if x is None else
+                 (f"{x:,.0f}원" if v.market == "kr" else f"${x:,.2f}"))
+        star = "<i class='ct-star' title='보유'>★</i>" if v.held else ""
+        dim = "" if v.market == market else " class='dv-other'"
+        rows.append(
+            f"<tr{dim}>"
+            f"<td>{star}<b>{_esc(v.name)}</b><span class='sub'>{_esc(v.symbol)}</span></td>"
+            f"<td>{_esc(v.freq or '—')}</td>"
+            f"<td>{_esc(v.next_ex[5:] if v.next_ex else '—')} {basis}"
+            f"<span class='sub'>{dd}</span></td>"
+            f"<td>{money(v.last_amount)}<span class='sub'>"
+            f"{_esc(v.last_ex[2:] if v.last_ex else '')}</span></td>"
+            f"<td>{money(v.ttm)}</td>"
+            f"<td>{'—' if v.yield_pct is None else f'{v.yield_pct:.2f}%'}</td>"
+            f"<td class='note'>{_esc(v.note or v.error)}</td>"
+            "</tr>")
+    table = ""
+    if rows:
+        table = (
+            '<div class="dash-table-wrap"><table class="dash-table dash-divt">'
+            "<thead><tr><th>종목</th><th>주기</th><th>다음 배당락</th>"
+            "<th>직전 배당</th><th>12개월 합</th><th>시가배당률</th>"
+            "<th>메모</th></tr></thead>"
+            f"<tbody>{''.join(rows)}</tbody></table></div>")
+    tail = ""
+    if none:
+        tail = render_notice("<b>배당 이력이 없는 종목:</b> " + " · ".join(
+            f"{_esc(v.name)}" + (f"({_esc(v.error[:40])})" if v.error else "")
+            for v in none))
+    return table + tail + render_footnote(
+        "<b>배당락일</b>은 그날 사면 이번 배당을 못 받는 첫날입니다 — 받으려면 "
+        "그 전 거래일까지 사야 합니다. <b>발표</b>는 야후에 회사 발표일이 있는 "
+        "경우, <b>추정</b>은 직전 배당 간격을 더한 날짜라 일정이 아닙니다. "
+        "한국은 2023년 제도 개선 뒤 배당기준일을 주주총회 뒤로 옮기는 회사가 "
+        "있어 작년 날짜로 추정하면 크게 틀릴 수 있습니다 — 배당 결정 공시로 "
+        "확인하십시오. 시가배당률은 최근 12개월 합 ÷ 현재가 (특별배당이 끼면 "
+        "부풀려 보입니다).")
+
+
+def _pct_txt(v: float | None, digits: int = 1) -> str:
+    if v is None:
+        return "—"
+    return f"<span class='{_updown(v)}'>{v:+.{digits}f}%</span>"
+
+
+def render_us_earnings(views, today) -> str:
+    """미국 — 최근 4분기 EPS 서프라이즈 + 다음 발표."""
+    ok = [v for v in views if v.reported or v.next_date]
+    none = [v for v in views if not (v.reported or v.next_date)]
+    rows = []
+    for v in sorted(ok, key=lambda x: (0 if x.held else 1, x.next_date or "9")):
+        chips = "".join(
+            f"<span class='es-q {_updown(q.surprise)}' title='추정 "
+            f"{'—' if q.estimate is None else f'{q.estimate:.2f}'} → 실제 "
+            f"{'—' if q.reported is None else f'{q.reported:.2f}'}'>"
+            f"<b>{_esc(q.date[2:7].replace('-', '.'))}</b>"
+            f"{_pct_txt(q.surprise)}"
+            f"<i>{'—' if q.reported is None else f'{q.reported:.2f}'} / "
+            f"{'—' if q.estimate is None else f'{q.estimate:.2f}'}</i></span>"
+            for q in v.reported)
+        n = len(v.reported)
+        hit = f"{v.beats}/{n}" if n else "—"
+        nxt = "—"
+        if v.next_date:
+            days = (dt.date.fromisoformat(v.next_date) - today).days
+            nxt = (f"{_esc(v.next_date[5:])}<span class='sub'>D-{days} · 추정 "
+                   f"{'—' if v.next_estimate is None else f'{v.next_estimate:.2f}'}"
+                   "</span>")
+        star = "<i class='ct-star' title='보유'>★</i>" if v.held else ""
+        rows.append(
+            f"<tr><td>{star}<b>{_esc(v.name)}</b><span class='sub'>{_esc(v.symbol)}</span></td>"
+            f"<td class='es-cell'>{chips or '—'}</td><td>{hit}</td><td>{nxt}</td></tr>")
+    table = ""
+    if rows:
+        table = (
+            '<div class="dash-table-wrap"><table class="dash-table dash-est">'
+            "<thead><tr><th>종목</th><th>최근 4분기 (서프라이즈 · 실제 / 추정 EPS)</th>"
+            "<th>상회</th><th>다음 발표</th></tr></thead>"
+            f"<tbody>{''.join(rows)}</tbody></table></div>")
+    tail = ""
+    if none:
+        tail = render_notice("<b>실적 데이터 없음:</b> " + " · ".join(
+            _esc(v.name) for v in none) + " — ETF 는 실적 발표가 없습니다.")
+    return table + tail + render_footnote(
+        "<b>서프라이즈 = (실제 − 추정) ÷ |추정|.</b> 추정치는 발표 직전 애널리스트 "
+        "평균(야후)이고 EPS 는 대개 조정(non-GAAP) 기준이라 손익계산서 EPS 와 "
+        "다를 수 있습니다. 추정을 넘었는지는 '시장이 무엇을 기대했나' 를 보여줄 "
+        "뿐 주가 반응을 말해주지 않습니다 — 가이던스와 매출이 더 크게 움직이는 "
+        "경우가 많습니다.")
+
+
+def _eok_val(v: float | None) -> str:
+    """억원 단위 값 → '1.23조' / '4,560억'."""
+    if v is None:
+        return "—"
+    if abs(v) >= 10000:
+        return f"{v / 10000:,.2f}조"
+    return f"{v:,.0f}억"
+
+
+def render_kr_earnings(views) -> str:
+    """한국 — 최근 분기 실적, 전년 동기·직전 분기 대비, 컨센서스."""
+    ok = [v for v in views if v.latest is not None]
+    none = [v for v in views if v.latest is None]
+    rows = []
+    any_surprise = False
+    for v in sorted(ok, key=lambda x: (0 if x.held else 1, x.name)):
+        cells = []
+        for m in ("매출액", "영업이익", "순이익"):
+            now = v.latest.values.get(m)
+            turn = v.turns.get(m)
+            tone = {"흑자 전환": "up", "적자 전환": "down"}.get(turn, "")
+            yoy = (f"<span class='sub {tone}'>{_esc(turn)}</span>" if turn else
+                   f"<span class='sub'>YoY {_pct_txt(v.yoy.get(m))}</span>"
+                   f"<span class='sub'>QoQ {_pct_txt(v.qoq.get(m))}</span>")
+            cells.append(f"<td>{_eok_val(now)}{yoy}</td>")
+        sur = v.surprise.get("영업이익") if v.surprise else None
+        if v.surprise:
+            any_surprise = True
+            sur_html = (f"영업이익 {_pct_txt(sur)}<span class='sub'>매출 "
+                        f"{_pct_txt(v.surprise.get('매출액'))}</span>"
+                        f"<span class='sub'>{_esc(v.surprise_seen[5:])} 기록 대비</span>")
+        else:
+            sur_html = "<span class='sub'>발표 전 기록 없음</span>"
+        nxt = "—"
+        if v.nxt is not None:
+            nxt = (f"<b>{_esc(v.nxt.label)}</b><span class='sub'>매출 "
+                   f"{_eok_val(v.nxt.values.get('매출액'))}</span><span class='sub'>"
+                   f"영업이익 {_eok_val(v.nxt.values.get('영업이익'))}</span>")
+        fil = ""
+        if v.filing is not None and getattr(v.filing, "url", ""):
+            fil = (f"<a class='dash-inline-link' href='{_esc(v.filing.url)}' "
+                   f"target='_blank' rel='noopener noreferrer'>잠정실적 "
+                   f"{_esc(v.filing.date[5:])}</a>")
+        star = "<i class='ct-star' title='보유'>★</i>" if v.held else ""
+        rows.append(
+            f"<tr><td>{star}<b>{_esc(v.name)}</b><span class='sub'>{_esc(v.code)} · "
+            f"{_esc(v.latest.label)}</span>{fil}</td>" + "".join(cells)
+            + f"<td>{sur_html}</td><td>{nxt}</td></tr>")
+    table = ""
+    if rows:
+        table = (
+            '<div class="dash-table-wrap"><table class="dash-table dash-est">'
+            "<thead><tr><th>종목 · 최근 분기</th><th>매출액</th><th>영업이익</th>"
+            "<th>순이익</th><th>서프라이즈</th><th>다음 분기 컨센서스</th>"
+            f"</tr></thead><tbody>{''.join(rows)}</tbody></table></div>")
+    tail = ""
+    if none:
+        tail = render_notice("<b>실적을 받지 못한 종목:</b> " + " · ".join(
+            f"{_esc(v.name)}({_esc(v.error or '데이터 없음')})" for v in none))
+    note = ("" if any_surprise else
+            "<b>서프라이즈 칸이 비어 있는 게 지금은 정상입니다.</b> ")
+    return table + tail + render_footnote(
+        note + "네이버 실적표는 실적이 나오면 그 분기의 컨센서스(E) 를 실제값으로 "
+        "<b>덮어씁니다</b>. 그래서 이 서버가 (E) 를 볼 때마다 기록해 두고, 같은 "
+        "분기가 실제값으로 바뀌면 기록과 비교합니다. 서버가 재시작되면 기록이 "
+        "지워져 다음 발표부터 다시 쌓입니다. 금액 단위 억원, 연결 기준이 기본 "
+        "(네이버 표기). YoY 는 전년 같은 분기, QoQ 는 직전 분기 대비이며 부호가 "
+        "바뀌면 %를 쓰지 않고 '흑자 전환' 처럼 적습니다.")
+
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 좁은 화면 — 표를 줄 단위 카드로 (2026-11-11 "접으면 글자가 안 보인다")
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# 표는 가로로 넓습니다. 휴대폰(특히 접은 화면 344px)에서는 앞의 두세 칸만
+# 보이고 나머지는 옆으로 밀어야 나옵니다 — 정작 숫자가 그쪽에 있습니다.
+# 그래서 좁은 화면에서는 **한 줄을 카드 한 장**으로 세우고, 칸마다 머리글을
+# 왼쪽에 붙입니다 ("외국인 5일   +418억").
+#
+# 머리글은 CSS 로 붙입니다: 칸에 data-l="머리글" 을 넣어 두면 좁은 화면에서
+# td::before { content: attr(data-l) } 가 그걸 꺼냅니다. 넓은 화면에서는
+# 속성만 있을 뿐 아무 일도 안 일어납니다. 표를 그리는 함수가 스물셋이라
+# 하나씩 고치지 않고, 모든 render_* 의 결과를 여기로 한 번 통과시킵니다.
+
+_STK_TABLE = re.compile(
+    r'(?P<wrap><div class="dash-h?table-wrap)(?P<wrapc>[^"]*)">(?P<gap>\s*)'
+    r'(?P<open><table\b[^>]*>)(?P<body>.*?)</table>', re.S)
+_STK_THEAD = re.compile(r"<thead\b[^>]*>(.*?)</thead>", re.S)
+_STK_TH = re.compile(r"<th\b([^>]*)>(.*?)</th>", re.S)
+_STK_TR = re.compile(r"(<tr\b[^>]*>)(.*?)(</tr>)", re.S)
+_STK_TD = re.compile(r"<td\b([^>]*)>")
+_STK_TAG = re.compile(r"<[^>]+>")
+_STK_SPAN = re.compile(r"colspan=[\"']?(\d+)")
+
+
+#: 이 줄 수를 넘으면 좁은 화면에서 목록을 스크롤 칸에 넣습니다.
+STACK_LONG = 6
+
+
+def _stk_label(th_html: str) -> str:
+    text = _STK_TAG.sub(" ", th_html.replace("<br>", " ").replace("<br/>", " "))
+    return " ".join(text.split()).replace('"', "&quot;")
+
+
+def stack_tables(markup: str) -> str:
+    """표 칸에 머리글(data-l)을 붙이고 표·감싼 칸에 표식 클래스를 답니다.
+
+    이미 처리한 표, 머리글 줄이 없는 표, 'dash-nostack' 표는 건드리지 않습니다.
+    """
+    if "<table" not in markup or "<thead" not in markup:
+        return markup
+
+    def one(m: re.Match) -> str:
+        open_tag, body = m.group("open"), m.group("body")
+        if "dash-stk" in open_tag or "dash-nostack" in open_tag:
+            return m.group(0)
+        head = _STK_THEAD.search(body)
+        if head is None:
+            return m.group(0)
+        labels: list[str] = []
+        for attrs, inner in _STK_TH.findall(head.group(1)):
+            span = _STK_SPAN.search(attrs)
+            labels += [_stk_label(inner)] * (int(span.group(1)) if span else 1)
+        if len(labels) < 2:
+            return m.group(0)
+
+        def row(rm: re.Match) -> str:
+            idx = 0
+
+            def cell(cm: re.Match) -> str:
+                nonlocal idx
+                attrs = cm.group(1)
+                label = labels[idx] if idx < len(labels) else ""
+                span = _STK_SPAN.search(attrs)
+                idx += int(span.group(1)) if span else 1
+                return f'<td{attrs} data-l="{label}">'
+
+            return rm.group(1) + _STK_TD.sub(cell, rm.group(2)) + rm.group(3)
+
+        cut = head.end()
+        n_rows = len(_STK_TR.findall(body[cut:]))
+        body = body[:cut] + _STK_TR.sub(row, body[cut:])
+        if 'class="' in open_tag:
+            open_tag = open_tag.replace('class="', 'class="dash-stk ', 1)
+        elif "class='" in open_tag:
+            open_tag = open_tag.replace("class='", "class='dash-stk ", 1)
+        else:
+            open_tag = open_tag.replace("<table", '<table class="dash-stk"', 1)
+        # 줄이 많으면 좁은 화면에서 '칸 안에서 밀어 보기' 로 높이를 묶습니다
+        long = f' dash-stk-long" data-n="{n_rows}' if n_rows > STACK_LONG else ""
+        return (f'{m.group("wrap")}{m.group("wrapc")} dash-stkw{long}">'
+                f'{m.group("gap")}{open_tag}{body}</table>')
+
+    return _STK_TABLE.sub(one, markup)
+
+
+def _stacking(fn):
+    import functools  # noqa: PLC0415
+
+    @functools.wraps(fn)
+    def inner(*args, **kwargs):
+        out = fn(*args, **kwargs)
+        return stack_tables(out) if isinstance(out, str) else out
+    return inner
+
+
+for _name, _fn in list(globals().items()):
+    if _name.startswith("render_") and callable(_fn):
+        globals()[_name] = _stacking(_fn)
+del _name, _fn

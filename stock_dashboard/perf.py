@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import time
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import wait as _wait
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -67,7 +68,9 @@ class RunLog:
         slow = self.slowest()
         if not slow:
             return f"이번 화면 {total:.1f}초 · 모두 저장해 둔 값에서 바로 나왔습니다"
-        parts = ", ".join(f"{t.name} {t.seconds:.1f}초" for t in slow)
+        parts = ", ".join(
+            f"{t.name} {t.seconds:.1f}초" + ("+ (뒤에서 계속)" if t.error == "뒤에서 계속" else "")
+            for t in slow)
         line = f"이번 화면 {total:.1f}초 · 오래 걸린 것: {parts}"
         if self.parallel_wall and len([t for t in self.items if not t.cached]) > 1:
             serial = sum(t.seconds for t in self.items if not t.cached)
@@ -79,7 +82,8 @@ class RunLog:
 
 def run_parallel(calls: dict[str, Callable[[], object]], log: RunLog | None = None,
                  initializer: Callable[[], None] | None = None,
-                 max_workers: int = 12) -> dict[str, object]:
+                 max_workers: int = 12,
+                 budget: float | None = None) -> dict[str, object]:
     """이름 → 인자 없는 함수. 동시에 실행하고 {이름: 결과} 를 돌려줍니다.
 
     실패한 항목은 결과에서 빠집니다 — 호출한 쪽이 평소처럼 다시 부르면
@@ -116,16 +120,22 @@ def run_parallel(calls: dict[str, Callable[[], object]], log: RunLog | None = No
     w0 = time.perf_counter()
     workers = max(1, min(max_workers, len(calls)))
     pool = ThreadPoolExecutor(max_workers=workers, initializer=safe_init)
-    with pool:
-        futures = [pool.submit(one, n, f) for n, f in calls.items()]
-        for fut in futures:
-            name, val, exc = fut.result()
-            if exc is None:
-                out[name] = val
+    futures = {pool.submit(one, n, f): n for n, f in calls.items()}
+    # budget 이 있으면 **그만큼만** 기다립니다. 못 끝낸 것은 스레드에서 계속
+    # 돌아 캐시에 들어가고, 화면은 먼저 그립니다 (느린 하나가 전체를 붙잡지
+    # 않게). 없으면 예전처럼 전부 기다립니다.
+    done, late = _wait(futures, timeout=budget)
+    for fut in done:
+        name, val, exc = fut.result()
+        if exc is None:
+            out[name] = val
+    pool.shutdown(wait=False)
     wall = time.perf_counter() - w0
     if log is not None:
         for name in calls:
             if name in timings:
                 log.items.append(timings[name])
+        for fut in late:
+            log.items.append(Timing(futures[fut], wall, "뒤에서 계속"))
         log.parallel_wall = max(log.parallel_wall, wall)
     return out

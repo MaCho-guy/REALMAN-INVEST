@@ -56,6 +56,12 @@ if _MISSING:
 
 import swr  # noqa: E402
 
+# 저장된 값이 있으면 **묵었어도 먼저** 그리고 뒤에서 새로 받습니다 (이틀까지).
+# 휴대폰으로 가끔 열면 값이 매번 stale 을 넘겨 있어서 열 때마다 처음처럼
+# 기다렸습니다. 묵은 값을 보여줄 때는 화면 위에 '몇 분 전 값' 이라고 적고,
+# 새 값이 오면 화면을 한 번 자동으로 다시 그립니다 (_refresh_watch).
+swr.HARD_STALE = 2 * 86_400
+
 import brief
 import buildstamp
 import briefing_store as bfs
@@ -66,6 +72,9 @@ import chart_signals
 import daily_brief
 import calendar_events
 import portfolio
+import flows
+import dividends
+import earnings
 import perf
 import threading
 import time
@@ -1053,7 +1062,7 @@ def render_summary_tab(data: dict[str, dict[str, Quote]], fx,
     휴대폰 글랜스에 맞지 않습니다 — 어디로 가면 되는지만 적습니다.
     """
     found, instruments, trends, _filings, _errors = _detect_signals(
-        data, use_demo, market=market)
+        data, use_demo, market=market, soft=True)
     # 요약은 "지금 N건" 과 "이번 주 N건" 을 구분해 적어야 해서 세 갈래가
     # 필요합니다. signals.split_by_urgency 는 둘을 합쳐 두 갈래로 주므로
     # **여기서 직접 나눕니다** — 다른 파일을 함께 고쳐야 하는 변경을 피하려는
@@ -1180,7 +1189,7 @@ def render_holdings_tab(data: dict[str, dict[str, Quote]], fx,
     # 그 아래 '변화 감지' 가 그립니다.
     shown = config.filter_instruments(watchlist.instruments, market)
     try:
-        found = _detect_signals(data, use_demo, market=market)[0]
+        found = _detect_signals(data, use_demo, market=market, soft=True)[0]
     except Exception:  # noqa: BLE001 - 신호를 못 구해도 표는 그립니다
         found = []
     _render_portfolio(data, fx, use_demo, market)
@@ -1642,10 +1651,17 @@ def render_chart_tab(use_demo: bool, *, market: str = "kr") -> None:
                 unsafe_allow_html=True)
 
 
-def _calendar_events(data, use_demo: bool, days: int = 45):
-    """(사건 목록, 경고, 오늘). 요약과 일정 탭이 같이 씁니다."""
+def _calendar_events(data, use_demo: bool, days: int = 45, soft: bool = False):
+    """(사건 목록, 경고, 오늘). 요약과 일정 탭이 같이 씁니다.
+
+    soft=True (요약): 미국 지표 발표일을 기다리지 않습니다 — 표로 가진 일정
+    (통화정책·만기·휴장)은 바로 나오고 발표일은 받는 대로 붙습니다."""
     today = dt.datetime.now(KST).date()
-    payload, err = load_release_dates(use_demo, fred.key_fingerprint())
+    if soft and not use_demo:
+        payload, err = _soft(load_release_dates, use_demo, fred.key_fingerprint(),
+                             default=(None, ""))
+    else:
+        payload, err = load_release_dates(use_demo, fred.key_fingerprint())
     watch = [i for i in config.SECTION_WATCHLIST.instruments if i.source == "yahoo"]
     events, warns = calendar_events.build(
         today, days, fred_payload=payload, quotes=(data or {}).get("yahoo", {}),
@@ -1658,7 +1674,7 @@ def _calendar_events(data, use_demo: bool, days: int = 45):
 def _render_upcoming(data, use_demo: bool, market: str) -> None:
     """요약 — 앞으로 7일의 중요한 일정 (실패해도 요약은 계속)."""
     try:
-        events, _w, today = _calendar_events(data, use_demo, days=7)
+        events, _w, today = _calendar_events(data, use_demo, days=7, soft=True)
         # 중요한 것 + 고른 시장의 이틀 안 일정(월물 만기처럼 평소엔 작은 것도)
         top = [e for e in events if e.importance >= 2
                or (e.market == market and (e.day - today).days <= 2)][:6]
@@ -1680,6 +1696,17 @@ def render_calendar_tab(data, use_demo: bool, *, market: str = "kr") -> None:
     미국 일정이 한국 시장을 움직이고 그 반대도 있어서, 빼면 놓칩니다.
     """
     events, warns, today = _calendar_events(data, use_demo)
+    # 배당락일(발표·추정)을 같은 달력에 넣습니다. 실패해도 나머지 일정은 그립니다.
+    try:
+        div_views = _dividend_views(data, use_demo, today)
+    except Exception as exc:  # noqa: BLE001
+        div_views = []
+        warns = warns + [f"배당 정보를 받지 못했습니다 — {type(exc).__name__}"]
+    if div_views:
+        events = sorted(
+            events + dividends.calendar_events(
+                div_views, today, today + dt.timedelta(days=45)),
+            key=lambda e: (e.date, -e.importance, e.market))
     st.markdown(
         ui.render_section_head(
             "주요 일정", "앞으로 45일 · 고르지 않은 시장은 흐리게", len(events)),
@@ -1697,10 +1724,18 @@ def render_calendar_tab(data, use_demo: bool, *, market: str = "kr") -> None:
             "<b>출처:</b> FOMC 연준 공식 일정 (2027년은 잠정) · 금통위 한국은행 의결 "
             "일정 · 휴장일 거래소 공지 · 미국 지표 발표일 FRED · 만기일은 규칙"
             "(한국 매월 둘째 목요일, 미국 셋째 금요일)으로 계산하고 휴장이면 앞 "
-            "거래일로 당깁니다 · 실적일은 야후 예정일이라 바뀔 수 있습니다. 한국 "
-            "경제지표 발표일과 국내 종목 실적일은 아직 없습니다."),
+            "거래일로 당깁니다 · 실적일은 야후 예정일이라 바뀔 수 있습니다 · "
+            "배당락일은 야후 발표일이 있으면 그것, 없으면 직전 배당 간격으로 "
+            "<b>추정</b>합니다. 한국 경제지표 발표일과 국내 종목 실적일은 "
+            "아직 없습니다."),
         unsafe_allow_html=True,
     )
+    if div_views:
+        st.markdown(ui.render_section_head(
+            "배당 일정", "관심·보유 종목 — 다음 배당락일 · 최근 12개월 배당",
+            sum(1 for v in div_views if v.count)), unsafe_allow_html=True)
+        st.markdown(ui.render_dividend_table(div_views, today, market=market),
+                    unsafe_allow_html=True)
 
 
 def _render_daily_briefs(use_demo: bool, market: str) -> None:
@@ -1712,8 +1747,17 @@ def _render_daily_briefs(use_demo: bool, market: str) -> None:
     """
     try:
         order = [market] + [m for m in config.DAILY_BRIEF if m != market]
-        heads = load_close_headlines(use_demo)
-        reports = load_research("market", use_demo)[0]
+        if use_demo:
+            heads = load_close_headlines(use_demo)
+            reports = load_research("market", use_demo)[0]
+            briefs = {m: load_daily_brief(m, use_demo) for m in order}
+        else:
+            # 기다리지 않습니다 — 기사·리포트는 없으면 빈 채로, 브리핑은
+            # 아직 못 받은 시장만 '받는 중' 으로 둡니다.
+            heads = _soft(load_close_headlines, use_demo, default={})
+            reports = _soft(load_research, "market", use_demo, default=([], ""))[0]
+            briefs = {m: _soft(load_daily_brief, m, use_demo, default=None)
+                      for m in order}
         st.markdown(
             ui.render_section_head(
                 "전일 장 브리핑", "마지막으로 마감한 거래일 — 숫자만, 해석 없이",
@@ -1721,7 +1765,12 @@ def _render_daily_briefs(use_demo: bool, market: str) -> None:
             unsafe_allow_html=True,
         )
         for m in order:
-            brief = load_daily_brief(m, use_demo)
+            brief = briefs.get(m)
+            if brief is None:
+                st.markdown(ui.render_notice(
+                    f"<b>{config.MARKETS.get(m, m)} 전일 브리핑을 받는 중입니다.</b> "
+                    "받으면 자동으로 채워집니다."), unsafe_allow_html=True)
+                continue
             key = config.DAILY_BRIEF[m]["news"][0]
             st.markdown(
                 ui.render_daily_brief(
@@ -1740,6 +1789,237 @@ def _render_daily_briefs(use_demo: bool, market: str) -> None:
         st.markdown(ui.render_notice(
             f"<b>전일 장 브리핑을 그리지 못했습니다.</b> {type(exc).__name__}"),
             unsafe_allow_html=True)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 수급 · 배당 · 실적 서프라이즈 (2026-11-11)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _kr_held_codes(use_demo: bool) -> set[str]:
+    """실제 보유(PORTFOLIO) 국내 종목만."""
+    try:
+        positions, _bad, _src = portfolio.load(use_demo)
+    except Exception:  # noqa: BLE001
+        return set()
+    return {p.symbol for p in positions if p.market == "kr"}
+
+
+def _us_held_symbols(use_demo: bool) -> set[str]:
+    try:
+        positions, _bad, _src = portfolio.load(use_demo)
+    except Exception:  # noqa: BLE001
+        return set()
+    return {p.symbol for p in positions if p.market == "us"}
+
+
+def _kr_name_map() -> dict[str, str]:
+    names: dict[str, str] = {}
+    try:
+        for code, name in config.chart_candidates("kr"):
+            names.setdefault(code, name)
+    except Exception:  # noqa: BLE001
+        pass
+    for section in config.SECTIONS:
+        for inst in section.instruments:
+            if inst.source == "naver" and inst.symbol.isdigit():
+                names[inst.symbol] = inst.name
+    return names
+
+
+def _kr_watch_codes(use_demo: bool) -> list[str]:
+    """보유 → 관심 → 국내 본주 순서, 중복 없이."""
+    out = list(sorted(_kr_held_codes(use_demo)))
+    for section in (config.SECTION_WATCHLIST, config.SECTION_LOCAL):
+        for inst in section.instruments:
+            if inst.source == "naver" and inst.symbol.isdigit():
+                out.append(inst.symbol)
+    return list(dict.fromkeys(out))
+
+
+def _pool_map(fn, items, workers: int = 4) -> list:
+    items = list(items)
+    if not items:
+        return []
+    with ThreadPoolExecutor(max_workers=min(workers, len(items))) as pool:
+        return list(pool.map(fn, items))
+
+
+@swr.cached(1_800, stale=6 * 3_600)
+def load_kr_flows(codes: tuple[str, ...], use_demo: bool) -> dict:
+    """{코드: (일별 수급 최신순, 출처, 실패 사유)}. 30분 캐시.
+
+    네이버 수급은 장 마감 뒤 확정치가 올라옵니다. 장중 숫자는 잠정입니다.
+    """
+    if use_demo:
+        return demo_mod.demo_kr_flows(codes)
+    from sources import naver_extra  # noqa: PLC0415
+    got = _pool_map(lambda c: naver_extra.fetch_flows(c, 40), codes)
+    return dict(zip(codes, got))
+
+
+@swr.cached(43_200, stale=3 * 86_400)
+def load_dividends(symbols: tuple[str, ...], use_demo: bool) -> dict:
+    """{야후 심볼: {history, ex_date, pay_date, error}}. 12시간 캐시."""
+    if use_demo:
+        return demo_mod.demo_dividends(symbols)
+    from sources import yahoo_events  # noqa: PLC0415
+    return yahoo_events.fetch_many(yahoo_events.fetch_dividends, list(symbols))
+
+
+@swr.cached(21_600, stale=2 * 86_400)
+def load_us_earnings(symbols: tuple[str, ...], use_demo: bool) -> dict:
+    """{티커: {rows, error}}. 6시간 캐시."""
+    if use_demo:
+        return demo_mod.demo_us_earnings(symbols)
+    from sources import yahoo_events  # noqa: PLC0415
+    return yahoo_events.fetch_many(yahoo_events.fetch_earnings, list(symbols))
+
+
+@swr.cached(21_600, stale=2 * 86_400)
+def load_kr_quarters(codes: tuple[str, ...], use_demo: bool) -> dict:
+    """{코드: (분기 목록, 실패 사유)}. 6시간 캐시."""
+    if use_demo:
+        return demo_mod.demo_kr_quarters(codes)
+    from sources import naver_extra  # noqa: PLC0415
+    return dict(zip(codes, _pool_map(naver_extra.fetch_quarter, codes)))
+
+
+def render_supply_tab(use_demo: bool) -> None:
+    """한국 — 종목별 외국인·기관 수급 (5일 · 20일)."""
+    held = _kr_held_codes(use_demo)
+    names = _kr_name_map()
+    mine = _kr_watch_codes(use_demo)
+    wide = st.toggle("차트 조건 후보 전체 (약 50종목 — 처음 30~60초)",
+                     value=False, key="supply_wide")
+    codes = list(mine)
+    if wide:
+        codes += [c for c, _n in config.chart_candidates("kr") if c not in codes]
+    raw = load_kr_flows(tuple(codes), use_demo)
+    sums = []
+    for code in codes:
+        rows, src, err = raw.get(code, ([], "", "받지 못함"))
+        sums.append(flows.summarize(code, rows, name=names.get(code, code),
+                                    source=src, error=err, held=code in held))
+    sums.sort(key=flows.rank_key)
+    ok = [s for s in sums if not s.error]
+    last = max((s.last_date for s in ok), default="")
+    st.markdown(
+        ui.render_section_head(
+            "수급 — 외국인 · 기관",
+            (f"{last} 까지 · " if last else "") + "5일 · 20일 누적, 금액은 근사",
+            len(ok)),
+        unsafe_allow_html=True)
+    st.markdown(ui.render_flow_table(sums), unsafe_allow_html=True)
+    srcs = sorted({s.source for s in ok if s.source})
+    st.markdown(ui.render_footnote(
+        "<b>숫자만 셉니다.</b> 순매수는 원인이기도 하고 결과이기도 해서(오르니까 "
+        "사는 것일 수도) 방향을 말해주지 않습니다. 금액은 '그날 순매수 주식 수 × "
+        "그날 종가' 의 합이라 실제 체결 금액과 다릅니다. 장중에는 잠정치이고 장 "
+        "마감 뒤 확정됩니다. 연속 일수는 최근부터 같은 방향이 이어진 날 수 "
+        "(+ 순매수 / − 순매도). 출처: " + (_esc_plain(", ".join(srcs)) if srcs else "—")
+        + ". <b>공매도·신용잔고는 아직 없습니다</b> — 이 서버에서 닿는 출처를 "
+        "확인한 뒤 붙입니다 (설정 → 진단 → '국내 수급·실적 확인')."),
+        unsafe_allow_html=True)
+
+
+def _dividend_targets(use_demo: bool) -> list[tuple[str, str, str, bool]]:
+    """(야후 심볼, 이름, 시장, 보유) — 관심·본주 + 보유."""
+    us_held = _us_held_symbols(use_demo)
+    kr_held = _kr_held_codes(use_demo)
+    out: dict[str, tuple[str, str, str, bool]] = {}
+    for section in (config.SECTION_WATCHLIST, config.SECTION_LOCAL):
+        for inst in section.instruments:
+            if inst.source == "yahoo":
+                out[inst.symbol] = (inst.symbol, inst.name, "us",
+                                    inst.symbol in us_held)
+            elif inst.source == "naver" and inst.symbol.isdigit():
+                ysym = inst.fundamental_symbol or f"{inst.symbol}.KS"
+                out[ysym] = (ysym, inst.name, "kr", inst.symbol in kr_held)
+    names = _kr_name_map()
+    for code in kr_held:
+        if not any(k.startswith(code + ".") for k in out):
+            out[f"{code}.KS"] = (f"{code}.KS", names.get(code, code), "kr", True)
+    for sym in us_held:
+        out.setdefault(sym, (sym, sym, "us", True))
+    return list(out.values())
+
+
+def _price_for(data, ysym: str) -> float | None:
+    code = ysym.split(".")[0]
+    for bucket, key in (("yahoo", ysym), ("naver", code)):
+        q = ((data or {}).get(bucket) or {}).get(key)
+        if q is not None and getattr(q, "price", None):
+            return q.price
+    return None
+
+
+def _dividend_views(data, use_demo: bool, today) -> list:
+    targets = _dividend_targets(use_demo)
+    raw = load_dividends(tuple(t[0] for t in targets), use_demo)
+    views = []
+    for ysym, name, market, held in targets:
+        d = raw.get(ysym) or {}
+        views.append(dividends.analyze(
+            ysym, name, market, d.get("history") or [], today,
+            announced_ex=d.get("ex_date") or "", pay_date=d.get("pay_date") or "",
+            price=_price_for(data, ysym), currency="KRW" if market == "kr" else "USD",
+            error=d.get("error") or "", held=held))
+    return views
+
+
+def _latest_kr_earnings_filings(use_demo: bool) -> dict:
+    """시장 공시 캐시에서 잠정실적 공시만 (기다리지 않음 — 있으면 씀)."""
+    try:
+        value = load_market_filings.peek(use_demo, dart.key_fingerprint())
+    except Exception:  # noqa: BLE001
+        value = None
+    scan = value[0] if isinstance(value, tuple) and value else None
+    out: dict = {}
+    for f in getattr(scan, "filings", None) or []:
+        if f.kind == "실적" and f.stock_code and f.stock_code not in out:
+            out[f.stock_code] = f
+    return out
+
+
+def render_earnings_tab(use_demo: bool, *, market: str = "kr") -> None:
+    """실적 서프라이즈 — 발표 실적 vs 발표 전 추정치."""
+    today = dt.datetime.now(KST).date()
+    if market == "us":
+        us_held = _us_held_symbols(use_demo)
+        targets = [(i.symbol, i.name) for i in config.SECTION_WATCHLIST.instruments
+                   if i.source == "yahoo"]
+        targets += [(s, s) for s in sorted(us_held)
+                    if s not in {t for t, _n in targets}]
+        raw = load_us_earnings(tuple(t for t, _n in targets), use_demo)
+        views = [earnings.us_view(sym, name, (raw.get(sym) or {}).get("rows"),
+                                  today, error=(raw.get(sym) or {}).get("error", ""),
+                                  held=sym in us_held)
+                 for sym, name in targets]
+        st.markdown(ui.render_section_head(
+            "실적 서프라이즈 · 미국", "EPS 추정치 vs 발표치 — 최근 4분기",
+            sum(1 for v in views if v.reported)), unsafe_allow_html=True)
+        st.markdown(ui.render_us_earnings(views, today), unsafe_allow_html=True)
+        return
+
+    held = _kr_held_codes(use_demo)
+    names = _kr_name_map()
+    codes = _kr_watch_codes(use_demo)
+    raw = load_kr_quarters(tuple(codes), use_demo)
+    store = earnings.ConsensusStore(os.path.join(swr.DISK_DIR, "consensus.json"))
+    filings = _latest_kr_earnings_filings(use_demo)
+    views = []
+    for code in codes:
+        periods, err = raw.get(code, ([], "받지 못함"))
+        views.append(earnings.kr_view(
+            code, names.get(code, code), periods,
+            store=None if use_demo else store, today=today, error=err,
+            held=code in held, filing=filings.get(code)))
+    if use_demo:
+        demo_mod.demo_fill_kr_surprise(views)
+    st.markdown(ui.render_section_head(
+        "실적 서프라이즈 · 한국", "최근 분기 실적 · 전년 동기 대비 · 다음 분기 컨센서스",
+        sum(1 for v in views if v.latest)), unsafe_allow_html=True)
+    st.markdown(ui.render_kr_earnings(views), unsafe_allow_html=True)
 
 
 def render_research_tab(use_demo: bool) -> None:
@@ -2108,6 +2388,12 @@ def render_diag_panel() -> None:
          "어느 세부 유형으로 분류됐는지, **분류에서 빠진 제목**이 무엇인지. "
          "빠진 것 중 봐야 할 유형이 있으면 알려 주시면 넣습니다. "
          "**인증키 필요.**"),
+        ("krsupply", "국내 수급·실적 확인", "diagnose_kr_supply",
+         "네이버 수급 두 경로(모바일 JSON · PC 표)와 분기 실적표(컨센서스 "
+         "포함)가 받아지는지, 필드가 제대로 읽히는지. 공매도·신용잔고 단서도 "
+         "찾아 찍습니다. **세 경로 모두 실제 응답으로 검증하지 못했습니다.**"),
+        ("yahooev", "야후 배당·실적 확인", "diagnose_yahoo_events",
+         "배당 이력·다음 배당락일·EPS 추정 vs 실제가 오는지 (MSFT · O · 삼성전자)."),
         ("research", "리서치 목록 확인", "diagnose_research",
          "네이버 증권 리서치의 산업분석·시황 목록이 받아지는지, 줄마다 업종·"
          "제목·증권사·날짜·PDF 가 제대로 읽히는지. **이 해석기는 실제 응답으로 "
@@ -2905,8 +3191,33 @@ def render_valuation(use_demo: bool) -> None:
 # 공시 분석 탭
 # ──────────────────────────────────────────────────────────────────────────────
 
+#: 받는 중 안내에 쓸 이름 (함수 이름 → 화면 표기)
+SOFT_LABELS = {
+    "load_filings": "미국 공시", "load_dart_disclosures": "국내 공시",
+    "load_inventory_trends": "국내 재고 추세",
+    "load_us_inventory_trends": "미국 재고 추세",
+    "load_close_headlines": "마감 기사", "load_research": "시황 리포트",
+    "load_daily_brief": "전일 브리핑", "load_release_dates": "발표 일정",
+}
+
+
+def _soft(loader, *args, default):
+    """**기다리지 않는** 받기. 저장된 값이 있으면 그것, 없으면 default.
+
+    없을 때는 뒤에서 받기 시작하고, swr 이 '받는 중' 으로 적어 둡니다 —
+    화면 위 안내와 자동 다시 그리기가 그 기록을 씁니다. 요약처럼 '먼저
+    보여야 하는 화면' 의 곁가지에만 씁니다: 느린 재무 하나가 첫 화면
+    전체를 붙잡지 않게 하려는 것입니다.
+    """
+    peek = getattr(loader, "peek", None)
+    if peek is None:                      # 테스트용 가짜 등 — 그냥 부릅니다
+        return loader(*args)
+    got = peek(*args)
+    return default if got is None else got
+
+
 def _detect_signals(data: dict[str, dict[str, Quote]], use_demo: bool,
-                    *, market: str = "all"):
+                    *, market: str = "all", soft: bool = False):
     """변화 감지 한 번. 요약 탭과 변화 감지 탭이 **같은 경로**를 씁니다.
 
     두 화면이 다른 결과를 보여주면 신뢰를 잃으므로 함수 하나로 모았습니다.
@@ -2923,12 +3234,24 @@ def _detect_signals(data: dict[str, dict[str, Quote]], use_demo: bool,
 
     # EDGAR(미국) + DART(한국) 공시를 하나로 — 두 Filing 이 같은 속성을
     # 제공하므로 signals 는 구분하지 않습니다.
-    filings, filing_errors = load_filings(use_demo)
-    dart_filings, dart_errors = load_dart_disclosures(use_demo, dart.key_fingerprint())
+    # soft=True (요약·내 종목): 공시와 재고 추세를 **기다리지 않습니다.**
+    # 아직 없으면 빈 값으로 그리고, 받는 대로 화면이 한 번 다시 그려집니다.
+    # 데모에서는 기다릴 게 없으니 그대로 부릅니다.
+    dfp = dart.key_fingerprint()
+    if soft and not use_demo:
+        filings, filing_errors = _soft(load_filings, use_demo, default=({}, {}))
+        dart_filings, dart_errors = _soft(load_dart_disclosures, use_demo, dfp,
+                                          default=({}, {}))
+        kr_trends, trend_errors = _soft(load_inventory_trends, use_demo, dfp,
+                                        default=({}, {}))
+        us_trends, us_trend_errors = _soft(load_us_inventory_trends, use_demo,
+                                           default=({}, {}))
+    else:
+        filings, filing_errors = load_filings(use_demo)
+        dart_filings, dart_errors = load_dart_disclosures(use_demo, dfp)
+        kr_trends, trend_errors = load_inventory_trends(use_demo, dfp)
+        us_trends, us_trend_errors = load_us_inventory_trends(use_demo)
     merged_filings = {**filings, **dart_filings}
-
-    kr_trends, trend_errors = load_inventory_trends(use_demo, dart.key_fingerprint())
-    us_trends, us_trend_errors = load_us_inventory_trends(use_demo)
     trends = {**kr_trends, **us_trends}
     errors = {
         "edgar": filing_errors,
@@ -2972,7 +3295,7 @@ def render_signals_tab(data: dict[str, dict[str, Quote]], use_demo: bool,
     # 요약 탭과 **같은 경로**를 씁니다 (_detect_signals). 두 화면이 다른 결과를
     # 보여주면 신뢰를 잃습니다.
     found, _inst, _trends, _filings, errs = _detect_signals(
-        data, use_demo, market=market)
+        data, use_demo, market=market, soft=True)
     filing_errors = errs["edgar"]
     dart_errors, trend_errors = errs["dart"], errs["trend"]
 
@@ -3457,6 +3780,20 @@ def _pane(label: str, help_text: str = ""):
     return st.expander(label)
 
 
+def _is_phone() -> bool:
+    """브라우저가 휴대폰인가 — 요청 머리글의 User-Agent 로 봅니다.
+
+    스트림릿은 화면 폭을 서버에 알려주지 않습니다. 그래서 폭이 아니라
+    기기 종류로 판단합니다: 접는 휴대폰은 펼쳐도 'Mobile' 이라 휴대폰으로
+    잡힙니다 (그쪽이 가벼워서 손해가 없습니다). 못 읽으면 False.
+    """
+    try:
+        ua = str(st.context.headers.get("User-Agent", ""))
+    except Exception:  # noqa: BLE001 - st.context 는 1.37 이상
+        return False
+    return any(k in ua for k in ("Mobile", "Android", "iPhone"))
+
+
 def controls() -> dict:
     """설정을 **페이지 안**에 둡니다.
 
@@ -3481,9 +3818,16 @@ def controls() -> dict:
             )
             convention = "kr" if convention_label.startswith("상승 적색") else "us"
             phone = st.toggle(
-                "휴대폰 모드", value=False,
+                "휴대폰 모드", value=_is_phone(),
                 help="무거운 것을 아예 싣지 않습니다 — 공시 분석 본문(수십 KB)과 "
-                     "넓은 지표표를 생략합니다. 요약·시세·매크로는 그대로입니다.",
+                     "넓은 지표표를 생략합니다. 요약·시세·매크로는 그대로입니다. "
+                     "휴대폰 브라우저로 열면 처음부터 켜져 있습니다.",
+            )
+            stack = st.toggle(
+                "좁은 화면에서 표를 카드로", value=True,
+                help="휴대폰처럼 좁은 화면에서 표의 한 줄을 카드 한 장으로 "
+                     "세웁니다 (옆으로 밀 필요 없음). 끄면 표를 그대로 두고 "
+                     "옆으로 밀어서 봅니다. 넓은 화면에는 영향이 없습니다.",
             )
             # 기본은 끕니다. 화면마다 '왜 이렇게 계산하는가' 문단이 먼저
             # 나와서 숫자가 한참 아래로 밀렸습니다 (2026-11-11 "허접하고
@@ -3573,6 +3917,7 @@ def controls() -> dict:
     return {
         "convention": convention,
         "phone": phone,
+        "stack": stack,
         "notes": show_notes,
         "demo": use_demo,
         "auto": auto,
@@ -3595,7 +3940,9 @@ SECTION_LOADING = {
     "macro": "매크로 — FRED 13종·VIX·공포탐욕 (처음 10~20초)",
     "chart": "차트 조건 — 후보 종목의 1년 일봉 (처음 10~30초)",
     "research": "산업 리포트 — 증권사 리포트 목록 (처음 5~10초)",
-    "calendar": "주요 일정 — FRED 발표일 (처음 2~5초)",
+    "calendar": "주요 일정 — FRED 발표일 · 배당 이력 (처음 5~15초)",
+    "supply": "수급 — 종목별 외국인·기관 순매매 (처음 5~15초)",
+    "earnings": "실적 — 분기 실적과 추정치 (처음 5~15초)",
     "sector_heat": "섹터 온도 — 업종 ETF 14개 일봉 (처음 10~20초)",
     "kr_flows": "뉴스·공시·지표 — 섹터 뉴스·DART 공시·한국 지표 (처음 20~40초)",
     "us_flows": "물가·유동성 — FRED 물가 6 · 유동성 6 (처음 10~20초)",
@@ -3695,6 +4042,21 @@ def _section_jobs(section: str, market: str, use_demo: bool) -> dict:
         jobs["산업 리포트"] = lambda: load_research("industry", use_demo)
     elif section == "calendar":
         jobs["발표 일정"] = lambda: load_release_dates(use_demo, ffp)
+        # 대상 목록은 함수 안에서 만듭니다 — 여기서는 '무엇을 받을지' 만 정하고
+        # 실제 계산은 받는 순간에 (테스트도 이 함수를 따로 떼어 부릅니다).
+        jobs["배당"] = lambda: load_dividends(
+            tuple(t[0] for t in _dividend_targets(use_demo)), use_demo)
+    elif section == "supply":
+        jobs["수급"] = lambda: load_kr_flows(
+            tuple(_kr_watch_codes(use_demo)), use_demo)
+    elif section == "earnings" and market == "kr":
+        jobs["분기 실적"] = lambda: load_kr_quarters(
+            tuple(_kr_watch_codes(use_demo)), use_demo)
+        jobs["주요 공시"] = lambda: load_market_filings(use_demo, dfp)
+    elif section == "earnings":
+        jobs["실적 (야후)"] = lambda: load_us_earnings(
+            tuple(i.symbol for i in config.SECTION_WATCHLIST.instruments
+                  if i.source == "yahoo"), use_demo)
     elif section == "holdings":
         jobs["일봉 (차트 조건)"] = lambda: load_chart_rows(market, use_demo)
     elif section == "chart":
@@ -3744,9 +4106,78 @@ def _prefetch(section: str, market: str, use_demo: bool, log) -> None:
     if use_demo:
         return
     try:
+        # 요약·내 종목은 **3초만** 기다립니다. 그 안에 못 끝낸 것(재무·공시)은
+        # 뒤에서 계속 받고, 화면은 있는 것으로 먼저 그립니다. 이 두 화면의
+        # 곁가지는 기다리지 않는 받기(_soft)를 쓰므로 빈 채로 그려졌다가
+        # 받는 대로 채워집니다. 다른 화면은 그 데이터가 본문이라 기다립니다.
+        budget = PREFETCH_BUDGET if section in SOFT_SECTIONS else None
         perf.run_parallel(_section_jobs(section, market, use_demo), log,
-                          initializer=_ctx_initializer())
+                          initializer=_ctx_initializer(), budget=budget)
     except Exception:  # noqa: BLE001
+        pass
+
+
+#: 먼저 그리고 나중에 채우는 화면과, 그 화면이 처음에 기다려 주는 시간(초)
+SOFT_SECTIONS = ("summary", "holdings")
+PREFETCH_BUDGET = 3.0
+#: 이보다 묵은 값을 보여줬으면 화면 위에 알리고, 새 값이 오면 다시 그립니다
+STALE_NOTICE_SEC = 300.0
+#: 자동 다시 그리기 연속 한도 — 받기가 계속 실패해도 돌고 돌지 않게
+AUTO_RERUN_MAX = 3
+
+
+def _age_text(seconds: float) -> str:
+    if seconds < 3_600:
+        return f"{max(1, round(seconds / 60))}분"
+    if seconds < 86_400:
+        return f"{seconds / 3_600:.0f}시간"
+    return f"{seconds / 86_400:.0f}일"
+
+
+def _stale_notice(oldest: float, pending: list[str]) -> str:
+    """화면 위 안내 한 줄 (없으면 빈 문자열)."""
+    parts = []
+    if oldest >= STALE_NOTICE_SEC:
+        parts.append(f"<b>저장해 둔 값을 먼저 보여드립니다</b> (가장 오래된 것 "
+                     f"{_age_text(oldest)} 전)")
+    if pending:
+        names = list(dict.fromkeys(SOFT_LABELS.get(n, n) for n in pending))
+        parts.append("<b>받는 중:</b> " + " · ".join(names))
+    if not parts:
+        return ""
+    return " — ".join(parts) + ". 새 값이 오면 화면이 한 번 자동으로 바뀝니다."
+
+
+def _refresh_watch(waiting: bool, auto_on: bool) -> None:
+    """묵은 값·빈 값으로 먼저 그렸으면, 새 값이 왔을 때 **한 번** 다시 그립니다.
+
+    2초마다 '뒤에서 받던 것이 끝났나' 만 보는 작은 조각입니다. 끝났으면 화면
+    전체를 다시 돌립니다. 받기가 계속 실패하면 끝없이 돌 수 있어 연속
+    AUTO_RERUN_MAX 번까지만 합니다 (기다릴 게 없는 화면이 한 번 그려지면
+    횟수는 0 으로 돌아갑니다). 자동 갱신을 켠 상태에서는 그쪽이 주기적으로
+    다시 그리므로 따로 하지 않습니다.
+    """
+    if not waiting:
+        st.session_state["_auto_reruns"] = 0
+        return
+    if auto_on or not hasattr(st, "fragment"):
+        return
+    count = int(st.session_state.get("_auto_reruns", 0))
+    if count >= AUTO_RERUN_MAX:
+        return
+    armed = time.time()
+
+    @st.fragment(run_every=2)
+    def _watch() -> None:
+        # 그리는 중에 한 번 바로 실행됩니다 — 그때는 넘어갑니다
+        if time.time() - armed < 1.5 or swr.busy() > 0:
+            return
+        st.session_state["_auto_reruns"] = count + 1
+        st.rerun()
+
+    try:
+        _watch()
+    except Exception:  # noqa: BLE001 - 자동 다시 그리기는 있으면 좋은 것
         pass
 
 
@@ -3904,6 +4335,9 @@ def render_body(opts: dict) -> None:
             market_label=f"{config.MARKETS.get(_peek_market(), '')} 시장"),
         unsafe_allow_html=True,
     )
+    # 묵은 값·받는 중 안내가 들어갈 자리. 무엇을 묵은 값으로 그렸는지는 화면을
+    # 다 그려야 알 수 있어서, 자리만 잡아 두고 끝에서 채웁니다.
+    stale_slot = st.empty()
 
     if opts["demo"]:
         st.warning(
@@ -3965,6 +4399,10 @@ def render_body(opts: dict) -> None:
                 render_calendar_tab(data, opts["demo"], market=market)
             elif active == "research":
                 render_research_tab(opts["demo"])
+            elif active == "supply":
+                render_supply_tab(opts["demo"])
+            elif active == "earnings":
+                render_earnings_tab(opts["demo"], market=market)
             elif active == "sector_heat":
                 render_sector_heat_tab(opts["demo"])
             elif active == "kr_flows":
@@ -3983,11 +4421,16 @@ def render_body(opts: dict) -> None:
     # 무엇이 느린지 **숫자로** 남깁니다. "느리다" 를 고치려면 어디가
     # 느린지부터 알아야 합니다.
     stale = swr.stale_served()
+    oldest, pending = swr.stale_report()
     line = log.summary_line()
     if stale:
         line += (f" · 직전 값으로 먼저 보여준 것 {len(stale)}건 "
-                 "(뒤에서 새로 받는 중 — 다음 화면부터 새 값)")
+                 "(뒤에서 새로 받는 중)")
     st.markdown(ui.render_notice(line), unsafe_allow_html=True)
+    notice = _stale_notice(oldest, pending)
+    if notice:
+        stale_slot.markdown(ui.render_notice(notice), unsafe_allow_html=True)
+    _refresh_watch(bool(notice), bool(opts.get("auto")))
 
     # 다른 섹션 미리 받기 — 화면을 다 그린 **뒤**에 시작합니다
     try:
@@ -4021,14 +4464,16 @@ def main() -> None:
     # 코드가 AttributeError 로 죽는데, Streamlit Cloud 는 오류 본문을 가려서
     # 어느 파일인지 알 수 없습니다. 죽기 전에 파일 이름을 말해 줍니다.
     try:
-        _build = buildstamp.verify(BASE_DIR)
+        _check = getattr(buildstamp, "verify_cached", buildstamp.verify)
+        _build = _check(BASE_DIR)
     except Exception:  # noqa: BLE001 - 검사가 앱을 막으면 안 됩니다
         _build = None
     if _build is not None and not _build.ok:
         st.markdown(ui.render_build_warning(_build), unsafe_allow_html=True)
 
     opts = controls()
-    st.markdown(build_css(opts["convention"]), unsafe_allow_html=True)
+    st.markdown(build_css(opts["convention"], stack=opts.get("stack", True)),
+                unsafe_allow_html=True)
     if not opts.get("notes", True):
         # Streamlit 의 본문 컨테이너에 클래스를 걸 수 없어서, 설명 문구를
         # 숨기는 규칙을 전역으로 한 번 더 주입합니다. build_css 의 서명을

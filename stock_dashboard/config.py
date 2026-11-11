@@ -925,7 +925,9 @@ TAB_ORDER: tuple[str, ...] = (
     "macro",        # 미국 중심 매크로 — 금리·환율·원자재·VIX·FRED
     "us_flows",     # 미국 — 물가 속도 · 글로벌 유동성
     "cycle",        # 메모리 사이클 — 한·미 3사를 같이 봐야 하는 화면
-    "calendar",     # 주요 일정 — FOMC·금통위·지표 발표·만기·휴장·실적
+    "calendar",     # 주요 일정 — FOMC·금통위·지표 발표·만기·휴장·실적·배당락
+    "supply",       # 한국 — 종목별 외국인·기관 수급
+    "earnings",     # 실적 서프라이즈 — 발표치 vs 추정치
 )
 
 #: 탭에서 내린 섹션들. **코드는 그대로 남아 있습니다** — 아래 목록에서
@@ -981,13 +983,13 @@ SECTIONS_MERGED_INTO: dict[str, str] = {
 #: 보든 같은 배경입니다.
 MARKET_TABS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
     "kr": (
-        ("오늘", ("summary", "holdings")),
+        ("오늘", ("summary", "holdings", "earnings")),
         ("찾기", ("discover", "valuation", "chart")),
-        ("한국 시장", ("sector_heat", "research", "kr_flows")),
+        ("한국 시장", ("sector_heat", "supply", "research", "kr_flows")),
         ("공통", ("calendar", "macro", "cycle")),
     ),
     "us": (
-        ("오늘", ("summary", "holdings")),
+        ("오늘", ("summary", "holdings", "earnings")),
         ("찾기", ("discover", "valuation", "chart")),
         ("미국 시장", ("macro", "us_flows")),
         ("공통", ("calendar", "cycle")),
@@ -1011,6 +1013,8 @@ SPECIAL_TAB_LABELS = {
     "research": "산업 리포트",
     "calendar": "주요 일정",
     "cycle": "메모리 사이클",
+    "supply": "수급",
+    "earnings": "실적 서프라이즈",
 }
 
 # ──────────────────────────────────────────────────────────────────────────────

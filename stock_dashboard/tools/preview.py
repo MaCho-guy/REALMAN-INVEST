@@ -22,7 +22,7 @@ import components as ui
 import config
 import demo as demo_mod
 from compute import compute_premium, pick_quote, resolve_fx
-from theme import build_rules, build_vars
+from theme import build_rules, build_stack_rules, build_vars
 
 EXTRA_CSS = """
   body {
@@ -1014,8 +1014,34 @@ def _upcoming(data, use_demo: bool, market: str) -> str:
             + ui.render_calendar(top, today, market=market, compact=True))
 
 
+def _demo_dividend_views(data, use_demo: bool, today) -> list:
+    import dividends
+
+    held = {"MSFT", "AAPL", "MU", "QQQ", "005930.KS", "000660.KS"}
+    targets = []
+    for inst in config.SECTION_WATCHLIST.instruments:
+        if inst.source == "yahoo":
+            targets.append((inst.symbol, inst.name, "us"))
+        elif inst.source == "naver":
+            targets.append((inst.fundamental_symbol or inst.symbol + ".KS", inst.name, "kr"))
+    raw = demo_mod.demo_dividends([t[0] for t in targets]) if use_demo else {}
+    prices = {"MSFT": 420, "AAPL": 230, "MU": 110, "O": 58, "QQQ": 500, "SCHD": 28,
+              "UNH": 520, "005930.KS": 60000, "000660.KS": 190000}
+    return [dividends.analyze(sym, name, mkt, (raw.get(sym) or {}).get("history", []),
+                              today, announced_ex=(raw.get(sym) or {}).get("ex_date", ""),
+                              price=prices.get(sym), held=sym in held)
+            for sym, name, mkt in targets]
+
+
 def _calendar_panel(data, use_demo: bool, market: str) -> str:
+    import datetime as _dt
+    import dividends
+
     events, warns, today = _calendar_data(data, use_demo)
+    views = _demo_dividend_views(data, use_demo, today)
+    events = sorted(events + dividends.calendar_events(
+        views, today, today + _dt.timedelta(days=45)),
+        key=lambda e: (e.date, -e.importance, e.market))
     return (ui.render_section_head("주요 일정", "앞으로 45일 · 고르지 않은 시장은 흐리게",
                                    len(events))
             + ui.render_calendar(events, today, market=market)
@@ -1023,7 +1049,71 @@ def _calendar_panel(data, use_demo: bool, market: str) -> str:
             + ui.render_footnote(
                 "<b>출처:</b> FOMC 연준 공식 일정 · 금통위 한국은행 의결 일정 · 휴장일 "
                 "거래소 공지 · 미국 지표 발표일 FRED (프리뷰는 데모 날짜) · 만기일은 "
-                "규칙으로 계산"))
+                "규칙으로 계산 · 배당락일은 야후 발표 또는 추정")
+            + ui.render_section_head("배당 일정",
+                                     "관심·보유 종목 — 다음 배당락일 · 최근 12개월 배당",
+                                     sum(1 for v in views if v.count))
+            + ui.render_dividend_table(views, today, market=market))
+
+
+def _supply_panel(use_demo: bool) -> str:
+    import flows
+
+    names = dict(config.chart_candidates("kr"))
+    for sec in (config.SECTION_WATCHLIST, config.SECTION_LOCAL):
+        for inst in sec.instruments:
+            if inst.source == "naver":
+                names[inst.symbol] = inst.name
+    codes = ["005930", "000660", "005935", "005380", "035420", "068270", "051910"]
+    raw = demo_mod.demo_kr_flows(codes) if use_demo else {}
+    sums = [flows.summarize(c, (raw.get(c) or ([], "", ""))[0], name=names.get(c, c),
+                            source=(raw.get(c) or ([], "", ""))[1],
+                            error=(raw.get(c) or ([], "", "데이터 없음"))[2],
+                            held=c in ("005930", "000660"))
+            for c in codes]
+    sums.sort(key=flows.rank_key)
+    return (ui.render_section_head("수급 — 외국인 · 기관",
+                                   "2026-11-11 까지 · 5일 · 20일 누적, 금액은 근사",
+                                   sum(1 for x in sums if not x.error))
+            + "<div class='pv-chips'><span class='pv-chip'>차트 조건 후보 전체 "
+              "(약 50종목)</span><em>앱에서는 켜면 후보 전체를 봅니다</em></div>"
+            + ui.render_flow_table(sums)
+            + ui.render_footnote(
+                "<b>숫자만 셉니다.</b> 순매수는 원인이기도 하고 결과이기도 해서 방향을 "
+                "말해주지 않습니다. 금액은 순매수 주식 수 × 그날 종가의 합(근사)."))
+
+
+def _earnings_panel(use_demo: bool, market: str) -> str:
+    import datetime as _dt
+    import earnings
+
+    today = _dt.date(2026, 11, 11)
+    if market == "us":
+        syms = [(i.symbol, i.name) for i in config.SECTION_WATCHLIST.instruments
+                if i.source == "yahoo"]
+        raw = demo_mod.demo_us_earnings([s for s, _n in syms]) if use_demo else {}
+        views = [earnings.us_view(s, n, (raw.get(s) or {}).get("rows"), today,
+                                  error=(raw.get(s) or {}).get("error", ""),
+                                  held=s in ("MSFT", "AAPL", "MU"))
+                 for s, n in syms]
+        return (ui.render_section_head("실적 서프라이즈 · 미국",
+                                       "EPS 추정치 vs 발표치 — 최근 4분기",
+                                       sum(1 for v in views if v.reported))
+                + ui.render_us_earnings(views, today))
+    codes = [("005930", "삼성전자"), ("000660", "SK하이닉스"), ("005935", "삼성전자우"),
+             ("005380", "현대차")]
+    raw = demo_mod.demo_kr_quarters([c for c, _n in codes]) if use_demo else {}
+    views = [earnings.kr_view(c, n, (raw.get(c) or ([], ""))[0], today=today,
+                              held=c in ("005930", "000660"))
+             for c, n in codes]
+    demo_mod.demo_fill_kr_surprise(views)
+    filings = {f.stock_code: f for f in demo_mod.demo_market_filings() if f.kind == "실적"}
+    for v in views:
+        v.filing = filings.get(v.code)
+    return (ui.render_section_head("실적 서프라이즈 · 한국",
+                                   "최근 분기 실적 · 전년 동기 대비 · 다음 분기 컨센서스",
+                                   sum(1 for v in views if v.latest))
+            + ui.render_kr_earnings(views))
 
 
 def _portfolio_html(data, fx, use_demo: bool, market: str) -> str:
@@ -1506,7 +1596,7 @@ def build_html(convention: str, use_demo: bool) -> str:
     # ── 시장이 최상위 축 — 앱과 같은 구조 ─────────────────────────────
     # 시장마다 내용이 다른 탭은 패널을 따로 만듭니다 (kr:summary, us:summary).
     # 한쪽에만 있거나 공통인 탭은 하나만 만듭니다.
-    PER_MARKET = {"summary", "holdings", "discover", "valuation", "chart"}
+    PER_MARKET = {"summary", "holdings", "discover", "valuation", "chart", "earnings"}
 
     def panel_key(market: str, key: str) -> str:
         return f"{market}:{key}" if key in PER_MARKET else key
@@ -1522,6 +1612,10 @@ def build_html(convention: str, use_demo: bool) -> str:
             return _valuation_tab_panel(data, fx, use_demo, market)
         if key == "research":
             return _research_panel(use_demo)
+        if key == "supply":
+            return _supply_panel(use_demo)
+        if key == "earnings":
+            return _earnings_panel(use_demo, market)
         if key == "calendar":
             return _calendar_panel(data, use_demo, market)
         if key == "chart":
@@ -1595,7 +1689,7 @@ def build_html(convention: str, use_demo: bool) -> str:
     css = (
         "<style>"
         + build_vars(convention, ":root")
-        + build_rules()
+        + build_rules() + build_stack_rules()
         + EXTRA_CSS
         + "</style>"
     )

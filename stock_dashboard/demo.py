@@ -1307,3 +1307,130 @@ def demo_fred_release_dates(today=None):
             rows.append({"release_id": rid, "release_name": f"(데모) {key.title()}",
                          "date": d.isoformat()})
     return {"release_dates": rows}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 수급 · 배당 · 실적 데모 (지어낸 숫자 — 모양 확인용)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _demo_weekdays(n: int, end=None) -> list:
+    import datetime as _dt  # noqa: PLC0415
+    day = end or _dt.date(2026, 11, 11)
+    out = []
+    while len(out) < n:
+        if day.weekday() < 5:
+            out.append(day)
+        day -= _dt.timedelta(days=1)
+    return out
+
+
+def demo_kr_flows(codes) -> dict:
+    from sources.naver_extra import FlowDay  # noqa: PLC0415
+
+    out = {}
+    for idx, code in enumerate(codes):
+        rnd = random.Random(f"flow-{code}")
+        if idx == len(codes) - 1 and len(codes) > 3:
+            out[code] = ([], "", "(데모) HTTP 403")
+            continue
+        base = rnd.uniform(20_000, 400_000)
+        bias_f = rnd.uniform(-0.6, 0.6)
+        bias_i = rnd.uniform(-0.5, 0.5)
+        ratio = rnd.uniform(8, 55)
+        price = rnd.uniform(15_000, 300_000)
+        rows = []
+        for i, day in enumerate(_demo_weekdays(40)):
+            f = base * (bias_f + rnd.gauss(0, 0.8))
+            ins = base * (bias_i + rnd.gauss(0, 0.6))
+            rows.append(FlowDay(
+                date=day.isoformat(), close=round(price * (1 - i * 0.002), -1),
+                volume=base * rnd.uniform(4, 9), inst=round(ins), foreign=round(f),
+                foreign_ratio=round(ratio - i * bias_f * 0.02, 2)))
+        out[code] = (rows, "(데모)", "")
+    return out
+
+
+def demo_dividends(symbols) -> dict:
+    import datetime as _dt  # noqa: PLC0415
+
+    today = _dt.date(2026, 11, 11)
+    plans = {  # (간격 일, 금액, 발표일 여부)
+        "MSFT": (91, 0.83, True), "AAPL": (91, 0.26, True), "MU": (91, 0.115, False),
+        "O": (30, 0.2685, True), "QQQ": (91, 0.70, False), "SCHD": (91, 0.26, False),
+        "UNH": (91, 2.21, True),
+    }
+    out = {}
+    for sym in symbols:
+        rnd = random.Random(f"div-{sym}")
+        if sym.endswith((".KS", ".KQ")):
+            gap, amt, ann = ((91, 361.0, False) if sym.startswith("005930")
+                             else (365, rnd.choice([1200.0, 400.0, 3000.0]), False))
+        else:
+            gap, amt, ann = plans.get(sym, (91, 0.5, False))
+        last = today - _dt.timedelta(days=rnd.randint(5, gap - 3))
+        hist = []
+        day = last
+        for k in range(max(4, 900 // gap)):
+            hist.append((day.isoformat(), amt * (1 - 0.03 * (k // 4))))
+            day -= _dt.timedelta(days=gap + rnd.randint(-3, 3))
+        ex = (last + _dt.timedelta(days=gap)).isoformat() if ann else ""
+        out[sym] = {"history": sorted(hist), "ex_date": ex,
+                    "pay_date": "", "error": ""}
+    return out
+
+
+def demo_us_earnings(symbols) -> dict:
+    import datetime as _dt  # noqa: PLC0415
+
+    today = _dt.date(2026, 11, 11)
+    out = {}
+    for sym in symbols:
+        if sym in ("QQQ", "SCHD"):
+            out[sym] = {"rows": [], "error": "야후에 실적 일정이 없습니다"}
+            continue
+        rnd = random.Random(f"eps-{sym}")
+        eps = rnd.uniform(0.8, 6.0)
+        rows = []
+        first = today - _dt.timedelta(days=rnd.randint(10, 60))
+        nxt = first + _dt.timedelta(days=91)
+        rows.append({"date": nxt.isoformat(), "estimate": round(eps * 1.04, 2),
+                     "reported": None, "surprise": None})
+        for k in range(4):
+            day = first - _dt.timedelta(days=91 * k)
+            est = round(eps * (1 - 0.03 * k), 2)
+            rep = round(est * (1 + rnd.gauss(0.03, 0.05)), 2)
+            rows.append({"date": day.isoformat(), "estimate": est, "reported": rep,
+                         "surprise": round((rep - est) / abs(est) * 100, 2)})
+        out[sym] = {"rows": rows, "error": ""}
+    return out
+
+
+def demo_kr_quarters(codes) -> dict:
+    from sources.naver_extra import Period  # noqa: PLC0415
+
+    keys = ["202509", "202512", "202603", "202606", "202609", "202612"]
+    out = {}
+    for code in codes:
+        rnd = random.Random(f"q-{code}")
+        sales = rnd.uniform(3_000, 800_000)
+        margin = rnd.uniform(-0.05, 0.25)
+        periods = []
+        for i, k in enumerate(keys):
+            s = sales * (1 + 0.03 * i + rnd.gauss(0, 0.04))
+            op = s * (margin + rnd.gauss(0, 0.03))
+            periods.append(Period(k, f"{k[:4]}.{k[4:]}.", consensus=(i == len(keys) - 1),
+                                  values={"매출액": round(s), "영업이익": round(op),
+                                          "순이익": round(op * 0.8)}))
+        out[code] = (periods, "")
+    return out
+
+
+def demo_fill_kr_surprise(views) -> None:
+    """데모에서는 '기록이 쌓인 뒤' 모습을 보여주려고 서프라이즈를 채웁니다."""
+    for v in views[:3]:
+        if v.latest is None:
+            continue
+        rnd = random.Random(f"sur-{v.code}")
+        v.surprise = {"매출액": round(rnd.gauss(1, 3), 1),
+                      "영업이익": round(rnd.gauss(2, 9), 1), "순이익": None}
+        v.surprise_seen = "2026-10-28"

@@ -133,12 +133,31 @@ def build_vars(convention: str, scope: str = ":root") -> str:
     --sp-4: 20px;
     --sp-5: 32px;
   }}
+  /* 휴대폰 — 글자를 한 단계씩 키웁니다 (2026-11-11 "접으면 글자가 안 보인다").
+     화면이 좁다고 글자를 줄이면 안 됩니다. 눈과의 거리는 같고 화면만
+     작으니, 한 줄에 덜 담고 글자는 오히려 키워야 읽힙니다. 줄어든 폭은
+     표를 카드로 세워서 감당합니다 (아래 .dash-stk). */
+  @media (max-width: 640px) {{
+    {scope} {{
+      --fs-1: 0.82rem;   /* 13px */
+      --fs-2: 0.88rem;   /* 14px */
+      --fs-3: 0.95rem;   /* 15px */
+      --fs-4: 1.00rem;   /* 16px */
+      --fs-5: 1.07rem;   /* 17px */
+      --fs-6: 1.16rem;   /* 18.5px */
+    }}
+  }}
 """
 
 
-def build_css(convention: str) -> str:
-    """앱 전체에 주입할 CSS (변수 + 규칙)."""
-    return "<style>" + build_vars(convention) + build_rules() + "</style>"
+def build_css(convention: str, stack: bool = True) -> str:
+    """앱 전체에 주입할 CSS (변수 + 규칙).
+
+    stack=True 면 좁은 화면에서 표를 카드로 세웁니다 (기본). False 면 표를
+    그대로 두고 옆으로 밀어 봅니다.
+    """
+    return ("<style>" + build_vars(convention) + build_rules()
+            + (build_stack_rules() if stack else "") + "</style>")
 
 
 def build_rules() -> str:
@@ -423,6 +442,42 @@ def build_rules() -> str:
   }}
   .dash-fl-filer {{ font-size: var(--fs-2); color:var(--dash-ink-muted); margin-top:2px; }}
   .dash-fg-wrap {{ display:grid; gap:12px; font-family:{FONT_STACK}; }}
+
+  /* 수급 · 배당 · 실적 표 — 숫자 칸 아래 작은 보조 줄 */
+  table.dash-flowt td .sub, table.dash-divt td .sub, table.dash-est td .sub {{
+    display:block; font-size: var(--fs-2); color:var(--dash-ink-muted);
+    font-weight:500; margin-top:2px;
+  }}
+  table.dash-flowt td.up b, table.dash-flowt span.up, table.dash-est span.up,
+  table.dash-flowt .sub.up {{ color:var(--dash-up); }}
+  table.dash-flowt td.down b, table.dash-flowt span.down, table.dash-est span.down,
+  table.dash-flowt .sub.down {{ color:var(--dash-down); }}
+  table.dash-est .sub.up {{ color:var(--dash-up); }}
+  table.dash-est .sub.down {{ color:var(--dash-down); }}
+  table.dash-flowt td, table.dash-divt td, table.dash-est td {{ vertical-align:top; }}
+  .dash-spark {{ display:block; }}
+  .dash-spark line {{ stroke: var(--dash-divider); stroke-width:1; }}
+  .dash-spark rect.up {{ fill: var(--dash-up); }}
+  .dash-spark rect.down {{ fill: var(--dash-down); }}
+  table.dash-divt tr.dv-other td {{ opacity:.55; }}
+  table.dash-divt td.note {{ white-space:normal; min-width:160px; text-align:left;
+                             color:var(--dash-ink-2); font-size: var(--fs-2); }}
+  .dv-b {{ display:inline-block; font-size: var(--fs-1); padding:0 6px;
+           border-radius: var(--r-pill); margin-left:4px; vertical-align:1px; }}
+  .dv-b.ann {{ background:#e3f2ea; color:#1b6b45; }}
+  .dv-b.est {{ background:#fbf0de; color:#93520a; }}
+  table.dash-est td.es-cell {{ white-space:normal; text-align:left; }}
+  .es-q {{ display:inline-flex; flex-direction:column; align-items:flex-start;
+           gap:1px; margin:0 6px 4px 0; padding:4px 8px; min-width:74px;
+           border:1px solid var(--dash-border); border-radius: var(--r-inner);
+           font-size: var(--fs-2); background:var(--dash-surface); }}
+  .es-q b {{ font-size: var(--fs-1); color:var(--dash-ink-muted); font-weight:600; }}
+  .es-q span {{ font-size: var(--fs-3); font-weight:700; }}
+  .es-q i {{ font-style:normal; color:var(--dash-ink-muted); font-size: var(--fs-1); }}
+  .es-q.up {{ border-color: color-mix(in srgb, var(--dash-up) 45%, transparent); }}
+  .es-q.down {{ border-color: color-mix(in srgb, var(--dash-down) 45%, transparent); }}
+  table.dash-est a.dash-inline-link {{ display:block; font-size: var(--fs-2); margin-top:3px; }}
+  .cal-k.dividend {{ color:#1b6b45; font-weight:650; }}
   .dash-fg ul {{ margin:6px 0 0 0; padding-left:18px; }}
   .dash-fg li {{ font-size: var(--fs-3); color:var(--dash-ink-2); line-height:1.55;
                  margin:2px 0; }}
@@ -620,7 +675,7 @@ def build_rules() -> str:
     background: var(--dash-raised);
   }}
   table.dash-table tbody tr:hover td:first-child {{ background: #e7ebf1; }}
-  table.dash-table thead th:first-child {{ background: var(--dash-raised); }}
+  table.dash-table thead th:first-child {{ background: var(--dash-raised); left: 0; z-index: 3; }}
   table.dash-table td {{ color: var(--dash-ink); }}
   /* 줄이 길면 눈이 옆줄로 샙니다. 홀짝을 아주 옅게 깔아 줄을 잡아줍니다 —
      테두리를 더 긋는 것보다 조용합니다. */
@@ -1981,5 +2036,172 @@ def build_rules() -> str:
   }}
   .dash-macro-group .sub {{
     font-size: var(--fs-2); font-weight: 500; color: var(--dash-ink-muted);
+  }}
+
+  /* ══ 휴대폰 공통 ═══════════════════════════════════════════════════════ */
+  @media (max-width: 640px) {{
+    /* 본문 여백 — 스트림릿 기본 좌우 여백이 좁은 화면의 1/8 을 가져갑니다 */
+    section[data-testid="stMain"] .block-container,
+    div[data-testid="stMainBlockContainer"] {{
+      padding-left: 0.7rem !important; padding-right: 0.7rem !important;
+    }}
+    /* 표를 그대로 둘 때(카드로 세우지 않을 때)는 **옆으로 밀 수 있어야**
+       합니다. 감싼 칸이 화면보다 넓어지면 밀리지 않고 잘리기만 하므로
+       폭을 화면에 묶습니다. 종목 이름 칸은 밀어도 붙어 있습니다. */
+    .dash-table-wrap, .dash-htable-wrap {{
+      max-width: calc(100vw - 1.4rem); overflow-x: auto;
+      -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain;
+    }}
+    .dash-htable td.ht-name, .dash-htable td.hd-name {{
+      position: sticky; left: 0; z-index: 1; background: var(--dash-surface);
+      box-shadow: 1px 0 0 var(--dash-divider);
+    }}
+    /* 건수 카드 묶음은 **옆으로 미는 한 줄**로 — 일곱 장을 두 줄씩 세우면
+       목록이 나오기 전에 화면 두 장을 씁니다. 다음 카드가 반쯤 걸쳐 보여서
+       밀 수 있다는 걸 알립니다. */
+    .dash-cc, .dash-fc-grid {{
+      display: flex !important; overflow-x: auto; gap: 8px;
+      scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch;
+      padding-bottom: 6px; max-width: calc(100vw - 1.4rem);
+    }}
+    .dash-cc > *, .dash-fc-grid > * {{
+      flex: 0 0 43%; min-width: 132px; scroll-snap-align: start;
+    }}
+    .dash-pf {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+    .dash-sectors {{ grid-template-columns: minmax(0, 1fr); }}
+    .dash-kv {{ display: block; max-width: calc(100vw - 1.4rem); overflow-x: auto; }}
+    .dash-kv th, .dash-kv td {{ white-space: normal !important; }}
+    .dash-check {{ grid-template-columns: 17px minmax(0, 1fr) auto; }}
+    .dash-check > * {{ min-width: 0; overflow-wrap: anywhere; }}
+    .dash-scr-title {{ white-space: normal; flex: 1 1 auto; }}
+  }}
+"""
+
+
+def build_stack_rules() -> str:
+    """좁은 화면에서 표를 카드로 세우는 규칙. build_css(stack=False) 면 뺍니다
+    (그때는 표를 그대로 두고 옆으로 밀어 봅니다)."""
+    return f"""
+  /* ══ 좁은 화면 — 표를 줄 단위 카드로 ═══════════════════════════════════
+     components.stack_tables 가 칸마다 data-l="머리글" 을 넣어 둡니다.
+     640px 아래에서는 한 줄(tr)을 카드 한 장으로 세우고, 머리글을 칸 왼쪽에
+     띄웁니다(float). 값 쪽은 여러 줄이어도 오른쪽에 그대로 흐릅니다.
+     이 묶음은 **파일 맨 끝**에 있어야 합니다 — 표마다 따로 준 폭·정렬·
+     고정 열 규칙을 여기서 덮기 때문입니다. */
+  @media (max-width: 640px) {{
+    .dash-stkw {{
+      overflow: visible !important; max-height: none !important;
+      border: none !important; background: none !important;
+      border-radius: 0 !important;
+    }}
+    table.dash-stk, table.dash-stk tbody {{ display: block; width: 100%; }}
+    table.dash-stk thead {{ display: none; }}
+    table.dash-stk tr {{
+      display: block; margin: 0 0 8px; padding: 10px 12px 8px;
+      background: var(--dash-surface) !important;
+      border: 1px solid var(--dash-border); border-radius: var(--r-card);
+    }}
+    table.dash-stk td {{
+      display: flow-root; text-align: right !important;
+      padding: 4px 0 !important; border: none !important;
+      white-space: normal !important; position: static !important;
+      background: none !important; width: auto !important;
+      min-width: 0 !important; max-width: none !important;
+      font-size: var(--fs-3); line-height: 1.45; opacity: 1;
+      overflow-wrap: anywhere;
+    }}
+    table.dash-table.dash-stk td.mk {{ text-align: right !important; }}
+    table.dash-stk td + td {{ border-top: 1px solid var(--dash-divider) !important; }}
+    table.dash-stk td::before {{
+      content: attr(data-l); float: left; max-width: 44%;
+      margin-right: 12px; text-align: left;
+      color: var(--dash-ink-muted); font-size: var(--fs-2); font-weight: 500;
+      white-space: normal; line-height: 1.45;
+    }}
+    /* 카드 제목 — 첫 칸(순위 칸이 있으면 그다음 칸) */
+    table.dash-stk td:first-child:not(.ht-rank),
+    table.dash-stk td.ht-rank + td {{
+      text-align: left !important; font-size: var(--fs-5); font-weight: 700;
+      padding: 0 0 7px !important; border-top: none !important;
+    }}
+    table.dash-stk td.ht-name, table.dash-stk td.hd-name {{ box-shadow: none; }}
+    table.dash-stk td:first-child:not(.ht-rank)::before,
+    table.dash-stk td.ht-rank + td::before {{ content: none; }}
+    table.dash-stk td.ht-rank {{ display: none; }}
+    /* 값 아래 보조 줄은 같은 줄로 올립니다 — 카드 높이가 절반이 됩니다 */
+    table.dash-stk td .sub {{
+      display: inline !important; font-size: var(--fs-2); margin: 0 0 0 7px; }}
+    table.dash-stk td .sub + .sub::before {{ content: "· "; }}
+    table.dash-stk td:first-child .sub, table.dash-stk td.ht-rank + td .sub {{
+      display: inline; margin-left: 6px; font-weight: 500;
+    }}
+    /* 비교용 막대·흐림은 카드에서 빼냅니다 */
+    table.dash-stk tr.dv-other td {{ opacity: 1; }}
+    table.dash-stk tr.dv-other {{ opacity: .6; }}
+    .dash-pft.dash-stk td.pf-w i {{ display: none; }}
+
+    /* 차트 조건 — 해당하는 조건만 남깁니다 (7칸을 다 세우면 종목당 9줄) */
+    table.dash-ctable.dash-stk td.ct-no,
+    table.dash-ctable.dash-stk td.ct-na {{ display: none; }}
+    table.dash-ctable.dash-stk td span {{ max-width: none !important; }}
+    table.dash-ctable.dash-stk td.ct-yes span {{
+      display: inline !important; margin-left: 6px; color: var(--dash-ink-2);
+      font-size: var(--fs-2); }}
+
+    /* 시장 공시 — 회사 / 유형·날짜 / 보고서 */
+    table.dash-fl.dash-stk tr {{
+      display: grid; grid-template-columns: 1fr auto; gap: 4px 10px;
+      align-items: start;
+    }}
+    table.dash-fl.dash-stk td {{ display: block; padding: 0 !important;
+                                 border: none !important; }}
+    table.dash-fl.dash-stk td::before {{ content: none !important; }}
+    table.dash-fl.dash-stk td:nth-child(3) {{
+      grid-column: 1 / -1; grid-row: 1; text-align: left !important;
+      font-size: var(--fs-5); font-weight: 700;
+    }}
+    table.dash-fl.dash-stk td:nth-child(2) {{
+      grid-column: 1; grid-row: 2; text-align: left !important;
+      font-size: var(--fs-3); font-weight: 400; white-space: normal;
+    }}
+    table.dash-fl.dash-stk td:nth-child(2) .dash-fk-sub {{
+      display: inline; margin-left: 6px; white-space: normal; }}
+    table.dash-fl.dash-stk td:nth-child(1) {{
+      grid-column: 2; grid-row: 2; text-align: right !important;
+      font-size: var(--fs-2) !important; font-weight: 500 !important;
+      color: var(--dash-ink-muted); padding: 2px 0 0 !important;
+    }}
+    table.dash-fl.dash-stk td:nth-child(1) .dash-fl-mkt {{
+      display: inline; margin-left: 6px; }}
+    table.dash-fl.dash-stk td:nth-child(4) {{
+      grid-column: 1 / -1; grid-row: 3; text-align: left !important;
+      min-width: 0 !important; padding-top: 3px !important;
+    }}
+
+    /* 실적(미국) — 분기 칩은 머리글 아래 한 줄로 */
+    table.dash-est.dash-stk td.es-cell {{ text-align: left !important; }}
+    table.dash-est.dash-stk td.es-cell::before {{ float: none; display: block;
+      max-width: none; margin: 0 0 5px; }}
+    .es-q {{ min-width: 66px; }}
+
+
+    /* 긴 목록은 **칸 안에서** 위아래로 밉니다 — 43종목을 그대로 세우면
+       그 아래 내용까지 가려면 화면을 스무 번 넘겨야 합니다. 끝까지 밀면
+       바깥 화면이 이어서 움직입니다. */
+    .dash-stkw.dash-stk-long {{
+      max-height: 74vh !important; overflow-y: auto !important;
+      -webkit-overflow-scrolling: touch;
+      border-top: 1px solid var(--dash-border) !important;
+      border-bottom: 1px solid var(--dash-border) !important;
+      padding: 0 1px 6px;
+    }}
+    .dash-stkw.dash-stk-long::before {{
+      content: attr(data-n) "개 · 이 칸 안에서 위아래로 밀어 보기";
+      position: sticky; top: 0; z-index: 3; display: block;
+      padding: 6px 2px; margin-bottom: 4px;
+      background: var(--dash-page); color: var(--dash-ink-muted);
+      font-size: var(--fs-2); font-family: {FONT_STACK};
+      border-bottom: 1px solid var(--dash-divider);
+    }}
   }}
 """

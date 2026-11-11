@@ -95,7 +95,8 @@ FRED_RELEASES = (
 )
 
 KIND_LABEL = {"policy": "통화정책", "data": "지표", "expiry": "만기",
-              "holiday": "휴장", "earnings": "실적", "early": "조기 마감"}
+              "holiday": "휴장", "earnings": "실적", "early": "조기 마감",
+              "dividend": "배당락"}
 MARKET_LABEL = {"kr": "한국", "us": "미국"}
 
 
@@ -103,7 +104,7 @@ MARKET_LABEL = {"kr": "한국", "us": "미국"}
 class Event:
     date: str                 # YYYY-MM-DD (그 나라 날짜)
     market: str               # kr | us
-    kind: str                 # policy | data | expiry | holiday | earnings | early
+    kind: str                 # policy | data | expiry | holiday | earnings | early | dividend
     title: str
     note: str = ""
     importance: int = 2       # 3 = 굵게

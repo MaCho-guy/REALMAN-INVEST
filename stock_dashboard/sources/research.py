@@ -133,6 +133,159 @@ def parse_list(page: str, kind: str) -> list[Report]:
     return out
 
 
+# ── 새 페이지 (Next.js) ─────────────────────────────────────────────────────
+#
+# 2026-11-11 진단: 목록 페이지가 표(<tr>)가 아닌 Next.js 앱으로 바뀌었습니다
+# (HTTP 200, 13만 바이트, <tr> 0개). 이런 페이지는 데이터를 HTML 안의
+# 스크립트에 JSON 으로 싣습니다 — __NEXT_DATA__ 이거나, 앱 라우터라면
+# self.__next_f.push([1,"…"]) 조각들입니다. 필드 이름을 아직 모르므로
+# '제목처럼 생긴 키 + (날짜나 증권사나 PDF)' 를 가진 객체를 찾아 읽습니다.
+# 진단 패널이 첫 객체의 키를 찍어 주므로, 그걸 보고 정확히 맞춥니다.
+
+_NEXT_DATA = re.compile(
+    r'<script[^>]+id="__NEXT_DATA__"[^>]*>(.*?)</script>', re.S | re.I)
+_NEXT_F = re.compile(r'self\.__next_f\.push\(\[1,\s*"((?:\\.|[^"\\])*)"\]\)', re.S)
+
+
+def next_text(page: str) -> str:
+    """페이지에 실린 JSON 조각을 한 문자열로 (없으면 빈 문자열)."""
+    import json  # noqa: PLC0415
+    m = _NEXT_DATA.search(page or "")
+    parts = [m.group(1)] if m else []
+    for chunk in _NEXT_F.findall(page or ""):
+        try:
+            parts.append(json.loads(f'"{chunk}"'))
+        except ValueError:
+            continue
+    return "\n".join(parts)
+
+
+def _objects(text: str, limit: int = 4000):
+    """text 안의 JSON 객체({…})를 하나씩 — 괄호 짝을 맞춰 잘라 json 으로."""
+    import json  # noqa: PLC0415
+    n = len(text)
+    i = 0
+    found = 0
+    while i < n and found < limit:
+        start = text.find("{", i)
+        if start < 0:
+            break
+        depth, j, in_str, esc = 0, start, False, False
+        while j < n:
+            ch = text[j]
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+            elif ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        try:
+            obj = json.loads(text[start:j + 1])
+            found += 1
+            yield obj
+            i = j + 1
+        except ValueError:
+            i = start + 1
+
+
+def _walk_dicts(node, depth: int = 0):
+    if depth > 12:
+        return
+    if isinstance(node, dict):
+        yield node
+        for v in node.values():
+            yield from _walk_dicts(v, depth + 1)
+    elif isinstance(node, list):
+        for v in node:
+            yield from _walk_dicts(v, depth + 1)
+
+
+def _pick(d: dict, *needles: str, avoid: tuple[str, ...] = ()) -> str:
+    for k, v in d.items():
+        low = str(k).lower()
+        if any(a in low for a in avoid):
+            continue
+        if any(n in low for n in needles) and isinstance(v, (str, int)) and str(v).strip():
+            return str(v).strip()
+    return ""
+
+
+_ISO_ANY = re.compile(r"(\d{2,4})[.\-/](\d{1,2})[.\-/](\d{1,2})")
+
+
+def _iso_any(text: str) -> str:
+    m = _ISO_ANY.search(text or "")
+    if not m:
+        digits = re.sub(r"\D", "", text or "")
+        if len(digits) >= 8 and digits[:2] in ("19", "20"):
+            return f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}"
+        return ""
+    y, mo, d = m.groups()
+    y = f"20{y}" if len(y) == 2 else y
+    return f"{y}-{int(mo):02d}-{int(d):02d}"
+
+
+def _pick_date(d: dict) -> str:
+    """키 이름에 date·dt·time·At 이 든 값 중 **날짜로 읽히는** 첫 값.
+    ('category' 에도 'at' 이 들어 있어 이름만으로 고르면 틀립니다.)"""
+    for k, v in d.items():
+        low = str(k).lower()
+        if any(n in low for n in ("date", "dt", "time")) or str(k).endswith("At"):
+            iso = _iso_any(str(v))
+            if iso:
+                return iso
+    return ""
+
+
+def report_like(d: dict) -> bool:
+    title = _pick(d, "title", "subject")
+    if not title or len(title) < 4:
+        return False
+    extra = (_pick_date(d)
+             or _pick(d, "broker", "office", "securit", "provider", "firm")
+             or any(isinstance(v, str) and ".pdf" in v.lower() for v in d.values()))
+    return bool(extra)
+
+
+def parse_next(page: str, kind: str) -> list[Report]:
+    text = next_text(page)
+    if not text:
+        return []
+    out: list[Report] = []
+    seen: set[str] = set()
+    for obj in _objects(text):
+        for d in _walk_dicts(obj):
+            if not report_like(d):
+                continue
+            title = _html.unescape(_pick(d, "title", "subject"))
+            date = _pick_date(d)
+            pdf = next((str(v) for v in d.values()
+                        if isinstance(v, str) and ".pdf" in v.lower()), "")
+            url = _pick(d, "url", "link", "href", avoid=("pdf", "image", "img", "thumb"))
+            key = title + date
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(Report(
+                kind=kind, title=title,
+                broker=_pick(d, "broker", "office", "securit", "provider", "firm"),
+                category=(_pick(d, "category", "industry", "upjong", "sector")
+                          if kind == "industry" else ""),
+                date=date, url=_abs(url) if url else "",
+                pdf=_abs(pdf) if pdf else ""))
+    return out
+
+
 def fetch_page(kind: str, page: int = 1) -> tuple[list[Report], str]:
     try:
         resp = requests.get(BASE + LISTS[kind], params={"page": page},
@@ -143,7 +296,7 @@ def fetch_page(kind: str, page: int = 1) -> tuple[list[Report], str]:
         enc = (resp.encoding or "").lower()
         if enc in ("", "iso-8859-1"):
             resp.encoding = resp.apparent_encoding or "euc-kr"
-        items = parse_list(resp.text, kind)
+        items = parse_list(resp.text, kind) or parse_next(resp.text, kind)
     except requests.RequestException as exc:
         return [], f"요청 실패: {type(exc).__name__}"
     except Exception as exc:  # noqa: BLE001

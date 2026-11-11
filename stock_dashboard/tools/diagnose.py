@@ -610,6 +610,11 @@ def diagnose_kr_codes() -> None:
         return
     print(f"  DART 매핑 {len(corp_map):,}건 수신")
 
+    #: 같은 회사인데 화면에서는 줄여 부르는 이름 → DART 의 법인 등기명.
+    #: 2026-11-11 진단에서 나온 4건 — 코드는 맞고 이름 표기만 다릅니다.
+    aliases = {"현대차": "현대자동차", "한국전력": "한국전력공사",
+               "kt": "케이티", "kt&g": "케이티앤지"}
+
     def norm(text: str) -> str:
         """비교용 정규화 — 공백·점·㈜ 같은 장식을 뺍니다."""
         out = (text or "").strip().lower()
@@ -626,7 +631,7 @@ def diagnose_kr_codes() -> None:
             missing.append((code, name))
             continue
         real = entry.get("corp_name", "")
-        if norm(real) == norm(name):
+        if norm(real) == norm(name) or norm(real) == norm(aliases.get(norm(name), "")):
             good += 1
         else:
             bad.append((code, name, real, "코스닥" if code in kq else "코스피"))
@@ -921,6 +926,85 @@ def diagnose_filings() -> None:
             print(f"    {n:>3}  {t}")
 
 
+def diagnose_kr_supply() -> None:
+    """국내 수급(네이버 두 경로) · 분기 실적표 · 공매도/신용 단서."""
+    import requests as _rq
+    from sources import naver as _nv
+    from sources import naver_extra as _nx
+
+    head("국내 수급 · 분기 실적 (네이버)")
+    code = "005930"
+    try:
+        r = _rq.get(_nx.TREND_URL.format(code=code), params={"pageSize": "5"},
+                    headers=_nv.HEADERS, timeout=_nv.TIMEOUT)
+        print(f"\n모바일 수급 JSON: HTTP {r.status_code} · {len(r.content):,} bytes")
+        try:
+            payload = r.json()
+            rows = _nx._find_rows(payload)
+            print(f"  수급 줄 {len(rows)}개 · 해석 {len(_nx.parse_trend_json(payload))}개")
+            if rows:
+                print("  첫 줄 키: " + ", ".join(
+                    f"{k}={str(v)[:18]!r}" for k, v in list(rows[0].items())[:16]))
+            else:
+                print("  앞부분: " + repr(r.text[:400]))
+        except ValueError:
+            print("  JSON 아님 — 앞부분: " + repr(r.text[:300]))
+    except Exception as exc:  # noqa: BLE001
+        print(f"\n모바일 수급 JSON: 실패 — {type(exc).__name__}: {exc}")
+    try:
+        r = _rq.get(_nx.FRGN_URL, params={"code": code, "page": 1},
+                    headers=_nx._HTML_HEADERS, timeout=_nv.TIMEOUT)
+        if (r.encoding or "").lower() in ("", "iso-8859-1"):
+            r.encoding = "euc-kr"
+        got = _nx.parse_frgn_html(r.text)
+        print(f"\nPC 수급 표: HTTP {r.status_code} · {len(r.content):,} bytes · "
+              f"<tr> {r.text.count('<tr')}개 · 해석 {len(got)}줄")
+        for g in got[:3]:
+            print(f"  {g.date} 종가 {g.close} 거래량 {g.volume} 기관 {g.inst} "
+                  f"외국인 {g.foreign} 보유율 {g.foreign_ratio}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"\nPC 수급 표: 실패 — {type(exc).__name__}: {exc}")
+    rows, src, err = _nx.fetch_flows(code, 25)
+    print(f"\n최종: {len(rows)}일 · 출처 {src or '-'} · {err or '정상'}")
+
+    periods, err = _nx.fetch_quarter(code)
+    print(f"\n분기 실적표: {len(periods)}개 기간 · {err or '정상'}")
+    for p in periods:
+        vals = " · ".join(f"{k} {v}" for k, v in p.values.items())
+        print(f"  {p.label:10s} {vals}")
+
+    try:
+        r = _rq.get(_nv.INTEGRATION_URL.format(code=code), headers=_nv.HEADERS,
+                    timeout=_nv.TIMEOUT)
+        text = r.text
+        print(f"\n공매도·신용 단서 (integration): HTTP {r.status_code}")
+        for word in ("credit", "Credit", "short", "Short", "신용", "공매도", "대차",
+                     "foreignRate"):
+            k = text.find(word)
+            if k >= 0:
+                print(f"  '{word}' 주변: {text[max(0, k - 80):k + 120]!r}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"\n공매도·신용 단서: 실패 — {type(exc).__name__}: {exc}")
+
+
+def diagnose_yahoo_events() -> None:
+    """야후 배당 이력·배당 일정·실적(EPS 추정 vs 실제)."""
+    from sources import yahoo_events as _ye
+
+    head("야후 배당 · 실적")
+    for sym in ("MSFT", "O", "005930.KS"):
+        d = _ye.fetch_dividends(sym)
+        hist = d["history"]
+        print(f"\n{sym} 배당: {len(hist)}건 · 최근 {hist[-3:] if hist else '-'} · "
+              f"다음 배당락 {d['ex_date'] or '-'} · 지급 {d['pay_date'] or '-'}"
+              + (f" · 오류 {d['error']}" if d["error"] else ""))
+    for sym in ("MSFT", "005930.KS"):
+        e = _ye.fetch_earnings(sym)
+        print(f"\n{sym} 실적: {len(e['rows'])}줄" + (f" · {e['error']}" if e["error"] else ""))
+        for row in e["rows"][:5]:
+            print(f"  {row}")
+
+
 def diagnose_research() -> None:
     """네이버 증권 리서치 목록 — 받아지는지, 줄이 제대로 읽히는지."""
     import requests as _rq
@@ -946,9 +1030,39 @@ def diagnose_research() -> None:
                       f"{it.title[:36]} | {it.broker or '증권사?'} | "
                       f"{'PDF' if it.pdf else 'PDF 없음'}")
             if not items:
-                print("  → 한 줄도 못 읽었습니다. 아래 원문 앞부분을 보내 주십시오:")
-                body = r.text
-                i = body.find("<table")
-                print(textwrap.indent(body[max(i, 0):max(i, 0) + 900], "    "))
+                nxt = _rs.parse_next(r.text, kind)
+                text = _rs.next_text(r.text)
+                print(f"  Next.js 조각: __NEXT_DATA__ "
+                      f"{'있음' if '__NEXT_DATA__' in r.text else '없음'} · "
+                      f"__next_f {r.text.count('__next_f.push')}개 · 풀어낸 글자 "
+                      f"{len(text):,} · 리포트처럼 생긴 객체 {len(nxt)}건")
+                for it in nxt[:4]:
+                    print(f"  {it.date or '날짜?'} | {it.category or '-'} | "
+                          f"{it.title[:36]} | {it.broker or '증권사?'} | "
+                          f"{'PDF' if it.pdf else 'PDF 없음'}")
+                # 첫 후보 객체의 키 — 필드 이름을 정확히 맞추는 데 씁니다
+                shown = 0
+                for obj in _rs._objects(text, limit=1500):
+                    for dd in _rs._walk_dicts(obj):
+                        if _rs.report_like(dd) and shown < 2:
+                            shown += 1
+                            print("  [후보 객체] " + ", ".join(
+                                f"{k}={str(v)[:40]!r}" for k, v in list(dd.items())[:14]))
+                if not nxt:
+                    import re as _re
+                    apis = sorted(set(_re.findall(
+                        r'https?://[A-Za-z0-9.\-]+/[^"\'\s<>]*(?:research|report)[^"\'\s<>]*',
+                        r.text)))[:10]
+                    print("  → 객체를 못 찾았습니다. 페이지가 데이터를 나중에 "
+                          "따로 받는 것 같습니다. 보이는 주소들:")
+                    for a in apis:
+                        print(f"    {a}")
+                    for word in ("증권", ".pdf", "title"):
+                        k = text.find(word) if text else r.text.find(word)
+                        src = text if text and k >= 0 else r.text
+                        k = src.find(word)
+                        if k >= 0:
+                            print(f"  '{word}' 주변: "
+                                  + repr(src[max(0, k - 160):k + 160]))
         except Exception as exc:  # noqa: BLE001
             print(f"\n{name}: 요청 실패 — {type(exc).__name__}: {exc}")

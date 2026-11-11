@@ -335,6 +335,36 @@ class Report:
         )
 
 
+_VERIFY_MEMO: dict = {}
+
+
+def verify_cached(root: str) -> Report:
+    """verify() 와 같지만, 파일이 안 바뀌었으면 지난 결과를 그대로 줍니다.
+
+    화면을 그릴 때마다(버튼 한 번마다) 60여 개 파일을 다시 읽어 해시할
+    이유가 없습니다. 파일의 수정 시각·크기가 그대로면 내용도 그대로로 봅니다.
+    """
+    sig = []
+    try:
+        with open(os.path.join(root, MANIFEST), "rb") as fh:
+            raw = fh.read()
+        names = list(json.loads(raw.decode("utf-8")))
+    except Exception:  # noqa: BLE001
+        return verify(root)
+    sig.append(hash(raw))
+    for rel in names:
+        try:
+            st_ = os.stat(os.path.join(root, rel))
+            sig.append((rel, st_.st_mtime_ns, st_.st_size))
+        except OSError:
+            sig.append((rel, 0, -1))
+    key = (root, tuple(sig))
+    if _VERIFY_MEMO.get("key") != key:
+        _VERIFY_MEMO["key"] = key
+        _VERIFY_MEMO["report"] = verify(root)
+    return _VERIFY_MEMO["report"]
+
+
 def verify(root: str) -> Report:
     """BUILD.json 과 실제 파일을 비교합니다.
 

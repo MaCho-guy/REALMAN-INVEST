@@ -66,9 +66,18 @@ def _code_version() -> str:
 CODE_VERSION = _code_version()
 #: 파일 사본을 쓸지. 테스트가 끕니다.
 DISK = True
+#: **묵은 값이라도 먼저 보여주는 한도(초).** 0 이면 끔 (함수마다 정한 stale 만).
+#: 앱이 이 값을 이틀로 올립니다. 휴대폰으로 가끔 여는 대시보드는 열 때마다
+#: 저장된 값이 stale 을 넘겨 있어서(시세는 30분) **매번 처음처럼 기다렸습니다.**
+#: 이제는 있는 값을 바로 그리고 뒤에서 새로 받은 다음 화면을 한 번 더 그립니다.
+#: 화면은 '몇 분 전 값' 인지 적어야 합니다 — stale_report() 가 나이를 줍니다.
+HARD_STALE = 0.0
+#: 새로 받기가 실패하면 이 시간 동안 다시 시도하지 않습니다. 없으면 화면을
+#: 그릴 때마다 실패한 요청을 또 보냅니다.
+RETRY_AFTER = 60.0
 #: 뒤에서 새로 받기에 쓰는 스레드 수. 야후·네이버를 너무 세게 두드리면
 #: 막히므로 적게 둡니다.
-BACKGROUND_WORKERS = 4
+BACKGROUND_WORKERS = 8
 
 
 @dataclass
@@ -78,6 +87,7 @@ class _Entry:
     ok: bool = False              # 값이 있는가
     refreshing: bool = False
     error: str = ""               # 마지막 새로 받기 실패
+    retry_at: float = 0.0         # 실패 뒤 이 시각 전에는 다시 안 받음
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
@@ -93,6 +103,9 @@ _registry: dict[str, "Cached"] = {}
 #: 미리 받기 스레드에서 불린 것도 잡히도록 스레드별이 아니라 전역입니다
 #: (여러 사람이 동시에 보면 섞이지만, 화면 아래 한 줄 표시용이라 감수).
 _stale_names: list[str] = []
+_stale_ages: dict[str, float] = {}
+#: 값이 아직 **하나도 없어** peek 이 None 을 준 함수 이름 (받는 중)
+_pending_names: list[str] = []
 _stale_lock = threading.Lock()
 
 
@@ -146,6 +159,27 @@ def stale_served() -> list[str]:
 def reset_stale_served() -> None:
     with _stale_lock:
         _stale_names.clear()
+        _stale_ages.clear()
+        _pending_names.clear()
+
+
+def stale_report() -> tuple[float, list[str]]:
+    """(직전 값으로 답한 것 중 가장 묵은 나이(초), 아직 값이 없어 받는 중인 이름들)."""
+    with _stale_lock:
+        oldest = max(_stale_ages.values(), default=0.0)
+        return oldest, list(dict.fromkeys(_pending_names))
+
+
+def busy() -> int:
+    """지금 뒤에서 새로 받고 있는 항목 수 (미리 받기는 세지 않습니다)."""
+    with _store_lock:
+        return sum(1 for e in _store.values() if e.refreshing)
+
+
+def _note_stale(name: str, age: float) -> None:
+    with _stale_lock:
+        _stale_names.append(name)
+        _stale_ages[name] = max(age, _stale_ages.get(name, 0.0))
 
 
 class Cached:
@@ -189,14 +223,21 @@ class Cached:
         if self.disk:
             _disk_save(key, e.at, value)
 
+    def _window(self) -> float:
+        """이 나이까지는 저장된 값을 (묵었어도) 바로 줍니다."""
+        return max(self.stale, HARD_STALE)
+
     def _background(self, key: str, args, kwargs, e: _Entry) -> None:
         def run():
             try:
                 with e.lock:
                     if time.time() - e.at >= self.ttl:     # 그사이 누가 받았으면 건너뜀
+                        before = e.at
                         self._fetch(key, args, kwargs, e)
+                        if e.at == before:                 # 못 받았음 — 잠시 쉼
+                            e.retry_at = time.time() + RETRY_AFTER
             except Exception:  # noqa: BLE001
-                pass
+                e.retry_at = time.time() + RETRY_AFTER
             finally:
                 e.refreshing = False
         e.refreshing = True
@@ -208,8 +249,9 @@ class Cached:
     def __call__(self, *args, **kwargs):
         key = self.key(args, kwargs)
         e = _entry(key)
+        window = self._window()
         if not e.ok and self.disk:
-            got = _disk_load(key, self.stale)
+            got = _disk_load(key, window)
             if got is not None:
                 with e.lock:
                     if not e.ok:
@@ -218,15 +260,14 @@ class Cached:
             age = time.time() - e.at
             if age < self.ttl:
                 return e.value
-            if age < self.stale:
-                if not e.refreshing:
+            if age < window:
+                if not e.refreshing and time.time() >= e.retry_at:
                     self._background(key, args, kwargs, e)
-                with _stale_lock:
-                    _stale_names.append(self.name)
+                _note_stale(self.name, age)
                 return e.value
         # 값이 없거나 너무 오래됨 — 기다려서 받습니다 (같은 키는 한 번만)
         with e.lock:
-            if not e.ok or time.time() - e.at >= self.stale:
+            if not e.ok or time.time() - e.at >= window:
                 self._fetch(key, args, kwargs, e)
             return e.value
 
@@ -239,22 +280,30 @@ class Cached:
         """
         key = self.key(args, kwargs)
         e = _entry(key)
+        window = self._window()
         if not e.ok and self.disk:
-            got = _disk_load(key, self.stale)
+            got = _disk_load(key, window)
             if got is not None:
                 with e.lock:
                     if not e.ok:
                         e.value, e.at, e.ok = got[0], got[1], True
-        if e.ok and time.time() - e.at < self.stale:
-            if time.time() - e.at >= self.ttl and not e.refreshing:
-                self._background(key, args, kwargs, e)
+        if e.ok and time.time() - e.at < window:
+            age = time.time() - e.at
+            if age >= self.ttl:
+                if not e.refreshing and time.time() >= e.retry_at:
+                    self._background(key, args, kwargs, e)
+                _note_stale(self.name, age)
             return e.value
-        if not e.refreshing:
+        with _stale_lock:
+            _pending_names.append(self.name)
+        if not e.refreshing and time.time() >= e.retry_at:
             def run():
                 try:
                     self(*args, **kwargs)
                 except Exception:  # noqa: BLE001
-                    pass
+                    # 못 받았으면 잠시 쉽니다 — 화면이 다시 그려질 때마다
+                    # 실패한 요청을 또 보내지 않게
+                    e.retry_at = time.time() + RETRY_AFTER
                 finally:
                     e.refreshing = False
             e.refreshing = True

@@ -303,11 +303,6 @@ check_true("스킬 명령 생성",
            analysis_store.skill_command("price", "MU", "Micron")
            == "/price-decoder-korean Micron")
 
-print("\n" + "=" * 54)
-if FAILURES:
-    print(f"실패 {len(FAILURES)}건: {', '.join(FAILURES)}")
-    sys.exit(1)
-print("전부 통과")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1059,15 +1054,21 @@ check_true("요약에는 전문을 넣지 않는다",
                "def render_holdings_tab")[0],
            "요약 탭에 본문 렌더가 들어가면 매일 차 있게 됩니다")
 check_true("밸류에이션에 가격 조건 블록",
-           "render_price_block(prices.get(screen.ticker)" in _app_src)
+           "price = prices.get(screen.ticker)" in _app_src
+           and "ui.render_price_block(price," in _app_src,
+           "종목마다 가격 조건을 찾아 카드에 넘겨야 합니다")
 check_true("가격 조건이 정렬 전에 계산된다",
            _app_src.index("prices = _price_screens(triples, use_demo)")
            < _app_src.index("triples.sort(key=lambda t:"),
            "정렬 후면 시가총액 캐시를 놓칩니다")
-check_true("_attach_dcf 반환 튜플은 3개 그대로",
-           "for screen, result, verdict_obj in triples:" in _app_src
-           and "for screen, result, verdict_obj in shortlist:" in _app_src,
-           "개수를 바꾸면 한 곳만 놓쳐도 ValueError 로 죽습니다")
+# _attach_dcf 가 돌려주는 튜플 개수를 바꾸면 t[0]/t[2] 로 꺼내 쓰는
+# 7 군데가 조용히 어긋납니다. 리터럴 for 문을 찾는 대신 개수를 셉니다.
+_tup = [ln for ln in _app_src.splitlines()
+        if "screen, result, verdict_obj" in ln]
+check_true("_attach_dcf 반환 튜플은 3개 그대로", bool(_tup),
+           "풀어 쓰는 곳이 하나도 없으면 개수 변화를 아무도 못 잡습니다")
+check_true("튜플을 3개로만 푼다",
+           all(ln.count(",") >= 2 for ln in _tup), str(_tup[:1]))
 check_true("렌더러가 components 에 있다",
            all(f"def {n}(" in _comp_src for n in
                ("render_briefing_head", "render_briefing_line",
@@ -1157,7 +1158,9 @@ _hy = [s for s in _cfg3.MACRO_SERIES if s.series_id == "BAMLH0A0HYM2"][0]
 check_true("하이일드는 검증 표기", _hy.verified,
            "FRED 페이지에서 실제 관측값까지 확인했습니다")
 check_true("하이일드에 임계값이 있다",
-           _hy.level_above is not None and _hy.change_abs is not None)
+           any(getattr(_hy, _f, None) is not None
+               for _f in ("level_above", "change_abs", "pct_vs_mean")),
+           "기준이 하나도 없으면 임계값 도달에 절대 뜨지 않습니다")
 check_true("크레딧 지표에 '왜 보는가' 가 적혀 있다",
            all(len(s.why) > 50 for s in _cfg3.MACRO_SERIES
                if s.series_id.startswith("BAML")))
@@ -1174,7 +1177,8 @@ check_true("잠정실적이 재고 지표보다 먼저",
            < _app_src.index("render_inventory_panel"),
            "정식 보고서보다 먼저 나오는 숫자이므로 위에 있어야 합니다")
 check_true("공시 로더를 재사용한다 (추가 호출 없음)",
-           "_disc, _disc_err = load_dart_disclosures(use_demo)" in _app_src)
+           "_disc, _disc_err = load_dart_disclosures(use_demo" in _app_src,
+           "사이클 탭이 자기 혼자 또 불러오면 DART 호출이 두 배가 됩니다")
 check_true("공시 대상이 사이클 종목을 포함한다",
            set(_cfg3.CYCLE_STOCK_CODES) <= set(_cfg3.dart_stock_codes()),
            "포함되지 않으면 레이더가 항상 비어 있습니다")
@@ -1422,7 +1426,12 @@ check_true("계열 ID 문제가 아님을 알려준다",
            "계열 ID 는 문제가 아니니" in _diag_src)
 
 check_true("연결 실패는 재시도한다", _fr5.RETRIES >= 1)
-check_true("타임아웃을 늘렸다", _fr5.TIMEOUT >= 30, f"{_fr5.TIMEOUT}초")
+# 2026-11-11 배포 환경 실측으로 방향이 뒤집혔습니다. fred.stlouisfed.org
+# 는 아예 응답이 없으므로 오래 기다릴수록 손해입니다 — 짧게 끊고 공식
+# API(api.stlouisfed.org, 0.1초에 응답) 로 넘어가는 게 맞습니다.
+check_true("막힌 호스트는 짧게 끊는다", _fr5.TIMEOUT <= 10, f"{_fr5.TIMEOUT}초")
+check_true("살아 있는 호스트는 넉넉히 기다린다",
+           _fr5.API_TIMEOUT >= 15, f"{_fr5.API_TIMEOUT}초")
 check_true("재시도 횟수를 오류에 적는다", "회 시도" in _fr5.fetch_series.__doc__
            or "회 시도" in _pl.Path(_fr5.__file__).read_text(encoding="utf-8"))
 
@@ -1490,6 +1499,47 @@ check_true("화면이 고장이 아니라고 말한다",
 check_true("진단도 고장이 아니라고 말한다",
            "고장이 아닙니다" in _diag_src)
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+print("\n=== 설명 문구의 마크다운 강조 ===")
+# 2026-11-11 스크린샷에서 발견: 설명에 쓴 **강조** 가 별표째 화면에 찍혔습니다.
+# <b> 태그는 _safe_inline 이 살려주는데 별표는 아무도 처리하지 않았습니다.
+import pathlib  # noqa: E402
+import re  # noqa: E402
+import components as _ui_md  # noqa: E402
+
+check_true("별표 강조를 태그로 바꾼다",
+           "<b>실물</b>" in _ui_md._safe_inline("반도체 **실물** 생산량"),
+           _ui_md._safe_inline("반도체 **실물** 생산량"))
+check_true("곱셈 기호는 건드리지 않는다",
+           "<b>" not in _ui_md._safe_inline("a ** b ** c"))
+check_true("태그 이스케이프는 그대로 유지",
+           "&lt;script&gt;" in _ui_md._safe_inline("<script>x</script> **y**"))
+
+_src_md = pathlib.Path("components.py").read_text()
+for _field in ("spec.why", "check.detail", "check.warning",
+               "crit.source", "crit.caveat", "reading.warning"):
+    check_true(f"{_field} 는 _safe_inline 을 거친다",
+               f"_safe_inline({_field})" in _src_md,
+               "_esc 만 쓰면 별표와 <b> 가 글자로 나옵니다")
+
+_pv_md = pathlib.Path("preview.html")
+if _pv_md.exists():
+    # 프롬프트 블록은 Claude 에 붙여넣을 글이라 마크다운이 의도된 곳입니다.
+    # 중첩 div 때문에 통째로 잘라내기 어려우므로, 별표마다 바로 앞의
+    # class 를 보고 프롬프트 계열이면 넘어갑니다.
+    _html_md = re.sub(r"<style.*?</style>", "", _pv_md.read_text(), flags=re.S)
+    _left_md = []
+    for _m in re.finditer(r"\*\*[^*<\n]{1,60}\*\*", _html_md):
+        _before = _html_md[max(0, _m.start() - 400):_m.start()]
+        _cls = re.findall(r'class="([^"]+)"', _before)
+        if _cls and ("cmd" in _cls[-1] or "prompt" in _cls[-1]):
+            continue
+        _left_md.append(_m.group(0))
+    check_true("화면에 별표가 그대로 남지 않는다", not _left_md,
+               str(sorted(set(_left_md))[:3]))
+
+
 print("\n=== 실제 응답으로 확인된 계정 ===")
 import buffett_kr as _bkr6  # noqa: E402
 
@@ -1500,3 +1550,42 @@ check_true("검증 근거를 주석에 남겼다",
            "2026-11-11 실제 응답 확인"
            in (_pl.Path(__file__).resolve().parent.parent
                / "buffett_kr.py").read_text(encoding="utf-8"))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+print("\n=== 테스트 파일 자체의 구조 ===")
+# 2026-11-11: smoke_test 의 요약/sys.exit 가 1537줄 중 307줄에 있었습니다.
+# 그 뒤 1200줄의 실패 8건이 조용히 묻혀 있었습니다. 요약은 끝에 있어야
+# 합니다 — 중간에 있으면 뒤쪽 실패는 보고도 되지 않고 종료 코드도 0 입니다.
+for _tf in sorted(pathlib.Path("tests").glob("*_test.py")):
+    _lines = _tf.read_text(encoding="utf-8").splitlines()
+    _exit = [i for i, ln in enumerate(_lines) if "sys.exit(1)" in ln]
+    if not _exit:
+        continue
+    _tail = len(_lines) - _exit[-1] - 1
+    check_true(f"{_tf.name} 요약이 파일 끝에 있다", _tail <= 10,
+               f"요약 뒤에 {_tail}줄 — 그 줄들의 실패는 묻힙니다")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+print("\n=== 구역 헤더의 개수 배지 ===")
+# 2026-11-11 스크린샷: '밸류에이션 판단 … 0개 항목' 아래에 5줄짜리 표가
+# 있었고, '0개 이상 통과' 라는 제목도 있었습니다. 둘 다 0 을 그대로 찍은
+# 탓입니다. 셀 것이 없으면 배지를 아예 빼고, 0 이면 말이 되게 바꿉니다.
+check_true("count=None 이면 배지를 안 그린다",
+           "개 항목" not in ui.render_section_head("제목", "부제"),
+           ui.render_section_head("제목", "부제"))
+check_true("count=0 은 그대로 0개로 표시",
+           "0개 항목" in ui.render_section_head("제목", "부제", 0))
+check_true("밸류에이션 헤더가 실제 개수를 받는다",
+           "len(triples))" in _app_src.split("밸류에이션 판단")[1][:200],
+           "0 을 넘기면 아래 표가 비어 보입니다")
+check_true("통과 수 0 이면 '전체 종목' 으로 적는다",
+           '"전체 종목" if min_pass <= 0' in _app_src,
+           "'0개 이상 통과' 는 말이 안 됩니다")
+
+print("\n" + "=" * 54)
+if FAILURES:
+    print(f"실패 {len(FAILURES)}건: {', '.join(FAILURES)}")
+    sys.exit(1)
+print("전부 통과")

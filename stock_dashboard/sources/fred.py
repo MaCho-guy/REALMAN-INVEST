@@ -51,6 +51,26 @@ def api_key() -> str:
     return (os.environ.get("FRED_API_KEY") or "").strip()
 
 
+#: FRED API 키는 **소문자 영숫자 32자**입니다. 형식이 다르면 서버가
+#: HTTP 400 을 돌려주는데, 상태코드만 보면 원인을 알 수 없습니다.
+KEY_RE = __import__("re").compile(r"^[0-9a-z]{32}$")
+
+
+def key_problem() -> str:
+    """키 형식이 잘못됐으면 사유를, 괜찮으면 빈 문자열을 돌려줍니다."""
+    key = api_key()
+    if not key:
+        return "FRED_API_KEY 가 설정되지 않았습니다."
+    if len(key) != 32:
+        return (f"키 길이가 {len(key)}자입니다 — FRED 키는 32자입니다. "
+                "따옴표나 공백이 섞였는지 확인하십시오.")
+    if not KEY_RE.match(key):
+        bad = "대문자" if any(c.isupper() for c in key) else "허용되지 않는 문자"
+        return (f"키에 {bad}가 들어 있습니다 — FRED 키는 소문자 영숫자 "
+                "32자입니다.")
+    return ""
+
+
 def key_fingerprint() -> str:
     """캐시 무효화용 지문. DART 와 같은 이유입니다 — 키를 넣는 순간
     실패한 캐시가 저절로 버려져야 합니다."""
@@ -58,15 +78,23 @@ def key_fingerprint() -> str:
 
     key = api_key()
     return hashlib.sha256(key.encode()).hexdigest()[:8] if key else ""
-#: fredgraph.csv 는 요청마다 CSV 를 만들어 내려 주므로 정적 파일보다
-#: 느립니다. 15초에서 늘렸습니다 — Streamlit Cloud 에서 전 계열이
-#: HTTPSConnectionPool 오류로 실패했고, 타임아웃이 유력한 후보입니다.
-TIMEOUT = 30
+#: 키 없는 CSV 경로의 타임아웃.
+#: **짧게 둡니다.** 정상일 때 1~2초면 오고, 막힌 환경에서는 30초를 꽉
+#: 채우고 실패합니다. 30초 × 재시도 × 14계열이면 매크로 탭이 3분 넘게
+#: 멈춰 있는데, 그건 실패보다 나쁩니다. 빨리 포기하고 사유를 보여줍니다.
+TIMEOUT = 8
 
-#: 연결 단계 실패는 한 번 더 시도합니다. HTTP 오류(404 등)는 재시도해도
-#: 같은 결과라 재시도하지 않습니다.
+#: 공식 API 는 조금 넉넉히. 여기는 응답이 오는 경로입니다.
+API_TIMEOUT = 20
+
+#: 연결 단계 실패는 한 번 더 시도합니다. 다만 **ReadTimeout 은 빼고**:
+#: 응답이 안 오는 호스트에 다시 물어봐야 똑같이 기다릴 뿐입니다.
 RETRIES = 1
-RETRY_WAIT = 1.5
+RETRY_WAIT = 1.0
+
+#: 연속 몇 번 타임아웃이면 나머지를 건너뛸지.
+#: 한 호스트가 막혀 있으면 계열마다 확인할 필요가 없습니다.
+TIMEOUT_GIVE_UP = 3
 #: FRED 는 CSV 엔드포인트의 공식 제한을 밝히지 않습니다. 키가 필요한 공식
 #: API 는 분당 120건(= 2건/초)이므로, 그보다 넉넉한 6.7건/초로 둡니다.
 #: 0.3초(3.3건/초)였을 때는 13개 계열에 대기만 4초가 들어갔습니다.
@@ -288,8 +316,16 @@ def fetch_series(series_id: str, *, start: dt.date | None = None) -> Series:
             raise FredError(
                 f"{series_id}: FRED 요청 실패 (HTTP {status})."
             ) from exc
+        except requests.Timeout as exc:
+            # 응답이 안 오는 호스트에 다시 물어봐야 똑같이 기다립니다.
+            raise FredError(
+                f"{series_id}: FRED 응답 없음 ({TIMEOUT}초 초과). "
+                "이 서버에서 fred.stlouisfed.org 로 나가는 길이 막혀 있을 "
+                "수 있습니다 — FRED_API_KEY 를 넣으면 다른 호스트"
+                "(api.stlouisfed.org)로 받아옵니다."
+            ) from exc
         except requests.RequestException as exc:
-            # 연결·타임아웃 단계 실패. 한 번 더 해 봅니다.
+            # 그 밖의 연결 실패는 한 번 더 해 봅니다.
             last = exc
             if attempt < RETRIES:
                 time.sleep(RETRY_WAIT)
@@ -312,11 +348,18 @@ def _fetch_via_api(series_id: str, key: str,
         params["observation_start"] = start.isoformat()
     try:
         resp = requests.get(
-            API_URL, params=params, timeout=TIMEOUT,
+            API_URL, params=params, timeout=API_TIMEOUT,
             headers={"User-Agent": "stock-dashboard/1.0 (personal research)"},
         )
-        resp.raise_for_status()
+        if resp.status_code != 200:
+            # FRED API 는 오류 사유를 **본문**에 담아 줍니다. 상태코드만
+            # 전하면 왜 400 인지 알 수 없습니다.
+            body = resp.text.strip().replace(key, "…키…")[:200]
+            raise FredError(
+                f"{series_id}: FRED API HTTP {resp.status_code} — {body}")
         payload = resp.json()
+    except FredError:
+        raise
     except Exception as exc:  # noqa: BLE001
         raise FredError(
             f"{series_id}: FRED API 실패 — {type(exc).__name__}: {exc}"
@@ -361,13 +404,35 @@ def fetch_many(series_ids: list[str], *, years: int = 4,
     if not ids:
         return out, errors
 
+    # 한 호스트가 막혀 있으면 계열마다 8초씩 기다릴 이유가 없습니다.
+    # 연속 TIMEOUT_GIVE_UP 번 응답이 없으면 나머지는 시도하지 않고
+    # **그 사실을 사유로 적어** 돌려줍니다. 빈칸으로 두면 왜 없는지
+    # 알 수 없습니다.
+    blocked = threading.Event()
+    streak = {"n": 0}
+    streak_lock = threading.Lock()
+
     def one(sid: str) -> tuple[str, "Series | None", str | None]:
+        if blocked.is_set():
+            return sid, None, (
+                f"건너뜀 — 앞선 {TIMEOUT_GIVE_UP}개 계열이 연속으로 응답하지 "
+                "않아 이 호스트가 막혀 있다고 보았습니다. 계열 ID 문제가 "
+                "아닙니다.")
         try:
-            return sid, fetch_series(sid, start=start), None
+            series = fetch_series(sid, start=start)
         except FredError as exc:
-            return sid, None, str(exc)
+            msg = str(exc)
+            if "응답 없음" in msg:
+                with streak_lock:
+                    streak["n"] += 1
+                    if streak["n"] >= TIMEOUT_GIVE_UP:
+                        blocked.set()
+            return sid, None, msg
         except Exception as exc:  # noqa: BLE001
             return sid, None, f"예상치 못한 오류: {type(exc).__name__}: {exc}"
+        with streak_lock:
+            streak["n"] = 0        # 하나라도 성공하면 연속 기록을 지웁니다
+        return sid, series, None
 
     # 요약 화면이 이 13개 계열을 기다립니다. 순차로는 대기만 2초,
     # 왕복까지 더하면 6~10초였습니다.

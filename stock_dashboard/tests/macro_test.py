@@ -432,11 +432,6 @@ check("데모 뉴스 대상 상한 준수",
       <= config.MACRO_MAX_NEWS_TARGETS)
 
 
-print("\n" + "=" * 56)
-if FAILURES:
-    print(f"실패 {len(FAILURES)}건: {', '.join(FAILURES)}")
-    sys.exit(1)
-print("전부 통과")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -781,3 +776,91 @@ check("자기 평균 대비 상대 기준을 쓴다",
       f"{_hy_spec.pct_vs_mean}% / {_hy_spec.mean_periods}기간")
 check("레벨 기준이 위기 표시로 남아 있다", _hy_spec.level_above == 5.0)
 check("임계값 근거가 화면 문구에 적혀 있다", "임계값 근거" in _hy_spec.why)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+print("\n=== FRED 막힌 호스트 대응 ===")
+# 2026-11-11 배포 환경 실측: fred.stlouisfed.org 는 30초 ReadTimeout,
+# api.stlouisfed.org 는 0.1초에 응답(HTTP 400). 즉 **호스트가 갈립니다.**
+import threading as _th7  # noqa: E402
+import time as _tm7  # noqa: E402
+
+import sources.fred as _fr7  # noqa: E402
+
+check("CSV 타임아웃을 짧게 둔다", _fr7.TIMEOUT <= 10,
+      f"{_fr7.TIMEOUT}초 — 30초면 14계열에 3분 넘게 멈춥니다")
+check("API 타임아웃은 넉넉히", _fr7.API_TIMEOUT >= _fr7.TIMEOUT,
+      f"{_fr7.API_TIMEOUT}초 — 여기는 응답이 오는 경로입니다")
+check("연속 실패 시 포기 기준이 있다", _fr7.TIMEOUT_GIVE_UP >= 2,
+      str(_fr7.TIMEOUT_GIVE_UP))
+
+# 차단기 — 전부 타임아웃이면 전부 시도하지 않아야 합니다
+_tried = []
+_orig_fetch = _fr7.fetch_series
+
+
+def _always_timeout(sid, *, start=None):
+    _tried.append(sid)
+    raise _fr7.FredError(f"{sid}: FRED 응답 없음 (8초 초과). …")
+
+
+_fr7.fetch_series = _always_timeout
+try:
+    _ids = [f"S{i:02d}" for i in range(14)]
+    _out, _errs = _fr7.fetch_many(_ids)
+    check("막힌 호스트에 전부 물어보지 않는다", len(_tried) < len(_ids),
+          f"{len(_tried)}/{len(_ids)} 시도")
+    check("건너뛴 계열도 사유를 남긴다",
+          all(_errs.get(i) for i in _ids),
+          "빈칸으로 두면 왜 없는지 알 수 없습니다")
+    _skip = [k for k, v in _errs.items() if "건너뜀" in v]
+    check("건너뜀을 따로 표시한다", bool(_skip), f"{len(_skip)}개")
+    check("계열 ID 문제가 아님을 적는다",
+          any("계열 ID 문제가 아닙니다" in v for v in _errs.values()))
+finally:
+    _fr7.fetch_series = _orig_fetch
+
+# 하나라도 성공하면 연속 기록이 지워져야 합니다
+_seq = []
+
+
+def _flaky(sid, *, start=None):
+    _seq.append(sid)
+    if len(_seq) % 2 == 0:
+        raise _fr7.FredError(f"{sid}: FRED 응답 없음 (8초 초과). …")
+    return _fr7.Series(series_id=sid, observations=[
+        _fr7.Observation(__import__("datetime").date(2026, 1, 1), 1.0)])
+
+
+_fr7.fetch_series = _flaky
+try:
+    _out2, _errs2 = _fr7.fetch_many([f"T{i:02d}" for i in range(10)])
+    check("간헐적 실패로는 포기하지 않는다",
+          not any("건너뜀" in v for v in _errs2.values()),
+          "성공이 섞이면 연속 기록이 지워져야 합니다")
+    check("성공한 계열은 돌려준다", len(_out2) >= 4, str(len(_out2)))
+finally:
+    _fr7.fetch_series = _orig_fetch
+
+print("\n=== FRED 키 형식 검사 ===")
+_saved_key = os.environ.pop("FRED_API_KEY", None)
+check("키가 없으면 그 사실을 말한다", "설정되지 않았" in _fr7.key_problem())
+os.environ["FRED_API_KEY"] = "abc"
+check("짧은 키를 잡는다", "32자" in _fr7.key_problem(), _fr7.key_problem())
+os.environ["FRED_API_KEY"] = "A" * 32
+check("대문자를 잡는다", "대문자" in _fr7.key_problem(), _fr7.key_problem())
+os.environ["FRED_API_KEY"] = '"' + "a" * 30 + '"'
+check("따옴표가 섞인 키를 잡는다", bool(_fr7.key_problem()))
+os.environ["FRED_API_KEY"] = "a1" * 16
+check("정상 키는 통과", _fr7.key_problem() == "", _fr7.key_problem())
+if _saved_key is None:
+    os.environ.pop("FRED_API_KEY", None)
+else:
+    os.environ["FRED_API_KEY"] = _saved_key
+
+
+print("\n" + "=" * 56)
+if FAILURES:
+    print(f"실패 {len(FAILURES)}건: {', '.join(FAILURES)}")
+    sys.exit(1)
+print("전부 통과")

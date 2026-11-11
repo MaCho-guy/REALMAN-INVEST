@@ -473,7 +473,8 @@ def _render_screen_body(triples: list, *, min_pass: int, show_source: bool,
     shortlist = [t for t in triples if t[0].passed_count >= min_pass]
     st.markdown(
         ui.render_section_head(
-            f"{min_pass}개 이상 통과", "각 카드의 질문을 Claude 에 붙여넣으면 정독이 시작됩니다",
+            ("전체 종목" if min_pass <= 0 else f"{min_pass}개 이상 통과"),
+            "각 카드의 질문을 Claude 에 붙여넣으면 정독이 시작됩니다",
             len(shortlist)),
         unsafe_allow_html=True,
     )
@@ -753,7 +754,7 @@ def render_discover_tab(use_demo: bool) -> None:
     """종목 발굴 — 52주 위치와 품질을 교차합니다."""
     st.markdown(
         ui.render_section_head(
-            "종목 발굴", "52주 위치 × 버핏식 품질 기준 — 읽을 목록을 줄입니다", 0),
+            "종목 발굴", "52주 위치 × 버핏식 품질 기준 — 읽을 목록을 줄입니다"),
         unsafe_allow_html=True,
     )
     st.markdown(
@@ -1344,12 +1345,13 @@ def render_macro_tab(data: dict[str, dict[str, Quote]], fx, use_demo: bool) -> N
         headlines = load_news(news_targets, use_demo)
         for trig in triggers:
             st.markdown(
-                ui.render_macro_trigger(trig, macro_mod.prompt_for(trig)),
+                ui.render_macro_trigger(
+                    trig,
+                    macro_mod.prompt_for(trig),
+                    headlines.get(trig.reading.spec.key) or (),
+                ),
                 unsafe_allow_html=True,
             )
-            items = headlines.get(trig.reading.spec.key)
-            if items:
-                st.markdown(ui.render_news_block(items), unsafe_allow_html=True)
     else:
         st.markdown(
             ui.render_footnote(
@@ -1359,6 +1361,33 @@ def render_macro_tab(data: dict[str, dict[str, Quote]], fx, use_demo: bool) -> N
             ),
             unsafe_allow_html=True,
         )
+
+    # 전 계열이 실패하면 카드 14장이 전부 오류로 뜹니다. 그보다 **왜**
+    # 와 **무엇을 하면 되는지** 를 한 번 적는 쪽이 낫습니다.
+    if readings and all(getattr(r, "error", None) for r in readings):
+        _blocked = sum(1 for r in readings
+                       if "응답 없음" in (r.error or "")
+                       or "건너뜀" in (r.error or ""))
+        if _blocked:
+            _kp = fred.key_problem()
+            _hint = (f"<br>지금 설정된 키에 문제가 있습니다 — {_kp}" if
+                     (fred.api_key() and _kp) else
+                     "<br>무료 키 발급(즉시): "
+                     '<a class="dash-inline-link" target="_blank" '
+                     'rel="noopener noreferrer" '
+                     'href="https://fred.stlouisfed.org/docs/api/api_key.html">'
+                     "fred.stlouisfed.org/docs/api/api_key.html</a>")
+            st.markdown(
+                ui.render_footnote(
+                    "<b>FRED 지표를 하나도 받지 못했습니다.</b> "
+                    f"{_blocked}개 계열이 응답 없음으로 끝났습니다 — 계열 ID "
+                    "문제가 아니라 이 서버에서 <code>fred.stlouisfed.org</code> "
+                    "로 나가는 길이 막힌 것으로 보입니다. "
+                    "<b>FRED_API_KEY</b> 를 Secrets 에 넣으면 다른 호스트"
+                    "(<code>api.stlouisfed.org</code>)로 받아옵니다."
+                    + _hint),
+                unsafe_allow_html=True,
+            )
 
     # 4) 전체 지표 — 위의 '임계값 도달' 이 요약이고 여기가 전체 목록입니다
     st.markdown(
@@ -1478,11 +1507,9 @@ def render_valuation_tab(data: dict[str, dict[str, Quote]], fx,
     **발굴에서 품질 기준을 넘은 것**(판단이 곧 필요함). 둘을 같은 화면에 놓아야
     "가진 것 대신 이걸 볼 이유가 있나" 를 비교할 수 있습니다.
     """
-    st.markdown(
-        ui.render_section_head(
-            "밸류에이션 판단", "현재 가격이 요구하는 성장률 vs 과거 실제", 0),
-        unsafe_allow_html=True,
-    )
+    # 종목 수는 아래에서 _attach_dcf 를 돌려야 나옵니다. 헤더는 맨 위에
+    # 있어야 하므로 자리만 잡아두고 개수가 나온 뒤에 채웁니다.
+    head_slot = st.empty()
     st.markdown(
         ui.render_footnote(
             "<b>적정주가를 계산하지 않습니다.</b> 할인율·성장률 가정을 조금만 "
@@ -1523,6 +1550,12 @@ def render_valuation_tab(data: dict[str, dict[str, Quote]], fx,
                    if s.ticker in held or s.passed_count >= threshold]
 
     triples = _attach_dcf(screens, use_demo, currency=currency)
+    head_slot.markdown(
+        ui.render_section_head(
+            "밸류에이션 판단", "현재 가격이 요구하는 성장률 vs 과거 실제",
+            len(triples)),
+        unsafe_allow_html=True,
+    )
     # **정렬 전에** 부릅니다 — load_market_caps 캐시 키가 티커 순서라
     # 정렬 후에 부르면 캐시를 놓치고 야후를 다시 칩니다.
     prices = _price_screens(triples, use_demo)
@@ -1775,12 +1808,21 @@ def render_signals_tab(data: dict[str, dict[str, Quote]], use_demo: bool) -> Non
             f"노후화 {config.SIGNAL_STALE_DAYS}일."
         )
 
+    # 한국 종목 안내는 DART 키가 실제로 있는지에 따라 달라집니다. 전에는
+    # 키를 넣은 뒤에도 '키 발급이 필요합니다' 라고 계속 적혀 있었습니다.
+    _kr_note = (
+        "한국 종목(삼성전자·SK하이닉스)은 EDGAR 에 없어 <b>DART 오픈API</b> 로 "
+        "따로 받아옵니다. "
+        if dart.api_key() else
+        "한국 종목(삼성전자·SK하이닉스)은 EDGAR 에 없어 공시 감지가 되지 "
+        "않습니다 — <b>DART_API_KEY</b> 를 Secrets 에 넣으면 받아옵니다. "
+    )
     st.markdown(
         ui.render_footnote(
             "공시는 SEC EDGAR 공개 API(키 불필요)에서 실시간으로 받아옵니다. "
-            "한국 종목(삼성전자·SK하이닉스)은 EDGAR 에 없어 공시 감지가 되지 않습니다 — "
-            "DART 오픈API 를 붙이려면 무료 키 발급이 필요합니다. "
-            "헤드라인은 제목과 링크만 가져오며, 공시나 급등락이 감지된 종목에만 붙습니다."
+            + _kr_note
+            + "헤드라인은 제목과 링크만 가져오며, 공시나 급등락이 감지된 "
+            "종목에만 붙습니다."
         ),
         unsafe_allow_html=True,
     )

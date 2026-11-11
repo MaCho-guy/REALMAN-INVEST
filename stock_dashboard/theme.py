@@ -397,14 +397,11 @@ def build_rules() -> str:
     border:1px solid var(--dash-divider); border-radius: var(--r-chip); padding:1px 6px;
   }}
 
-  /* 헤드라인 — 바로 위 신호 카드에 **딸린** 블록입니다. 전에는 카드 밖에
-     떠 있고 글자 대비도 낮아서 남은 찌꺼기처럼 보였습니다. 카드와 같은
-     좌우 여백을 주고 위쪽을 점선으로 이어 소속을 표시합니다. */
+  /* 헤드라인 — 신호 카드 **안쪽** 블록입니다. 상자로 그리면 카드 안에
+     카드가 들어간 꼴이라 선 하나로만 구분합니다. */
   .dash-news {{
-    margin: -6px 0 var(--sp-4); padding: var(--sp-3) 14px var(--sp-2);
-    border: 1px solid var(--dash-border); border-top: none;
-    border-radius: 0 0 var(--r-card) var(--r-card);
-    background: var(--dash-surface);
+    margin: var(--sp-3) 0 0; padding: var(--sp-3) 0 0;
+    border-top: 1px solid var(--dash-border);
   }}
   .dash-news-head {{
     font-size: var(--fs-1); font-weight:650; color:var(--dash-ink-muted);

@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>마이크론 가격 판독</title>
+<style>
+  .mu { --ink:#0b0b0b; --ink2:#52514e; --muted:#898781; --line:#e1e0d9;
+        --blue:#2a78d6; --blue-d:#184f95; --blue-l:#cde2fb;
+        --red:#d03b3b; --green:#0ca30c; --amber:#fab219;
+        color:var(--ink); line-height:1.6;
+        font-family:system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo",sans-serif; }
+  .mu * { box-sizing:border-box; }
+  .mu h1 { font-size:1.5rem; font-weight:700; letter-spacing:-.02em; margin:0 0 4px; }
+  .mu h2 { font-size:1.05rem; font-weight:650; margin:34px 0 12px;
+           padding-bottom:7px; border-bottom:2px solid var(--ink); }
+  .mu h3 { font-size:.9rem; font-weight:650; margin:20px 0 8px; }
+  .mu p  { margin:0 0 10px; font-size:.86rem; }
+  .mu .sub { color:var(--muted); font-size:.78rem; margin-bottom:18px; }
+  .mu .mode { display:inline-block; font-size:.72rem; font-weight:600;
+              color:var(--blue-d); background:var(--blue-l);
+              border-radius:4px; padding:3px 9px; margin-bottom:14px; }
+
+  .mu .drill { border-left:4px solid var(--blue); background:#f7fafe;
+               padding:16px 18px; margin:16px 0 8px; }
+  .mu .drill b { font-size:1.08rem; font-weight:650; line-height:1.55; }
+
+  .mu .src { font-size:.7rem; color:var(--muted); margin:4px 0 0; }
+  .mu .src a { color:var(--blue-d); }
+  .mu .fact { display:inline-block; font-size:.66rem; font-weight:700;
+              color:#fff; background:var(--ink2); border-radius:3px;
+              padding:1px 5px; margin-right:5px; vertical-align:1px; }
+  .mu .interp { background:var(--amber); color:var(--ink); }
+  .mu .need { background:var(--red); }
+
+  .mu table { width:100%; border-collapse:collapse; font-size:.78rem;
+              font-variant-numeric:tabular-nums; margin:10px 0 6px; }
+  .mu th, .mu td { padding:7px 9px; text-align:right; border-bottom:1px solid var(--line); }
+  .mu th { font-size:.72rem; color:var(--ink2); font-weight:650;
+           border-bottom:1.5px solid var(--ink); }
+  .mu th:first-child, .mu td:first-child { text-align:left; }
+  .mu td.na { color:var(--muted); }
+  .mu .up { color:var(--red); font-weight:600; }
+  .mu .dn { color:var(--blue); font-weight:600; }
+  .mu tr.hl td { background:#f7fafe; font-weight:650; }
+
+  .mu .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+  @media(max-width:760px){ .mu .grid2 { grid-template-columns:1fr; } }
+
+  .mu .box { border:1px solid var(--line); border-radius:8px; padding:14px 16px; margin:12px 0; }
+  .mu .box-t { font-size:.82rem; font-weight:650; margin-bottom:6px; }
+  .mu .warn { border:1px solid var(--red); background:#fdf5f5; }
+  .mu .warn .box-t { color:var(--red); }
+  .mu .note { border:1px solid var(--amber); background:#fffcf2; }
+
+  .mu ul, .mu ol { margin:6px 0 10px; padding-left:20px; font-size:.84rem; }
+  .mu li { margin-bottom:5px; }
+  .mu svg { display:block; max-width:100%; height:auto; margin:10px 0; }
+  .mu details { margin:14px 0; font-size:.8rem; }
+  .mu summary { cursor:pointer; font-weight:650; padding:8px 0; }
+  .mu code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+             font-size:.75rem; background:#f4f4f1; padding:1px 4px; border-radius:3px; }
+  .mu .big { font-size:2.1rem; font-weight:700; letter-spacing:-.03em; line-height:1.1; }
+  .mu .kpi { display:flex; gap:22px; flex-wrap:wrap; margin:14px 0; }
+  .mu .kpi > div { min-width:130px; }
+  .mu .kpi .lbl { font-size:.72rem; color:var(--muted); }
+  .mu .kpi .val { font-size:1.3rem; font-weight:700; letter-spacing:-.02em; }
+</style>
+</head><body>
+<div class="mu">
+<h1>마이크론 — 가격 판독</h1>
+<div class="sub">역DCF · 주가 $795.23 (2026-11-04 기준) · 생성 2026-11-05</div>
+<div class="mode">📡 웹검색 기반 · 적정주가를 계산하지 않습니다</div>
+
+<h2>① 결론 — 두 문장</h2>
+<div class="drill">
+<div class="big" style="color:#184f95">연 17.7%</div>
+<p style="margin:8px 0 0;font-size:1.0rem;line-height:1.6"><b>지금 마이크론 주가는 앞으로 10년간 매년 17.7%의 잉여현금흐름 성장을 가정하고 있습니다.</b><br>
+<span style="font-size:.84rem;color:#52514e">(최근 3년 평균 FCF 202.5억$, 할인율 10%, 이후 영구성장 2.5% 기준)</span></p>
+<p style="margin:14px 0 0;font-size:1.0rem;line-height:1.6"><b>지난 5년 실제 FCF 성장률은 사이클 피크를 포함하면 연 +89.1%, 피크를 빼면 연 −9.1%였습니다.</b><br>
+<span style="font-size:.84rem;color:#52514e">(FY2021→FY2026 / FY2021→FY2025)</span></p>
+</div>
+
+<h2>② 판정</h2>
+<div class="box note"><div class="box-t">🟡 판정을 내릴 수 없습니다 — 그리고 그게 결론입니다</div>
+<p>이 스킬은 보통 요구 성장률(X)과 과거 실적(Y)을 비교해 한 줄로 판정합니다. 마이크론은 <b>그 비교가 성립하지 않습니다.</b></p>
+<ul style="margin:8px 0">
+<li>X = 17.7% 를 <b>피크 포함 과거(+89.1%)</b> 와 비교하면 → 🟢 시장 기대가 과거보다 훨씬 낮음</li>
+<li>X = 17.7% 를 <b>피크 제외 과거(−9.1%)</b> 와 비교하면 → 🔴 시장이 과거보다 훨씬 잘할 거라 기대</li>
+</ul>
+<p style="margin:0">같은 회사, 같은 주가인데 기준 연도를 하나 넣고 빼는 것만으로 판정이 정반대가 됩니다. <b>메모리 회사에 단일 기준선이라는 게 존재하지 않기 때문입니다.</b> 따라서 이 카드의 역할은 "싸다/비싸다"를 말하는 게 아니라, <b>어느 질문에 답해야 판단이 가능한지</b>를 특정하는 것입니다. 그 질문은 아래 ⑤ 에 있습니다.</p></div>
+
+<h2>③ 요구 성장률 vs 과거 실적</h2>
+<svg viewBox="0 0 700 310" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="요구 성장률과 과거 실제 성장률 비교">
+<line x1="52" y1="49.5" x2="686" y2="49.5" stroke="#e1e0d9"/>
+<text x="45" y="53.0" text-anchor="end" font-size="10" fill="#898781">80%</text>
+<line x1="52" y1="88.7" x2="686" y2="88.7" stroke="#e1e0d9"/>
+<text x="45" y="92.2" text-anchor="end" font-size="10" fill="#898781">60%</text>
+<line x1="52" y1="128.0" x2="686" y2="128.0" stroke="#e1e0d9"/>
+<text x="45" y="131.5" text-anchor="end" font-size="10" fill="#898781">40%</text>
+<line x1="52" y1="167.3" x2="686" y2="167.3" stroke="#e1e0d9"/>
+<text x="45" y="170.8" text-anchor="end" font-size="10" fill="#898781">20%</text>
+<line x1="52" y1="206.5" x2="686" y2="206.5" stroke="#c3c2b7"/>
+<text x="45" y="210.0" text-anchor="end" font-size="10" fill="#898781">0%</text>
+<rect x="82.4" y="200.3" width="65.9" height="6.3" fill="#2a78d6" rx="3"/>
+<text x="115.4" y="194.3" text-anchor="middle" font-size="12" font-weight="700" fill="#2a78d6">+3.2%</text>
+<text x="115.4" y="252.0" text-anchor="middle" font-size="9.5" fill="#52514e">시장 요구</text>
+<text x="115.4" y="264.0" text-anchor="middle" font-size="9.5" fill="#52514e">FY26 FCF 기준</text>
+<rect x="209.2" y="171.8" width="65.9" height="34.8" fill="#184f95" rx="3"/>
+<text x="242.2" y="165.8" text-anchor="middle" font-size="12" font-weight="700" fill="#184f95">+17.7%</text>
+<text x="242.2" y="252.0" text-anchor="middle" font-size="9.5" fill="#52514e">시장 요구</text>
+<text x="242.2" y="264.0" text-anchor="middle" font-size="9.5" fill="#52514e">3년평균 기준</text>
+<rect x="336.0" y="156.5" width="65.9" height="50.1" fill="#104281" rx="3"/>
+<text x="369.0" y="150.5" text-anchor="middle" font-size="12" font-weight="700" fill="#104281">+25.5%</text>
+<text x="369.0" y="252.0" text-anchor="middle" font-size="9.5" fill="#52514e">시장 요구</text>
+<text x="369.0" y="264.0" text-anchor="middle" font-size="9.5" fill="#52514e">5년평균 기준</text>
+<rect x="462.8" y="31.6" width="65.9" height="175.0" fill="#898781" rx="3"/>
+<text x="495.8" y="25.6" text-anchor="middle" font-size="12" font-weight="700" fill="#898781">+89.1%</text>
+<text x="495.8" y="252.0" text-anchor="middle" font-size="9.5" fill="#52514e">실제 FCF CAGR</text>
+<text x="495.8" y="264.0" text-anchor="middle" font-size="9.5" fill="#52514e">FY21→26</text>
+<rect x="589.6" y="206.5" width="65.9" height="17.9" fill="#d03b3b" rx="3"/>
+<text x="622.6" y="238.4" text-anchor="middle" font-size="12" font-weight="700" fill="#d03b3b">-9.1%</text>
+<text x="622.6" y="252.0" text-anchor="middle" font-size="9.5" fill="#52514e">실제 FCF CAGR</text>
+<text x="622.6" y="264.0" text-anchor="middle" font-size="9.5" fill="#52514e">FY21→25 (피크 제외)</text>
+<text x="52" y="302" font-size="9.5" fill="#898781">요구 성장률은 할인율 10% 기준 · 10년 성장 후 영구성장 2.5% 가정</text>
+</svg>
+
+<div class="box warn"><div class="box-t">이 카드에서 가장 중요한 표 — FCF 기준 하나로 결론이 뒤집힙니다</div>
+<table>
+<thead><tr><th>어떤 FCF 를 "정상"으로 보는가</th><th>FCF 값</th><th>요구 성장률<br>(할인율 10%)</th><th>EV / FCF</th><th>함의</th></tr></thead>
+<tbody>
+<tr><td>FY2026 실적 그대로<br><span style="font-size:.72rem;color:#898781">AI 수요가 구조적 전환이라면</span></td><td>589.6억$</td><td><b style="color:#0ca30c">+3.2%</b></td><td>14.4배</td><td>시장은 거의 성장이 없다고 가정 중. 회사 주장이 맞다면 낮은 허들.</td></tr>
+<tr class="hl"><td><b>3년 평균 (FY24~26)</b><br><span style="font-size:.72rem;color:#898781">스킬 규칙상 기본값</span></td><td>202.5억$</td><td><b style="color:#184f95">+17.7%</b></td><td>41.8배</td><td>10년 연속 두 자릿수 성장이 필요. 메모리 역사상 없던 일.</td></tr>
+<tr><td>5년 평균 (FY22~26)<br><span style="font-size:.72rem;color:#898781">사이클 한 바퀴를 평균</span></td><td>115.5억$</td><td><b style="color:#d03b3b">+25.5%</b></td><td>73.3배</td><td>10년간 연 25% 복리. 사실상 불가능에 가까운 허들.</td></tr>
+</tbody>
+</table>
+<p style="margin:8px 0 0;font-size:.8rem">FY2026 FCF 는 3년 평균 대비 <b>+191%</b> 입니다. 이 스킬의 규칙(±40% 초과 시 정규화)에 따라 3년 평균을 기본값으로 삼았지만, <b>정규화 자체가 이 종목에서는 하나의 투자 가정</b>입니다. 3년 평균은 적자 직후 2년과 역사적 피크 1년을 섞은 값이어서, 어느 쪽도 "정상"을 대표하지 않습니다.</p></div>
+
+<h2>④ 민감도 — 할인율을 흔들어보면</h2>
+<table>
+<thead><tr><th>FCF 기준</th><th>WACC 8%</th><th>WACC 10% (기본)</th><th>WACC 12%</th></tr></thead>
+<tbody>
+<tr><td>FY2026 실적 그대로</td><td>−0.9%</td><td>+3.2%</td><td>+6.7%</td></tr>
+<tr class="hl"><td>3년 평균 (FY24~26)</td><td>+12.9%</td><td><b>+17.7%</b></td><td>+22.0%</td></tr>
+<tr><td>5년 평균 (FY22~26)</td><td>+20.2%</td><td>+25.5%</td><td>+30.1%</td></tr>
+</tbody>
+</table>
+<p class="src">기본 할인율로 10%(일반 기업)를 썼습니다. 다만 마이크론의 30일 내재변동성이 60.4%, 52주 범위가 192.59$~1,255.00$ 라는 점을 보면 <b>고변동 기업 기준 12%가 더 타당하다고 볼 여지가 큽니다.</b> 12%를 쓰면 3년 평균 기준 요구 성장률은 22.0% 로 올라갑니다.</p>
+
+<h2>⑤ 이 숫자가 흔들리는 조건 — 그래서 뭘 확인해야 하나</h2>
+<ol>
+<li><b>FY2026 FCF 가 피크인가 평지인가.</b> 이 질문 하나가 요구 성장률을 3.2% 와 25.5% 사이에서 움직입니다. 다른 모든 가정을 합친 것보다 영향이 큽니다. 확인 방법: 2027년 계약분이 끝나는 <b>2028년 이후 가격 협상</b>과, 삼성·SK하이닉스·CXMT 의 증설 물량이 실제로 가동되는 시점.</li>
+<li><b>할인율 10% → 12%</b> 로 보면 3년 평균 기준 17.7% → 22.0%. 메모리의 변동성을 감안하면 12% 가 보수적으로 타당합니다.</li>
+<li><b>순현금 683억$ 가 요구 성장률을 낮춰주고 있습니다.</b> 시가총액 9,145억$ 에서 순현금을 빼 기업가치 8,462억$ 로 계산했습니다. 만약 회사가 예고한 대로 대규모 설비투자(언급된 규모 약 2,000억$ 수준의 제조·연구 투자)에 이 현금을 쓰면, 주주에게 돌아오는 FCF 는 그만큼 줄어듭니다.</li>
+<li><b>시장은 이미 "피크"로 가격을 매긴 듯 보입니다.</b> FY2027 컨센서스 EPS 176.50$ 대비 주가 795$ 는 <b>주가수익비율 4.5배</b>입니다. FY2026 실적 기준으로도 10.7배입니다. 시장이 컨센서스를 믿는다면 절대 나올 수 없는 배수입니다 — 즉 시장은 컨센서스가 틀렸다고 보고 있습니다.</li>
+</ol>
+
+<div class="box"><div class="box-t">보조 지표</div>
+<div class="kpi">
+<div><div class="lbl">EV / FY2026 FCF</div><div class="val">14.4배</div></div>
+<div><div class="lbl">EV / 3년평균 FCF</div><div class="val">41.8배</div></div>
+<div><div class="lbl">주가 / FY2026 EPS</div><div class="val">10.7배</div></div>
+<div><div class="lbl">주가 / FY2027 컨센서스 EPS</div><div class="val">4.5배</div></div>
+</div>
+<p style="margin:0;font-size:.8rem">FY2026 GAAP EPS 74.33$ · FY2027 컨센서스 EPS 176.50$ (Yahoo Finance 집계). 컨센서스는 추정치이며 공시가 아닙니다.</p></div>
+
+<h2>⑥ 계산 과정</h2>
+<details>
+<summary>입력값 5개와 출처 · 모델 가정 · 계산 코드 (펼치기)</summary>
+
+<h3>입력값</h3>
+<table>
+<thead><tr><th>값</th><th>수치</th><th>출처</th></tr></thead>
+<tbody>
+<tr><td>현재 주가</td><td>$795.23</td><td>Investing.com, 2026-11-04 (전일 종가 $855.10)</td></tr>
+<tr><td>희석주식수</td><td>11.50억주</td><td>FY26 4분기 보도자료 — FY27 1분기 가이던스가 약 11.5억주 기준</td></tr>
+<tr><td>시가총액</td><td>$9,145.1억</td><td>위 두 값의 곱 (직접 계산)</td></tr>
+<tr><td>총부채</td><td>$51.79억</td><td>FY26 말 재무상태표: 유동 4.91억 + 비유동 46.88억</td></tr>
+<tr><td>현금·투자자산</td><td>$734.53억</td><td>FY26 말: 현금 383.64억 + 단기투자 50.70억 + 장기투자 300.19억</td></tr>
+<tr><td>순부채</td><td>−$682.74억<br>(순현금)</td><td>총부채 − 현금·투자자산 (직접 계산)</td></tr>
+<tr><td>기업가치 (EV)</td><td>$8,462.4억</td><td>시가총액 + 순부채 (직접 계산)</td></tr>
+<tr><td>최근 FCF</td><td>$589.63억</td><td>FY26 영업활동현금흐름 896.75억 − 유형자산 취득지출 307.12억</td></tr>
+<tr><td>할인율 (WACC)</td><td>10% (기본)</td><td>스킬 기본값. 8%·12% 민감도 병행</td></tr>
+<tr><td>영구성장률</td><td>2.5%</td><td>스킬 기본값 (장기 GDP 성장률 수준)</td></tr>
+</tbody>
+</table>
+
+<h3>FCF 이력 (영업활동현금흐름 − 유형자산 취득지출, 단위 백만 USD)</h3>
+<table>
+<thead><tr><th>FY17</th><th>FY18</th><th>FY19</th><th>FY20</th><th>FY21</th><th>FY22</th><th>FY23</th><th>FY24</th><th>FY25</th><th>FY26</th></tr></thead>
+<tbody><tr>
+<td>3,400</td><td>8,500</td><td>3,400</td><td>83</td><td>2,440</td>
+<td>3,110</td><td class="dn">−6,120</td><td>121</td><td>1,668</td><td class="up">58,963</td>
+</tr></tbody>
+</table>
+<p class="src">FY2024~FY2026 은 공시 현금흐름표(FY25·FY26 4분기 보도자료). FY2017~FY2023 은 공시 기반 집계 자료. 회사가 쓰는 '조정 FCF'(설비투자를 정부·파트너 보조금 차감 후로 계산)는 값이 조금 달라 FY2026 623.08억$, FY2025 37.21억$, FY2024 3.86억$ 입니다.</p>
+
+<h3>FCF 정규화 판단</h3>
+<ul>
+<li>FY2026 FCF 589.63억$ 는 3년 평균 202.51억$ 대비 <b>+191%</b></li>
+<li>스킬 기준(±40% 초과 시 3년 평균 사용)을 크게 벗어나므로 <b>3년 평균을 기본값으로 채택</b></li>
+<li>단, 3년 중 1년이 역사적 피크이고 2년이 사실상 바닥이므로 평균의 대표성이 약합니다. 그래서 FY2026 단독·5년 평균 시나리오를 함께 제시했습니다.</li>
+<li>FCF 가 음수인 해(FY2023)가 있어 역DCF 를 단일 과거값으로 돌릴 수는 없습니다.</li>
+</ul>
+
+<h3>모델</h3>
+<p>10년간 성장률 g 로 성장 후 영구성장 2.5%. 이분법(bisection)으로 g 를 역산했습니다.</p>
+<pre style="font-size:.72rem;overflow-x:auto;background:#f4f4f1;padding:12px;border-radius:6px"><code>EV = Σ(t=1..10) FCF×(1+g)^t / (1+W)^t
+     + [FCF×(1+g)^10×(1+0.025) / (W − 0.025)] / (1+W)^10
+
+EV = 시가총액 + 순부채
+   = 914,514 + (−68,274) = 846,240  (백만 USD)
+
+g 를 찾는다: pv_of_fcf(FCF, g, W) − EV = 0
+탐색 범위 g ∈ [−60%, +200%], 300회 이분법, 허용오차 1e-9</code></pre>
+<p class="src">전체 계산 스크립트는 <code>analysis/MU/reverse_dcf.py</code> 에 들어 있습니다. 모든 수치는 코드 실행으로 산출했고 암산·추정은 없습니다.</p>
+
+<h3>과거 성장률 계산</h3>
+<table>
+<thead><tr><th>구간</th><th>CAGR</th><th>비고</th></tr></thead>
+<tbody>
+<tr><td>FCF FY2021 → FY2026 (5년)</td><td>+89.1%</td><td>바닥 근처에서 피크로 — 과대</td></tr>
+<tr><td>FCF FY2017 → FY2026 (9년)</td><td>+37.3%</td><td>피크 포함</td></tr>
+<tr><td>FCF FY2021 → FY2025 (4년)</td><td>−9.1%</td><td>피크 제외</td></tr>
+<tr><td>FCF FY2017 → FY2025 (8년)</td><td>−8.5%</td><td>피크 제외</td></tr>
+</tbody>
+</table>
+<p class="src">FY2023 이 음수여서 해당 연도를 시작점으로 하는 CAGR 은 정의되지 않습니다. 매출 CAGR 은 FY2021 이전 수치를 확인하지 못해 계산하지 않았습니다. <span class="fact need">확인 필요</span></p>
+</details>
+
+<h2>⑦ ⚠️ 경고</h2>
+<div class="box warn">
+<p style="margin:0 0 8px"><b>이 숫자는 판단의 시작이지 답이 아닙니다.</b></p>
+<ul style="margin:0">
+<li>가정(할인율, 성장 기간, 영구성장률, <b>특히 어떤 FCF 를 정상으로 보는가</b>)이 바뀌면 결과가 바뀝니다. 이 종목은 그 민감도가 유독 큽니다 — 3.2% 와 25.5% 사이입니다.</li>
+<li>역DCF 는 "시장이 뭘 기대하는가"를 보여줄 뿐, "얼마가 적정한가"를 말하지 않습니다.</li>
+<li>그 기대가 타당한지는 사업 모델과 경쟁 환경을 직접 확인해야 알 수 있습니다. 같은 폴더의 <b>기업 해독기</b>와 <b>기업 스토리</b> 카드가 그 작업입니다.</li>
+<li>주가는 조회 시점(2026-11-04)의 값입니다. 메모리 주식은 하루에 5~7% 움직이는 일이 흔하므로 지금 값과 다를 수 있습니다.</li>
+<li>투자 판단과 그 결과는 본인 책임입니다.</li>
+</ul>
+</div>
+
+<h2>📎 사용한 자료</h2>
+<ul style="font-size:.76rem">
+<li>FY2026 4분기·연간 실적 보도자료 (2026-09-30) — 현금흐름표, 재무상태표, 희석주식수, FY27 1분기 가이던스</li>
+<li>FY2025 4분기·연간 실적 보도자료 (2025-09-23) — FY2024·FY2025 영업활동현금흐름·설비투자</li>
+<li>Investing.com / stockanalysis.com / marketchameleon — 주가, 시가총액, 내재변동성, 52주 범위 (2026-11-02~04)</li>
+<li>Yahoo Finance — FY2027·FY2028 컨센서스 EPS·매출, 분기별 실적 이력</li>
+<li>공시 기반 FCF 집계 (FY2017~FY2023)</li>
+</ul>
+</div>
+
+</body></html>

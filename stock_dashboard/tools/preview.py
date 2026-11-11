@@ -465,7 +465,7 @@ def _screen_body(triples, criteria, min_pass: int, caps=None) -> str:
     ]
     shortlist = [t for t in triples if t[0].passed_count >= min_pass]
     parts.append(ui.render_section_head(
-        f"{min_pass}개 이상 통과",
+        ("전체 종목" if min_pass <= 0 else f"{min_pass}개 이상 통과"),
         "각 카드의 질문을 Claude 에 붙여넣으면 정독이 시작됩니다",
         len(shortlist)))
     # 종목마다 접습니다 — **실제 앱이 st.expander 로 그리는 모양**과 맞춰야
@@ -701,7 +701,7 @@ def _discover_panel(use_demo: bool) -> str:
 
     parts = [
         ui.render_section_head(
-            "종목 발굴", "52주 위치 × 버핏식 품질 기준 — 읽을 목록을 줄입니다", 0),
+            "종목 발굴", "52주 위치 × 버핏식 품질 기준 — 읽을 목록을 줄입니다"),
         ui.render_footnote(
             "<b>52주 신고가는 모멘텀 지표입니다.</b> '좋은 주식' 이 아니라 "
             "'최근 많이 오른 주식' 입니다 — 신고가인 이유가 비싸서일 수도 "
@@ -754,8 +754,6 @@ def _valuation_tab_panel(data, fx, use_demo: bool) -> str:
     import buffett
 
     parts = [
-        ui.render_section_head(
-            "밸류에이션 판단", "현재 가격이 요구하는 성장률 vs 과거 실제", 0),
         ui.render_footnote(
             "<b>적정주가를 계산하지 않습니다.</b> 할인율·성장률 가정을 조금만 "
             "바꿔도 원하는 숫자가 나와서 판단 재료가 못 됩니다. 대신 방향을 "
@@ -772,6 +770,9 @@ def _valuation_tab_panel(data, fx, use_demo: bool) -> str:
     screens_map, _errors = demo_mod.demo_screens()
     caps = demo_mod.demo_market_caps()
     triples = _attach(buffett.rank(list(screens_map.values())), caps, "USD")
+    parts.insert(0, ui.render_section_head(
+        "밸류에이션 판단", "현재 가격이 요구하는 성장률 vs 과거 실제",
+        len(triples)))
     if not triples:
         parts.append(ui.render_footnote("<b>대상 종목이 없습니다.</b>"))
         return "".join(parts)
@@ -994,10 +995,8 @@ def _macro_panel(section, data, fx, use_demo: bool) -> str:
                      if use_demo else {})
         for trig in triggers:
             parts.append(ui.render_macro_trigger(
-                trig, macro_mod.prompt_for(trig)))
-            items = headlines.get(trig.reading.spec.key)
-            if items:
-                parts.append(ui.render_news_block(items))
+                trig, macro_mod.prompt_for(trig),
+                headlines.get(trig.reading.spec.key) or ()))
     else:
         parts.append(ui.render_footnote(
             "<b>임계값에 닿은 지표가 없습니다.</b> 조용한 게 정상입니다 — "

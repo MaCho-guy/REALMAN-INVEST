@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>마이크론 기업 스토리</title>
+<style>
+  .mu { --ink:#0b0b0b; --ink2:#52514e; --muted:#898781; --line:#e1e0d9;
+        --blue:#2a78d6; --blue-d:#184f95; --blue-l:#cde2fb;
+        --red:#d03b3b; --green:#0ca30c; --amber:#fab219;
+        color:var(--ink); line-height:1.6;
+        font-family:system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo",sans-serif; }
+  .mu * { box-sizing:border-box; }
+  .mu h1 { font-size:1.5rem; font-weight:700; letter-spacing:-.02em; margin:0 0 4px; }
+  .mu h2 { font-size:1.05rem; font-weight:650; margin:34px 0 12px;
+           padding-bottom:7px; border-bottom:2px solid var(--ink); }
+  .mu h3 { font-size:.9rem; font-weight:650; margin:20px 0 8px; }
+  .mu p  { margin:0 0 10px; font-size:.86rem; }
+  .mu .sub { color:var(--muted); font-size:.78rem; margin-bottom:18px; }
+  .mu .mode { display:inline-block; font-size:.72rem; font-weight:600;
+              color:var(--blue-d); background:var(--blue-l);
+              border-radius:4px; padding:3px 9px; margin-bottom:14px; }
+
+  .mu .drill { border-left:4px solid var(--blue); background:#f7fafe;
+               padding:16px 18px; margin:16px 0 8px; }
+  .mu .drill b { font-size:1.08rem; font-weight:650; line-height:1.55; }
+
+  .mu .src { font-size:.7rem; color:var(--muted); margin:4px 0 0; }
+  .mu .src a { color:var(--blue-d); }
+  .mu .fact { display:inline-block; font-size:.66rem; font-weight:700;
+              color:#fff; background:var(--ink2); border-radius:3px;
+              padding:1px 5px; margin-right:5px; vertical-align:1px; }
+  .mu .interp { background:var(--amber); color:var(--ink); }
+  .mu .need { background:var(--red); }
+
+  .mu table { width:100%; border-collapse:collapse; font-size:.78rem;
+              font-variant-numeric:tabular-nums; margin:10px 0 6px; }
+  .mu th, .mu td { padding:7px 9px; text-align:right; border-bottom:1px solid var(--line); }
+  .mu th { font-size:.72rem; color:var(--ink2); font-weight:650;
+           border-bottom:1.5px solid var(--ink); }
+  .mu th:first-child, .mu td:first-child { text-align:left; }
+  .mu td.na { color:var(--muted); }
+  .mu .up { color:var(--red); font-weight:600; }
+  .mu .dn { color:var(--blue); font-weight:600; }
+  .mu tr.hl td { background:#f7fafe; font-weight:650; }
+
+  .mu .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+  @media(max-width:760px){ .mu .grid2 { grid-template-columns:1fr; } }
+
+  .mu .box { border:1px solid var(--line); border-radius:8px; padding:14px 16px; margin:12px 0; }
+  .mu .box-t { font-size:.82rem; font-weight:650; margin-bottom:6px; }
+  .mu .warn { border:1px solid var(--red); background:#fdf5f5; }
+  .mu .warn .box-t { color:var(--red); }
+  .mu .note { border:1px solid var(--amber); background:#fffcf2; }
+
+  .mu ul, .mu ol { margin:6px 0 10px; padding-left:20px; font-size:.84rem; }
+  .mu li { margin-bottom:5px; }
+  .mu svg { display:block; max-width:100%; height:auto; margin:10px 0; }
+  .mu details { margin:14px 0; font-size:.8rem; }
+  .mu summary { cursor:pointer; font-weight:650; padding:8px 0; }
+  .mu code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+             font-size:.75rem; background:#f4f4f1; padding:1px 4px; border-radius:3px; }
+  .mu .big { font-size:2.1rem; font-weight:700; letter-spacing:-.03em; line-height:1.1; }
+  .mu .kpi { display:flex; gap:22px; flex-wrap:wrap; margin:14px 0; }
+  .mu .kpi > div { min-width:130px; }
+  .mu .kpi .lbl { font-size:.72rem; color:var(--muted); }
+  .mu .kpi .val { font-size:1.3rem; font-weight:700; letter-spacing:-.02em; }
+</style>
+</head><body>
+<div class="mu">
+<h1>마이크론 — 지난 3년의 스토리</h1>
+<div class="sub">기업 스토리 리더 · FY2024~FY2026 · 생성 2026-11-05</div>
+<div class="mode">📡 웹검색 기반 미니 버전 · 10-K 원문 비교 아님</div>
+
+<div class="box note"><div class="box-t">먼저 이 분석의 한계를 밝힙니다</div>
+<p style="margin:0">이 스킬의 제대로 된 사용법은 <b>10-K 3개년 PDF 와 어닝콜 트랜스크립트 4~8분기를 나란히 놓고 문장 단위로 비교</b>하는 것입니다. 지금은 그 문서들을 직접 갖고 있지 않아, 공시 요약 서비스와 실적발표 준비발언문·Q&amp;A 트랜스크립트의 공개된 부분을 근거로 했습니다.
+<br><br>따라서 <b>"사라진 문구"는 리스크 요인 단위까지만 확인</b>했고, 문장 단위 삭제·변경은 추적하지 못했습니다. FY2024·FY2025·FY2026 10-K PDF 를 업로드하시면 문장 단위 비교로 정밀도가 크게 올라갑니다.</p></div>
+
+<h2>📌 한 줄 요약</h2>
+<div class="drill"><b>3년 전 "언제 흑자로 돌아설까"를 묻던 회사가 지금은 "왜 더 못 만드나"를 묻는 회사로 바뀌었고 — 경영진의 자신감은 그대로인데, 시장은 그 말을 6월부터 할인하기 시작했습니다.</b></div>
+
+<h2>📖 스토리</h2>
+
+<p><b>3년 전, 이 회사는 생존을 이야기하고 있었습니다.</b> FY2023 에 마이크론은 잉여현금흐름 −61억 달러를 기록했습니다. 돈을 버는 게 아니라 태우고 있었습니다. 회사는 설비투자를 FY2022 121억 달러에서 FY2023 77억 달러로 깎았습니다. FY2024 1분기(2023년 12월) 실적발표에서 CEO 산자이 메흐로트라가 한 말은 "2024년 내내 사업 펀더멘털이 개선될 것으로 예상하며, 2025년 업계 TAM 이 사상 최대를 기록할 전망"이었습니다. <span class="fact">사실</span> 그 분기 마이크론은 주당 95센트 적자였습니다. 즉 당시의 이야기는 <b>회복에 대한 약속</b>이었고, 근거는 미래 시장 규모였습니다.</p>
+
+<p><b>그런데 FY2026 에 일어난 일은 회복이 아니었습니다.</b> AI 데이터센터가 메모리를 빨아들이기 시작하자, 4개 분기 연속으로 매출이 기록을 갈아치웠습니다. 매출은 FY2025 374억 달러에서 FY2026 1,332억 달러로 3.5배가 됐습니다. 매출총이익률은 39.8%에서 80.7%로, 40%포인트 넘게 올랐습니다. FY2026 2분기 실적발표에서 회사가 한 말이 그 분위기를 가장 정확히 보여줍니다 — <span class="fact">사실</span> 다음 분기 <b>한 분기</b> 매출 가이던스가 FY2024 까지 회사 역사상 <b>모든 연간 매출</b>을 넘어선다는 것이었습니다. 이건 자신감이 아니라 거의 선언입니다.</p>
+
+<p><b>회사의 대응은 말을 바꾸는 데서 그치지 않았습니다.</b> 메흐로트라는 "AI 의 확산으로 메모리 산업이 구조적으로 전환됐다"고 말했고, 이 주장을 뒷받침하려고 과거 메모리 사이클에 없던 장치를 도입했습니다 — 약 1,000억 달러 규모의 take-or-pay(가져가거나 대금을 내는) 계약과, 고객이 미리 꽂아둔 약 220억 달러의 예치금·신용장입니다. <span class="fact">사실</span> FY2026 10-K 의 잔여 수행의무는 약 1,340억 달러이고, 그중 약 4분의 1 만이 향후 12개월 내 매출로 인식될 예정입니다. 공시 리스크 항목의 성격도 뒤집혔습니다. 과거 메모리 회사의 리스크는 "못 팔면 어쩌나"였는데, FY2026 10-K 에서 가장 크게 고쳐 쓴 항목은 <b>"고객 수요를 맞추지 못할 위험"과 "증설이 늦어지거나 비용이 초과될 위험"</b>입니다.</p>
+
+<p><b>그래서 지금, 경영진이 보는 미래는 이렇습니다.</b> 2026년 9월 30일 FY26 4분기 실적발표에서 회사는 2027년 전체 생산량의 75% 이상이 이미 계약됐고, HBM 은 2027년 물량 상당 부분이 2026년보다 훨씬 높은 가격에 팔렸다고 밝혔습니다. 메모리 수급은 2027년과 2028년 모두 타이트하게 유지되고, HBM 은 2028년까지 일반 DRAM 보다 빠르게 성장한다는 전망입니다. FY2027 1분기 가이던스는 매출 615억 달러 ± 15억 달러 — 컨센서스 572억 달러를 넘는 숫자입니다. 10월 16일 대만 타이중 HBM 후공정 공장 개소식에서는 2027년 계획 생산능력이 이미 완판이라고 했습니다. <b>공장이 첫 웨이퍼를 뽑기도 전에 그 생산물이 다 팔린 상태입니다.</b></p>
+
+<p><b><span class="fact interp">해석</span> 제가 보기엔, 이 스토리의 긴장은 회사와 시장 사이에 있습니다.</b> 경영진의 톤은 FY2026 내내 최고조를 유지했고 지금도 그렇습니다. 그런데 두 가지가 조용히 달라졌습니다. 첫째, <b>자사 가이던스와 컨센서스를 상회하는 폭이 쪼그라들었습니다</b> — 2분기 EPS 서프라이즈 +33.2%에서 4분기 +5.0%로. 회사가 더 이상 시장 기대를 크게 앞지르지 못하고 있습니다. 둘째, 주가는 2026년 6월 25일 1,255달러로 사상 최고를 찍은 뒤 11월 초 795~855달러로 <b>약 35% 내려왔습니다</b> — 그 사이 회사는 사상 최대 실적을 두 번 더 발표했는데도요. 2026년 11월 2일에는 경쟁사 키오시아의 보수적 전망만으로 5.8% 빠졌습니다.
+<br><br>메흐로트라 본인이 남긴 한 문장이 이 긴장의 핵심입니다. 그는 <b>메모리 공급이 언제 수요를 따라잡을지에 대해서는 가시성이 없다</b>고 인정했습니다. 회사는 "구조적 전환"을 말하고, 시장은 FY2027 컨센서스 EPS 대비 4.5배라는 가격을 매기고 있습니다. 주가수익비율 4.5배는 "이 이익은 지속되지 않는다"는 뜻입니다. <b>둘 중 하나는 틀렸고, 그게 이 종목의 전부입니다.</b></p>
+
+<h2>🔍 근거 1 — 공시 문장의 변화</h2>
+
+<h3>리스크 요인 구성</h3>
+<table>
+<thead><tr><th>항목</th><th>FY2025 10-K</th><th>FY2026 10-K (2026-10-09 제출)</th></tr></thead>
+<tbody>
+<tr><td>리스크 요인 총 개수</td><td>35건</td><td>36건 (4개 그룹)</td></tr>
+<tr><td>신규 등장</td><td>—</td><td>3건</td></tr>
+<tr><td>삭제</td><td>—</td><td>2건</td></tr>
+<tr><td>대폭 재작성</td><td>—</td><td>13건</td></tr>
+</tbody>
+</table>
+
+<h3>🔄 가장 크게 고쳐 쓴 문구 — 고객·전방시장 집중</h3>
+<div class="box">
+<p style="margin:0 0 8px"><b>FY2025 10-K / FY26 2분기 10-Q 원문</b><br>
+<span style="font-size:.8rem;color:#52514e">"In 2025, over half of our total revenue came from our top ten customers. Among our end markets, approximately one-half of our total revenue was concentrated in the data center end market."</span><br>
+<span style="font-size:.8rem">→ 2025년에 상위 10개 고객이 매출의 절반 이상을 차지했고, 전방시장 중에서는 데이터센터가 매출의 약 절반이었습니다.</span></p>
+<p style="margin:0"><b>FY2026 10-K</b> — 같은 항목이 <b>87% 재작성</b>되었고, 데이터센터 집중도가 <b>약 절반 → 약 60%</b> 로 올라갔으며, 고객사 증설 지연과 제3자 부품 부족이 완제품 판매를 끊을 수 있다는 내용이 새로 들어갔습니다.</p>
+</div>
+<p class="src"><span class="fact">사실</span> 출처: FY2026 10-K 리스크 요인 (2026-10-09) / FY2026 2분기 10-Q (2026-03). <span class="fact interp">해석</span> 집중도가 올라간 걸 회사가 스스로 더 크게 써놨습니다. 분모가 3.5배 커진 상황에서 집중도 비율이 올라갔다는 건, 성장이 데이터센터 한 곳에서만 나왔다는 뜻입니다.</p>
+
+<h3>🔄 숫자가 바뀐 문구 — 해외 선적 비중</h3>
+<table>
+<thead><tr><th>문구</th><th>FY2025</th><th>FY2026</th></tr></thead>
+<tbody>
+<tr><td>미국 외 본사 고객 비중</td><td>약 1/3</td><td>약 1/3 (변화 없음)</td></tr>
+<tr><td>미국 외로 선적된 제품 비중</td><td>약 80%</td><td><b>약 70%</b></td></tr>
+</tbody>
+</table>
+<p class="src"><span class="fact">사실</span> 두 수치 모두 10-K/10-Q 리스크 요인에 명시된 표현입니다. <span class="fact interp">해석</span> 고객 본사 분포는 그대로인데 선적지만 미국 쪽으로 10%포인트 옮겨왔습니다. 미국 내 AI 데이터센터 증설이 수요를 끌고 있다는 신호로 읽힐 여지가 있습니다.</p>
+
+<h3>🆕 새로 등장한 리스크 3건</h3>
+<ul>
+<li><b>노조 조직화와 파업 가능성</b> — 생산이 소수 팹에 집중되어 있어 파업이 고객 납품과 전략계약 이행을 위협할 수 있다는 내용. 2026년 10월 파업 투표가 거론되고 있습니다.</li>
+<li><b>증설 리스크의 성격 변화</b> — 수익 실현 지연, 비용 초과, 인력 부족, 그리고 <b>수요를 맞추지 못할 위험</b>을 강조하는 방향으로 재작성.</li>
+<li><b>생태계 지분투자 리스크</b> — 공급망 내 기업에 대한 투자 손실·환금성 위험. FY2026 에 약 10.5억 달러의 비시장성 지분을 취득했습니다.</li>
+</ul>
+<p class="src"><span class="fact interp">해석</span> 세 건 모두 "못 만들까"에 관한 리스크입니다. 메모리 회사가 수요 걱정이 아니라 공급 걱정을 공시에 새로 쓰는 건 사이클 상단의 특징이기도 하고, 회사가 주장하는 구조적 전환의 증거이기도 합니다. 같은 사실이 양쪽으로 읽힙니다.</p>
+
+<h3>❌ 사라진 문구</h3>
+<p><span class="fact need">확인 못 함</span> FY2026 10-K 에서 2건이 삭제된 것은 확인했으나, <b>어떤 항목이 삭제됐는지는 공개 요약에서 특정하지 못했습니다.</b> 이 스킬에서 가장 중요한 신호가 "사라진 문구"인데 그걸 못 짚었다는 점을 그대로 적어둡니다. FY2025·FY2026 10-K PDF 를 올려주시면 이 칸을 채울 수 있습니다.</p>
+
+<h2>🔍 근거 2 — 톤 변화</h2>
+
+<h3>경영진 자신감 점수 (정성 평가)</h3>
+<table>
+<thead><tr><th>분기</th><th>점수</th><th>근거</th></tr></thead>
+<tbody>
+<tr><td>FY26 Q1<br><span style="font-size:.72rem;color:#898781">2025-12-17</span></td><td style="text-align:center">8.0</td><td>기록 실적 + 가이던스 상향 + 배당 인상. 강세 반응.</td></tr>
+<tr class="hl"><td>FY26 Q2<br><span style="font-size:.72rem;color:#898781">2026-03-18</span></td><td style="text-align:center">9.5</td><td>"다음 한 분기 매출 가이던스가 FY2024 까지 모든 연간 매출을 넘어선다". FCF 가 직전 기록을 77% 경신. 자신감 최고조.</td></tr>
+<tr><td>FY26 Q3<br><span style="font-size:.72rem;color:#898781">2026-06-24</span></td><td style="text-align:center">9.0</td><td>모든 지표가 자사 가이던스 상단 초과. 4분기를 500억$로 가이드(컨센서스 436억$). 주가 시간외 +15%.</td></tr>
+<tr><td>FY26 Q4<br><span style="font-size:.72rem;color:#898781">2026-09-30</span></td><td style="text-align:center">8.0</td><td>2027년 75% 완판·2028년까지 타이트 유지 주장은 여전히 강함. 그러나 <b>"공급이 언제 수요를 따라잡을지 가시성 없다"</b>고 인정.</td></tr>
+</tbody>
+</table>
+<div class="box note"><p style="margin:0">이 점수는 정량 지표가 아니라 표현 분석에 기반한 상대적 추이입니다. 트랜스크립트 전문이 아니라 준비발언문과 공개된 Q&amp;A 발췌를 근거로 매겼으므로, 발언 분량·질문 회피 같은 신호는 반영하지 못했습니다.</p></div>
+
+<h3>그런데 실제로 꺾인 건 톤이 아니라 서프라이즈 폭입니다</h3>
+<svg viewBox="0 0 700 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="분기별 EPS 컨센서스 상회폭 추이">
+<line x1="52" y1="26.9" x2="680" y2="26.9" stroke="#e1e0d9"/>
+<text x="45" y="30.4" text-anchor="end" font-size="10" fill="#898781">35%</text>
+<line x1="52" y1="75.8" x2="680" y2="75.8" stroke="#e1e0d9"/>
+<text x="45" y="79.3" text-anchor="end" font-size="10" fill="#898781">25%</text>
+<line x1="52" y1="124.7" x2="680" y2="124.7" stroke="#e1e0d9"/>
+<text x="45" y="128.2" text-anchor="end" font-size="10" fill="#898781">15%</text>
+<line x1="52" y1="173.6" x2="680" y2="173.6" stroke="#e1e0d9"/>
+<text x="45" y="177.1" text-anchor="end" font-size="10" fill="#898781">5%</text>
+<line x1="52" y1="198.0" x2="680" y2="198.0" stroke="#c3c2b7"/>
+<text x="45" y="201.5" text-anchor="end" font-size="10" fill="#898781">0%</text>
+<polyline points="130.5,97.3 287.5,35.7 444.5,93.4 601.5,173.6" fill="none" stroke="#2a78d6" stroke-width="2.5"/>
+<circle cx="130.5" cy="97.3" r="5.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+<text x="130.5" y="84.3" text-anchor="middle" font-size="12" font-weight="700" fill="#184f95">+20.6%</text>
+<text x="130.5" y="215.0" text-anchor="middle" font-size="10" fill="#52514e">FY26 Q1</text>
+<circle cx="287.5" cy="35.7" r="5.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+<text x="287.5" y="22.7" text-anchor="middle" font-size="12" font-weight="700" fill="#184f95">+33.2%</text>
+<text x="287.5" y="215.0" text-anchor="middle" font-size="10" fill="#52514e">FY26 Q2</text>
+<circle cx="444.5" cy="93.4" r="5.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+<text x="444.5" y="80.4" text-anchor="middle" font-size="12" font-weight="700" fill="#184f95">+21.4%</text>
+<text x="444.5" y="215.0" text-anchor="middle" font-size="10" fill="#52514e">FY26 Q3</text>
+<circle cx="601.5" cy="173.6" r="5.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+<text x="601.5" y="160.6" text-anchor="middle" font-size="12" font-weight="700" fill="#184f95">+5.0%</text>
+<text x="601.5" y="215.0" text-anchor="middle" font-size="10" fill="#52514e">FY26 Q4</text>
+<text x="52" y="242" font-size="9.5" fill="#898781">비GAAP EPS 가 컨센서스를 상회한 폭 (%) · 출처: Yahoo Finance 실적 이력</text>
+</svg>
+<p class="src"><span class="fact">사실</span> 비GAAP EPS 가 컨센서스를 상회한 폭: FY26 Q1 +20.6% → Q2 +33.2% → Q3 +21.4% → Q4 +5.0%. 출처: Yahoo Finance 실적 이력 (추정치 3.96/9.16/20.69/31.82, 실제 4.78/12.20/25.11/33.42).</p>
+<p class="src"><span class="fact interp">해석</span> 톤 점수는 거의 그대로인데 서프라이즈 폭은 6분의 1로 줄었습니다. 두 가지 중 하나입니다 — 애널리스트가 드디어 모델을 맞추기 시작했거나, 실적 모멘텀이 정점을 지났거나. 전자라면 주가 조정은 과도하고, 후자라면 아직 시작입니다. <b>FY27 1분기(12월 발표)가 이 둘을 가르는 분기입니다.</b> 가이던스 615억$ ± 15억$ 대비 실제가 어디서 나오는지가 답입니다.</p>
+
+<h2>🔍 근거 3 — 가이던스 성적표</h2>
+<table>
+<thead><tr><th>분기</th><th>회사 가이던스 (매출)</th><th>실제 매출</th><th>달성</th><th>EPS 컨센서스</th><th>실제 EPS</th></tr></thead>
+<tbody>
+<tr><td>FY26 Q1</td><td class="na">공개 요약에서 확인 못 함</td><td>136.4억$</td><td>✅</td><td>$3.96</td><td>$4.78</td></tr>
+<tr><td>FY26 Q2</td><td class="na">공개 요약에서 확인 못 함</td><td>238.6억$</td><td>✅</td><td>$9.16</td><td>$12.20</td></tr>
+<tr class="hl"><td>FY26 Q3</td><td>335억$ ± 7.5억$</td><td>414.6억$</td><td>✅ <b>+23.8% 초과</b></td><td>$20.69</td><td>$25.11</td></tr>
+<tr><td>FY26 Q4</td><td>약 500억$ ± 10억$<br>EPS 중간값 $31.00</td><td>542.3억$</td><td>✅ +8.5% 초과</td><td>$31.82</td><td>$33.42</td></tr>
+<tr><td>FY27 Q1</td><td>615억$ ± 15억$<br>비GAAP EPS $38.15 ± $1.00</td><td colspan="3" class="na">2026년 12월 발표 예정 — 컨센서스 572억$</td></tr>
+</tbody>
+</table>
+<div class="kpi">
+<div><div class="lbl">가이던스 달성률</div><div class="val">4 / 4 (100%)</div></div>
+<div><div class="lbl">가이던스 철회·하향</div><div class="val">0건</div></div>
+<div><div class="lbl">초과 폭 추세</div><div class="val">축소 중</div></div>
+</div>
+<p class="src"><span class="fact">사실</span> 확인된 4개 분기 모두 자사 가이던스와 컨센서스를 상회했고, 가이던스 철회나 하향은 없었습니다. <span class="fact interp">해석</span> 패턴은 명확히 <b>보수적 가이던스 관행</b>입니다. Q3 에서 자사 가이던스를 23.8% 초과한 건 보수적이라는 말로도 설명이 안 되는 수준입니다 — 당시 가격이 가이던스 제시 후에도 계속 올랐다는 뜻입니다. 경영진 신뢰도 자체는 이 기간 훼손된 적이 없습니다. 지금 시장이 의심하는 건 경영진의 정직성이 아니라 <b>사이클의 지속성</b>입니다.</p>
+
+<h2>⏱ 타임라인 — 3년의 변곡점</h2>
+<table>
+<thead><tr><th>시점</th><th>사건</th></tr></thead>
+<tbody>
+<tr><td>FY2023</td><td>잉여현금흐름 −61억$. 설비투자를 121억$→77억$ 로 축소</td></tr>
+<tr><td>2023-12</td><td>FY24 1분기 주당 95센트 적자. CEO: "2024년 내내 개선, 2025년 TAM 사상 최대 전망"</td></tr>
+<tr><td>FY2024</td><td>매출 251억$, FCF 1.2억$ — 간신히 흑자 전환</td></tr>
+<tr><td>FY2025</td><td>매출 374억$, FCF 16.7억$. 매출총이익률 39.8%</td></tr>
+<tr><td>2026-03</td><td>FY26 2분기 — "한 분기 가이던스가 과거 연간 매출 전체를 넘는다"</td></tr>
+<tr><td><b>2026-06-25</b></td><td><b>주가 사상 최고 1,255$</b> (FY26 3분기 발표 직후)</td></tr>
+<tr><td>2026-09-30</td><td>FY26 4분기 — 매출 542억$, 연간 1,332억$. 2027년 75% 완판 발표. EPS 서프라이즈 +5.0%</td></tr>
+<tr><td>2026-10-06</td><td>독일 뮌헨 법원, 3D NAND 관련 제한 명령 — 회사 항소</td></tr>
+<tr><td>2026-10-09</td><td>FY2026 10-K 제출. 리스크 요인 36건, 13건 대폭 재작성</td></tr>
+<tr><td>2026-10-16</td><td>대만 타이중 HBM 후공정 공장 개소 — 2027년 계획 생산능력 완판 발표</td></tr>
+<tr><td>2026-11-02</td><td>키오시아 보수적 전망에 주가 −5.8%. 6월 고점 대비 약 −34%</td></tr>
+</tbody>
+</table>
+
+<h2>❓ 아직 모르는 것</h2>
+<ol>
+<li><b>삭제된 리스크 요인 2건이 무엇인지.</b> 이 스킬에서 가장 값진 신호인데 특정하지 못했습니다. 10-K 원문 2개년이 필요합니다.</li>
+<li><b>애널리스트가 반복해서 묻는 질문.</b> Q&amp;A 전문이 없어 "같은 질문이 3분기 연속" 패턴을 확인할 수 없었습니다. 2028년 이후 가격과 경쟁사 증설 시점이 반복 질문일 가능성이 높지만 근거는 없습니다.</li>
+<li><b>준비 발언 대 Q&amp;A 분량 비율.</b> 톤 분석의 핵심 신호인데 전문이 없어 측정하지 못했습니다.</li>
+<li><b>FY27 1분기 실제 실적.</b> 2026년 12월 발표. 가이던스 615억$ 대비 결과가 이 스토리의 다음 장을 씁니다.</li>
+</ol>
+
+<h2>📎 사용한 자료 — 전체</h2>
+<ul style="font-size:.76rem">
+<li>FY2026 4분기·연간 실적 보도자료 (2026-09-30) — 실적, 가이던스, 재무제표</li>
+<li>FY2026 4분기 준비 발언문 (Micron IR) — 매출 구성, 마진, 현금흐름</li>
+<li>FY2026 4분기 Q&amp;A 트랜스크립트 발췌 — 2027 HBM 계약·가격, 공급 가시성 관련 CEO 발언</li>
+<li>FY2026 2분기 준비 발언문 (Micron IR) — "한 분기 가이던스가 과거 연간 매출 초과" 발언</li>
+<li>FY2026 3분기 실적 보도자료 및 관련 보도 (2026-06-24) — 4분기 500억$ 가이던스</li>
+<li>FY2026 10-K (2026-10-09) 리스크 요인 분석 — 36건 구성, 신규·삭제·재작성 내역</li>
+<li>FY2026 2분기·3분기 10-Q 리스크 요인 — 고객 집중도·지역 비중 원문</li>
+<li>FY2025 4분기·연간 실적 보도자료 (2025-09-23) — FY2024·FY2025 비교</li>
+<li>FY2024 1분기 실적 보도 (2023-12) — 당시 CEO 발언 및 적자 규모</li>
+<li>Yahoo Finance 실적 이력 — 분기별 컨센서스 대비 실제 EPS</li>
+<li>2026년 10~11월 보도 — 타이중 공장 개소, 독일 법원 명령, 키오시아 전망 영향</li>
+</ul>
+<p class="src">10-K·10-Q 원문 PDF 가 아니라 공개 요약·보도자료·준비발언문 기반입니다. 페이지 번호는 적지 않았습니다.</p>
+
+<div class="box warn" style="margin-top:28px"><div class="box-t">⚠️ 이 카드는 투자 판단의 근거가 아닙니다</div>
+<p style="margin:0">정보 정리 목적이며 매수·매도·보유 의견이 아닙니다. 자신감 점수는 정성 판단이고, 공시 변화 분석은 원문 비교가 아닌 공개 요약에 근거합니다. 투자 판단과 결과는 본인 책임입니다.</p></div>
+</div>
+
+</body></html>

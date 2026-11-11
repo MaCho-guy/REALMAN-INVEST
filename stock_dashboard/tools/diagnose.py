@@ -280,6 +280,14 @@ def diagnose_fred() -> None:
               "무료 키를 발급해 Secrets 에 넣으면 다른 호스트로 받아옵니다:")
         print("      https://fred.stlouisfed.org/docs/api/api_key.html")
 
+    # 키 형식을 **보내기 전에** 확인합니다. 형식이 틀리면 서버가 400 을
+    # 주는데, 상태코드만 보고는 왜인지 알 수 없습니다.
+    _kp = fred.key_problem()
+    if _fred_key and _kp:
+        print(f"    ⚠ {_kp}")
+        print("      Secrets 에 따옴표 안쪽만 키여야 합니다: "
+              'FRED_API_KEY = "abcd…32자"')
+
     for label, url, params in _probes:
         t0 = _t.monotonic()
         try:
@@ -289,6 +297,15 @@ def diagnose_fred() -> None:
             print(f"    {'✓' if r.status_code == 200 else '✗'} {label}: "
                   f"HTTP {r.status_code} · {el:.1f}초 · {len(r.content):,} bytes")
             # 주소에 api_key 가 들어가므로 URL 은 찍지 않습니다.
+            if r.status_code != 200:
+                # **본문을 찍습니다.** 전에 상태코드만 보여줘서 400 의 사유가
+                # 응답 안에 있는데도 보이지 않았습니다. FRED API 는 400 과
+                # 함께 error_message 를 돌려줍니다.
+                body = r.text.strip()
+                if _fred_key:
+                    body = body.replace(_fred_key, "…키가려짐…")
+                for chunk in textwrap.wrap(body, 92)[:6]:
+                    print(f"        {chunk}")
             if r.status_code == 200:
                 probe_ok = True
                 if params:

@@ -134,6 +134,11 @@ def render_news_block(headlines, *, limit: int = 3,
 
     뉴스는 보조이므로 비면 빈 문자열을 돌려줍니다 — 화면에 '뉴스 없음' 같은
     빈 칸을 남기지 않습니다.
+
+    항상 카드 **안쪽**에 들어갑니다 — 테두리 없이 위쪽 실선 한 줄로만
+    구분합니다. 전에는 카드 밖에 상자로 그렸는데, 스트림릿이 그 사이에
+    컨테이너 여백을 끼워 넣어 정체불명의 박스가 하나 더 떠 있는 것처럼
+    보였습니다.
     """
     if not headlines:
         return ""
@@ -328,13 +333,21 @@ def render_card(
     )
 
 
-def render_section_head(title: str, subtitle: str, count: int) -> str:
+def render_section_head(title: str, subtitle: str,
+                        count: int | None = None) -> str:
+    """구역 제목. count=None 이면 개수 배지를 그리지 않습니다.
+
+    탭 맨 위의 소개용 제목에 0 을 넘기면 '0개 항목' 이라고 찍혀서 아래에
+    내용이 있는데도 비어 있는 것처럼 보입니다. 셀 것이 없는 자리는
+    None 을 넘기십시오.
+    """
     sub = f'<span class="dash-section-sub">{_esc(subtitle)}</span>' if subtitle else ""
+    badge = ("" if count is None
+             else f'<span class="dash-section-count">{count}개 항목</span>')
     return (
         '<div class="dash-section-head">'
         f'<span class="dash-section-title">{_esc(title)}</span>'
-        f"{sub}"
-        f'<span class="dash-section-count">{count}개 항목</span>'
+        f"{sub}{badge}"
         "</div>"
     )
 
@@ -369,7 +382,15 @@ def _safe_inline(text: str) -> str:
                    f'target="_blank" rel="noopener noreferrer">'
                    f'{m.group(2)}</a>'),
         out)
-    return _SAFE_RE.sub(lambda m: f"<{m.group(1)}{m.group(2).lower()}>", out)
+    out = _SAFE_RE.sub(lambda m: f"<{m.group(1)}{m.group(2).lower()}>", out)
+    # 설명 문구를 쓰면서 습관적으로 **강조** 를 쓰는데, 지금까지는 별표가
+    # 글자 그대로 화면에 찍혔습니다. 태그로 바꿔 줍니다. 이스케이프를 이미
+    # 끝낸 뒤라 안쪽 내용은 안전합니다.
+    return _MD_BOLD_RE.sub(r"<b>\1</b>", out)
+
+
+# 줄바꿈을 건너뛰지 않게 한 줄 안에서만, 그리고 비어 있지 않은 것만
+_MD_BOLD_RE = re.compile(r"\*\*(?!\s)([^*\n]+?)(?<!\s)\*\*")
 
 
 def render_footnote(text: str) -> str:
@@ -943,11 +964,11 @@ def render_macro_card(reading, *, hit: bool = False, show_why: bool = True) -> s
 
     why = ""
     if show_why and spec.why:
-        why = f'<div class="dash-macro-why">{spec.why}</div>'
+        why = f'<div class="dash-macro-why">{_safe_inline(spec.why)}</div>'
 
     warn = ""
     if reading.warning:
-        warn = f'<div class="dash-macro-why">{_esc(reading.warning)}</div>'
+        warn = f'<div class="dash-macro-why">{_safe_inline(reading.warning)}</div>'
 
     return (
         f'<div class="dash-macro{" hit" if hit else ""}">{head}'
@@ -975,8 +996,15 @@ def render_macro_group(title: str, subtitle: str, readings: list,
     )
 
 
-def render_macro_trigger(trigger, prompt: str = "") -> str:
-    """임계값을 건드린 지표 한 건 — 변화 감지 탭의 신호 카드와 같은 모양."""
+def render_macro_trigger(trigger, prompt: str = "", headlines=()) -> str:
+    """임계값을 건드린 지표 한 건 — 변화 감지 탭의 신호 카드와 같은 모양.
+
+    헤드라인은 **카드 안에** 넣습니다. 전에는 app.py 가 카드와 헤드라인을
+    따로 st.markdown 으로 그렸고, 스트림릿이 그 둘 사이에 자기 컨테이너
+    여백을 끼워 넣어서 카드 아래에 정체불명의 박스가 하나 더 떠 있는
+    것처럼 보였습니다. CSS 음수 마진으로 끌어올리는 건 스트림릿 버전에
+    따라 어긋나므로, 애초에 한 덩어리로 그립니다.
+    """
     r = trigger.reading
     spec = r.spec
     sev_class = {3: "now", 2: "soon", 1: "fyi"}.get(trigger.severity, "fyi")
@@ -1004,6 +1032,7 @@ def render_macro_trigger(trigger, prompt: str = "") -> str:
         f'<div class="dash-sig-detail">{_esc(trigger.detail)}</div>'
         f'<div class="dash-sig-tags">{chips}</div>'
         f"{prompt_block}"
+        f"{render_news_block(headlines)}"
         "</div>"
     )
 
@@ -1034,14 +1063,14 @@ def render_check(check, *, show_source: bool = False) -> str:
     badge = (f'<span class="dash-prov {_esc(prov)}">{_esc(label)}</span>'
              if prov == "verbatim" or show_source else "")
 
-    detail = f'<div class="dash-check-detail">{_esc(check.detail)}</div>'
-    warn = (f'<div class="dash-check-warn">⚠ {_esc(check.warning)}</div>'
+    detail = f'<div class="dash-check-detail">{_safe_inline(check.detail)}</div>'
+    warn = (f'<div class="dash-check-warn">⚠ {_safe_inline(check.warning)}</div>'
             if check.warning else "")
     source = ""
     if show_source:
         source = (
-            f'<div class="dash-check-detail"><b>출처</b> — {_esc(crit.source)}'
-            + (f'<br><b>한계</b> — {_esc(crit.caveat)}' if crit.caveat else "")
+            f'<div class="dash-check-detail"><b>출처</b> — {_safe_inline(crit.source)}'
+            + (f'<br><b>한계</b> — {_safe_inline(crit.caveat)}' if crit.caveat else "")
             + "</div>"
         )
 
@@ -1066,7 +1095,7 @@ def render_screen(screen, *, show_source: bool = False,
     if not screen.ok:
         return (
             f'<div class="dash-screen">{head}</div>'
-            f'<div class="dash-screen-err">{_esc(screen.error)}</div></div>'
+            f'<div class="dash-screen-err">{_safe_inline(screen.error)}</div></div>'
         )
 
     unk = (f'<span class="unk"> · 판정 불가 {screen.unknown_count}</span>'
@@ -1139,7 +1168,7 @@ def render_screen_table(screens, criteria) -> str:
 def render_dcf_cells(result) -> str:
     """역DCF 숫자 칸들."""
     if not result.ok:
-        return (f'<div class="dash-screen-err">{_esc(result.error)}</div>'
+        return (f'<div class="dash-screen-err">{_safe_inline(result.error)}</div>'
                 if result.error else "")
 
     cells = [
@@ -1861,7 +1890,7 @@ def render_price_block(price, *, show_source: bool = False,
     """
     if price is None or not price.ok:
         msg = getattr(price, "error", "") or "가격 조건을 판정할 수 없습니다."
-        return f'<div class="dash-screen-err">{_esc(msg)}</div>'
+        return f'<div class="dash-screen-err">{_safe_inline(msg)}</div>'
 
     unk = (f'<span class="unk"> · 판정 불가 {price.unknown_count}</span>'
            if price.unknown_count else "")
@@ -1881,7 +1910,7 @@ def render_price_block(price, *, show_source: bool = False,
     for key, label, note in metrics_meta:
         val = price.metrics.get(key)
         shown = "—" if val is None else f"{val:.2f}"
-        tip = (f'<div class="dash-check-detail">{_esc(note)}</div>'
+        tip = (f'<div class="dash-check-detail">{_safe_inline(note)}</div>'
                if show_source else "")
         cells += (
             '<div class="dash-price-metric">'

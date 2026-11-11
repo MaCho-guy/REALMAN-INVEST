@@ -1152,33 +1152,67 @@ def build_rules() -> str:
   }}
   .dash-navhead:first-child {{ margin-top: 0; }}
 
-  /* 라디오를 목록처럼. 점은 지우고 **막대와 굵기**로 선택을 표시합니다 —
-     점은 작아서 멀리서 안 보입니다. */
-  div[data-testid="stVerticalBlock"] div[role="radiogroup"] {{
-    gap: 2px;
+  /* 섹션 버튼 — 스트림릿 버튼을 그대로 쓰고 **모양만** 다듬습니다.
+     전에는 라디오를 목록처럼 꾸몄는데 (1) 동그라미를 숨기니 선택 안 된
+     항목은 그냥 글자였고 (2) 이 규칙이 **화면의 모든 라디오**에 걸려
+     '대상'·'색 규칙' 라디오의 동그라미까지 지웠습니다. 이제 내비 칸
+     안의 버튼에만 겁니다. 아래 규칙이 안 먹어도 버튼은 테마가 그린
+     테두리·남색 채움으로 보입니다. */
+  div[data-testid="stColumn"]:has(.dash-navmark) div[data-testid="stButton"],
+  div[data-testid="column"]:has(.dash-navmark) div[data-testid="stButton"] {{
+    margin-bottom: -6px;
   }}
-  div[role="radiogroup"] > label {{
-    display: flex; align-items: center;
-    padding: 8px 10px;
-    border-left: 3px solid transparent;
-    border-radius: 0 var(--r-inner) var(--r-inner) 0;
-    font-size: var(--fs-4); color: var(--dash-ink-2);
-    cursor: pointer;
-    transition: background .12s ease, border-color .12s ease;
+  div[data-testid="stColumn"]:has(.dash-navmark) button,
+  div[data-testid="column"]:has(.dash-navmark) button {{
+    justify-content: flex-start !important;
+    text-align: left; min-height: 40px;
+    padding: 6px 12px !important;
+    border-radius: var(--r-inner) !important;
+    font-size: var(--fs-4) !important;
   }}
-  div[role="radiogroup"] > label:hover {{
-    background: var(--dash-raised); color: var(--dash-ink);
+  div[data-testid="stColumn"]:has(.dash-navmark) button[kind="secondary"],
+  div[data-testid="column"]:has(.dash-navmark) button[kind="secondary"] {{
+    background: var(--dash-surface) !important;
+    border: 1px solid color-mix(in srgb, var(--dash-ink) 26%, var(--dash-surface)) !important;
+    color: var(--dash-ink) !important;
   }}
-  /* 선택된 항목 — :has() 가 없는 브라우저에서는 이 규칙만 빠지고
-     목록은 그대로 돕니다. */
-  div[role="radiogroup"] > label:has(input:checked) {{
-    background: var(--dash-raised);
-    border-left-color: var(--dash-accent);
-    color: var(--dash-ink); font-weight: 750;
+  div[data-testid="stColumn"]:has(.dash-navmark) button[kind="secondary"]:hover,
+  div[data-testid="column"]:has(.dash-navmark) button[kind="secondary"]:hover {{
+    background: var(--dash-raised) !important;
+    border-color: var(--dash-accent) !important;
   }}
-  /* 라디오 동그라미는 숨깁니다. 막대가 같은 일을 더 크게 합니다. */
-  div[role="radiogroup"] > label > div:first-child {{
-    display: none !important;
+  div[data-testid="stColumn"]:has(.dash-navmark) button[kind="primary"],
+  div[data-testid="column"]:has(.dash-navmark) button[kind="primary"] {{
+    font-weight: 750 !important;
+  }}
+  div[data-testid="stColumn"]:has(.dash-navmark) button p,
+  div[data-testid="column"]:has(.dash-navmark) button p {{
+    font-size: var(--fs-4) !important; text-align: left;
+  }}
+
+  /* 휴대폰: 칸이 위아래로 쌓이면 버튼 8개가 세로로 늘어서 본문이 한참
+     아래로 밀립니다. 좁은 화면에서는 버튼을 가로로 흘려 담습니다. 이
+     규칙이 안 먹으면 세로 목록으로 남을 뿐입니다. */
+  @media (max-width: 640px) {{
+    div[data-testid="stColumn"]:has(.dash-navmark) div[data-testid="stVerticalBlock"] {{
+      flex-direction: row !important; flex-wrap: wrap !important;
+      gap: 6px !important;
+    }}
+    div[data-testid="stColumn"]:has(.dash-navmark) div[data-testid="stElementContainer"] {{
+      width: auto !important; flex: 0 0 auto !important;
+    }}
+    div[data-testid="stColumn"]:has(.dash-navmark)
+      div[data-testid="stElementContainer"]:has(.dash-navhead),
+    div[data-testid="stColumn"]:has(.dash-navmark)
+      div[data-testid="stElementContainer"]:has(.dash-navmark) {{
+      flex-basis: 100% !important; width: 100% !important;
+    }}
+    div[data-testid="stColumn"]:has(.dash-navmark) button {{
+      width: auto !important; min-height: 36px;
+    }}
+    div[data-testid="stColumn"]:has(.dash-navmark) div[data-testid="stButton"] {{
+      margin-bottom: 0;
+    }}
   }}
 
   /* ── 국내 스크리너 ────────────────────────────────────────────────── */

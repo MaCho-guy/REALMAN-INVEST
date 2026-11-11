@@ -1721,7 +1721,7 @@ check_true("어느 시장에도 없는 탭이 없다",
 check_true("시장 전환이 내비보다 먼저",
            _app_src.index("market = _market_switch()")
            < _app_src.index("nav_col, body_col = st.columns"))
-check_true("시장마다 내비 키가 다르다", 'key=f"nav_{market}"' in _app_src,
+check_true("시장마다 내비 키가 다르다", 'key = f"nav_{market}"' in _app_src,
            "하나면 시장을 바꿀 때 없는 탭이 선택돼 오류가 납니다")
 check_true("주소창에 시장을 남긴다", 'st.query_params["m"]' in _app_src,
            "새로고침하면 기본값으로 돌아갑니다")
@@ -1749,9 +1749,7 @@ check_true("한국에서 매크로는 공통에 있다",
                for g, ks in _cfg_m.MARKET_TABS["kr"]))
 
 print("\n=== 섹션 내비는 세로 ===")
-check_true("세로 라디오를 쓴다",
-           'st.radio(\n            "섹션"' in _app_src
-           or '"섹션", keys, key="nav"' in _app_src)
+check_true("세로 버튼 목록을 쓴다", "_section_nav(market, labels)" in _app_src)
 check_true("가로 옵션을 쓰지 않는다",
            '"섹션", keys, horizontal=True' not in _app_src,
            "horizontal=True 면 다시 한 줄로 돌아갑니다")
@@ -1908,19 +1906,18 @@ check_true("안 쓰는 변수도 없다", not (_defined - _used),
            str(sorted(_defined - _used)))
 
 print("\n=== 왼쪽 내비가 보이는가 ===")
-check_true("선택된 항목에 표시를 준다",
-           'div[role="radiogroup"] > label:has(input:checked)' in _theme_src,
-           "프리뷰의 .pv-tab 만 꾸미면 실제 앱에는 적용되지 않습니다")
-_checked = _theme_src.split('label:has(input:checked)')[1].split("}}")[0]
-check_true("남색 막대로 표시", "--dash-accent" in _checked, _checked[:80])
-check_true("굵기로도 표시", "font-weight" in _checked,
-           "막대만 있으면 색각이상에서 약합니다")
+# 2026-11-11: 라디오를 CSS 로 꾸미던 방식을 버리고 진짜 버튼으로 바꿨습니다.
+# 자세한 동작 검사는 tests/nav_speed_test.py 가 실제 함수를 돌려 합니다.
+check_true("섹션은 버튼으로 그린다 (지금 섹션은 primary)",
+           'type="primary" if active else "secondary"' in _app_src)
+_nav_css = _theme_src.split(':has(.dash-navmark) button[kind="secondary"]')[2][:400]
+check_true("선택 안 된 버튼에도 테두리", "border:" in _nav_css, _nav_css[:80])
 check_true("hover 도 있다",
-           'div[role="radiogroup"] > label:hover' in _theme_src)
+           ':has(.dash-navmark) button[kind="secondary"]:hover' in _theme_src)
+check_true("지금 섹션은 굵게",
+           ':has(.dash-navmark) button[kind="primary"]' in _theme_src)
 check_true("내비 칸이 패널로 보인다",
            'div[data-testid="stColumn"]:has(.dash-navmark)' in _theme_src)
-check_true("라디오 동그라미를 숨긴다",
-           "display: none !important" in _theme_src)
 # 프리뷰도 같은 모양이어야 '봤으니 됐다' 가 성립합니다
 _pv_src = pathlib.Path("tools/preview.py").read_text(encoding="utf-8")
 check_true("프리뷰 내비도 패널", ".pv-side {" in _pv_src

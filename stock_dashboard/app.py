@@ -29,6 +29,9 @@ import briefing_store as bfs
 import inflation
 import kr_screen
 import sector_heat
+import perf
+import threading
+import time
 import liquidity
 import value as vl
 import analysis_store
@@ -73,19 +76,26 @@ def load_all(use_demo: bool) -> dict[str, dict[str, Quote]]:
         return demo_mod.demo_payload()
 
     payload: dict[str, dict[str, Quote]] = {"yahoo": {}, "naver": {}, "hyperliquid": {}}
-
-    for bucket, fetch, symbols in (
+    jobs = (
         ("yahoo", yahoo.fetch_quotes, config.all_yahoo_symbols()),
         ("naver", naver.fetch_quotes, config.all_naver_codes()),
         ("hyperliquid", hyperliquid.fetch_quotes, config.all_hyperliquid_symbols()),
-    ):
+    )
+
+    def one(job):
+        bucket, fetch, symbols = job
         try:
-            payload[bucket] = fetch(symbols)
+            return bucket, fetch(symbols)
         except Exception as exc:  # noqa: BLE001
-            payload[bucket] = {
+            return bucket, {
                 s: Quote.failed(s, f"{bucket} 소스 전체 실패: {exc}") for s in symbols
             }
 
+    # 세 소스는 서로 기다릴 이유가 없습니다 — 전에는 야후 → 네이버 →
+    # 하이퍼리퀴드를 차례로 기다렸습니다.
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        for bucket, got in pool.map(one, jobs):
+            payload[bucket] = got
     return payload
 
 
@@ -291,6 +301,25 @@ def load_news(targets: tuple[tuple[str, str, str], ...], use_demo: bool) -> dict
         return {}
 
 
+@st.cache_data(ttl=86_400, show_spinner=False)
+def load_sector_names(pairs: tuple[tuple[str, str], ...]) -> dict[str, str]:
+    """ETF 이름 — 코드 검증용. 이름은 바뀌지 않으므로 하루 동안 저장합니다.
+
+    전에는 30분마다 일봉과 함께 14번 더 불렀습니다. 야후의 .info 는
+    종목당 1초 안팎이라 섹터 온도를 여는 시간의 큰 몫이었습니다.
+    """
+    names: dict[str, str] = {}
+    try:
+        info = yahoo.fetch_fundamentals([sym for _c, sym in pairs], ())
+        for code, sym in pairs:
+            names[code] = str((info.get(sym) or {}).get("_name") or "")
+            if names[code] == sym:      # 이름을 못 받으면 심볼을 돌려줍니다
+                names[code] = ""
+    except Exception:  # noqa: BLE001 - 이름은 검증용이라 없어도 됩니다
+        pass
+    return names
+
+
 @st.cache_data(ttl=1_800, show_spinner=False)
 def load_sector_heat(use_demo: bool):
     """KODEX 업종 ETF 14개 → 섹터 온도.
@@ -309,15 +338,7 @@ def load_sector_heat(use_demo: bool):
         return [sector_heat.SectorRow(code=s[0], label=s[1],
                                       error=f"일봉 실패: {exc}")
                 for s in specs]
-    names: dict[str, str] = {}
-    try:
-        info = yahoo.fetch_fundamentals(list(syms.values()), ())
-        for code, sym in syms.items():
-            names[code] = str((info.get(sym) or {}).get("_name") or "")
-            if names[code] == sym:      # 이름을 못 받으면 심볼을 돌려줍니다
-                names[code] = ""
-    except Exception:  # noqa: BLE001 - 이름은 검증용이라 없어도 됩니다
-        pass
+    names = load_sector_names(tuple(syms.items()))
     closes = {code: closes_by_sym.get(sym) or [] for code, sym in syms.items()}
     errors = {code: errs.get(sym, "") for code, sym in syms.items()}
     return sector_heat.build(specs, closes, names, errors)
@@ -2815,7 +2836,9 @@ def controls() -> dict:
                 help="네트워크 없이 레이아웃만 확인합니다. 표시되는 숫자는 "
                      "실제 시세가 아닙니다.",
             )
-            auto = st.toggle("자동 갱신", value=config.AUTO_REFRESH_SEC > 0)
+            # 기본은 꺼 둡니다. 켜 두면 주기마다 화면 전체를 다시 그려서
+            # (스피너·깜빡임) 보는 중에 답답합니다. 시세를 지켜볼 때만 켭니다.
+            auto = st.toggle("자동 갱신", value=config.AUTO_REFRESH_DEFAULT)
             interval = config.AUTO_REFRESH_SEC
             if auto:
                 interval = st.slider("갱신 주기 (초)", 10, 300,
@@ -2913,6 +2936,162 @@ SECTION_LOADING = {
 }
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# 속도 — 동시에 받아 두기 · 측정
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _ctx_initializer():
+    """작업 스레드에 스트림릿 실행 문맥을 붙이는 함수. 못 구하면 None.
+
+    문맥이 없어도 캐시 함수는 돌지만 로그에 경고가 찍힙니다. 스트림릿
+    내부 경로라 버전에 따라 없을 수 있어 실패는 조용히 넘깁니다.
+    """
+    try:
+        from streamlit.runtime.scriptrunner import (
+            add_script_run_ctx, get_script_run_ctx)
+        ctx = get_script_run_ctx()
+    except Exception:  # noqa: BLE001
+        return None
+    if ctx is None:
+        return None
+
+    def init() -> None:
+        try:
+            add_script_run_ctx(threading.current_thread(), ctx)
+        except Exception:  # noqa: BLE001
+            pass
+    return init
+
+
+def _section_jobs(section: str, market: str, use_demo: bool) -> dict:
+    """화면별로 **서로 기다릴 필요 없는** 데이터 받기. 이름 → 함수.
+
+    지문(key_fingerprint)은 여기서, 즉 주 스레드에서 미리 계산합니다 —
+    세션에 넣은 임시 키가 스레드에서 안 보일 수 있습니다.
+    """
+    dfp, ffp = dart.key_fingerprint(), fred.key_fingerprint()
+    jobs: dict = {"시세": lambda: load_all(use_demo)}
+    if section == "summary":
+        jobs.update({
+            "미국 공시": lambda: load_filings(use_demo),
+            "국내 공시": lambda: load_dart_disclosures(use_demo, dfp),
+            "국내 재고 추세": lambda: load_inventory_trends(use_demo, dfp),
+            "미국 재고 추세": lambda: load_us_inventory_trends(use_demo),
+            "매크로": lambda: load_macro(use_demo, ffp),
+        })
+        if market == "kr":
+            jobs["섹터 온도"] = lambda: load_sector_heat(use_demo)
+        else:
+            jobs["공포탐욕"] = lambda: load_feargreed(use_demo)
+            jobs["VIX"] = lambda: load_vix(use_demo)
+    elif section == "kr_flows":
+        jobs.update({
+            "섹터 뉴스": lambda: load_sector_news(use_demo),
+            "주요 공시": lambda: load_market_filings(use_demo, dfp),
+            "국내 지표": lambda: load_kr_macro(use_demo, ffp),
+        })
+    elif section == "us_flows":
+        jobs.update({
+            "물가": lambda: load_inflation(use_demo, ffp),
+            "유동성": lambda: load_liquidity(use_demo, ffp),
+        })
+    elif section == "cycle":
+        jobs.update({
+            "미국 공시": lambda: load_filings(use_demo),
+            "국내 공시": lambda: load_dart_disclosures(use_demo, dfp),
+            "국내 재고 추세": lambda: load_inventory_trends(use_demo, dfp),
+            "미국 재고 추세": lambda: load_us_inventory_trends(use_demo),
+            "수출": lambda: load_kr_exports(use_demo),
+        })
+    elif section == "macro":
+        jobs.update({
+            "매크로": lambda: load_macro(use_demo, ffp),
+            "공포탐욕": lambda: load_feargreed(use_demo),
+            "VIX": lambda: load_vix(use_demo),
+        })
+    elif section == "valuation":
+        jobs.update({
+            "미국 재무 심사": lambda: load_screens(use_demo),
+            "국내 재무 심사": lambda: load_kr_screens(use_demo, dfp),
+        })
+    elif section == "sector_heat":
+        jobs["섹터 온도"] = lambda: load_sector_heat(use_demo)
+    return jobs
+
+
+def _prefetch(section: str, market: str, use_demo: bool, log) -> None:
+    """이 화면이 쓸 데이터를 **동시에** 받아 캐시에 넣어 둡니다.
+
+    아래의 원래 코드는 바꾸지 않습니다 — 같은 함수를 다시 부르면 캐시에서
+    바로 나옵니다. 여기서 실패한 것은 원래 경로에서 평소처럼 오류로
+    보입니다. 그래서 이 함수가 통째로 실패해도 화면은 예전처럼(느리게)
+    그려질 뿐입니다.
+    """
+    if use_demo:
+        return
+    try:
+        perf.run_parallel(_section_jobs(section, market, use_demo), log,
+                          initializer=_ctx_initializer())
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _peek_section(market: str) -> str:
+    """지금 그릴 섹션 — 내비보다 먼저 데이터를 받으려고 미리 읽습니다."""
+    ordered = config.market_tab_keys(market)
+    cand = st.session_state.get(f"nav_{market}")
+    if cand not in ordered:
+        try:
+            cand = st.query_params.get("s", "")
+        except Exception:  # noqa: BLE001
+            cand = ""
+    return cand if cand in ordered else ordered[0]
+
+
+def _nav_button(label: str, key: str, active: bool, on_click, args) -> None:
+    kw = dict(key=key, type="primary" if active else "secondary",
+              on_click=on_click, args=args)
+    try:
+        st.button(label, width="stretch", **kw)
+    except TypeError:   # width 가 없는 예전 스트림릿
+        st.button(label, use_container_width=True, **kw)
+
+
+def _section_nav(market: str, labels: dict) -> str:
+    """왼쪽 섹션 목록 — **진짜 버튼**으로 그립니다. 고른 섹션 키를 돌려줍니다.
+
+    2026-11-11: 라디오를 CSS 로 목록처럼 꾸몄는데 실제 앱에서는 버튼
+    모양이 안 보였습니다. 동그라미를 숨기고 나니 선택 안 된 항목은 그냥
+    글자였고, 선택 표시는 스트림릿 내부 구조(:has(input:checked))에
+    기대고 있어 보장이 없었습니다. 스트림릿 버튼은 테마가 직접 그리므로
+    테두리가 항상 보이고, 지금 섹션은 남색으로 채워집니다.
+    """
+    key = f"nav_{market}"
+    groups = config.tab_groups(market)
+    ordered = [k for _g, items in groups for k, _l in items]
+    cur = _peek_section(market)
+    st.session_state[key] = cur
+
+    def pick(k: str) -> None:
+        st.session_state[key] = k
+
+    st.markdown('<div class="dash-navmark"></div>', unsafe_allow_html=True)
+    for gname, items in groups:
+        if not items:
+            continue
+        st.markdown(f'<div class="dash-navhead">{gname}</div>',
+                    unsafe_allow_html=True)
+        for k, _lbl in items:
+            _nav_button(labels.get(k, k), f"navbtn_{market}_{k}",
+                        k == cur, pick, (k,))
+    try:
+        if st.query_params.get("s") != cur:
+            st.query_params["s"] = cur
+    except Exception:  # noqa: BLE001
+        pass
+    return cur if cur in ordered else ordered[0]
+
+
 def _peek_market() -> str:
     """제목줄에 적을 시장. 전환 위젯보다 **먼저** 그려지므로 세션·주소에서
     미리 읽습니다. 위젯을 누르면 스트림릿이 새 값을 세션에 넣고 처음부터
@@ -2988,7 +3167,13 @@ def _market_switch() -> str:
 
 
 def render_body(opts: dict) -> None:
-    data = load_all(opts["demo"])
+    log = perf.RunLog()
+    # 시세와 이 화면의 데이터를 **동시에** 받기 시작합니다. 전에는 시세 →
+    # 공시 → 재고 → 섹터 → 매크로를 한 줄로 기다렸습니다.
+    _m = _peek_market()
+    _prefetch(_peek_section(_m), _m, opts["demo"], log)
+    data = log.measure("시세", load_all, opts["demo"]) if not log.items \
+        else load_all(opts["demo"])
     fx = resolve_fx(data.get("yahoo", {}), opts["fx_override"])
 
     now_kst = dt.datetime.now(KST)
@@ -3033,23 +3218,7 @@ def render_body(opts: dict) -> None:
     nav_col, body_col = st.columns([1, 5], gap="medium")
 
     with nav_col:
-        groups = config.tab_groups(market)
-        ordered = [k for _g, items in groups for k, _l in items]
-        # 묶음 이름은 CSS 로 끼워 넣습니다(라디오를 그룹마다 나누면
-        # 선택이 두 군데로 갈립니다). 표식은 내비 칸을 흰 패널로 만드는
-        # 데도 쓰입니다.
-        st.markdown(ui.render_nav_groups(groups), unsafe_allow_html=True)
-        # 시장마다 **다른 키**를 씁니다. 하나로 두면 한국에서 '섹터 온도'
-        # 를 보다가 미국으로 바꿨을 때 그 값이 목록에 없어 오류가 나고,
-        # 시장을 오갈 때 각자 보던 자리도 잊어버립니다.
-        active = st.radio(
-            "섹션", ordered, key=f"nav_{market}",
-            format_func=lambda k: labels.get(k, k),
-            label_visibility="collapsed",
-        )
-
-    if active not in ordered:
-        active = ordered[0]
+        active = _section_nav(market, labels)
 
     with body_col:
         if opts["demo"]:
@@ -3080,6 +3249,10 @@ def render_body(opts: dict) -> None:
                 section = config.SECTION_BY_KEY.get(active)
                 if section is not None:
                     render_section(section, data, fx, market=market)
+
+    # 무엇이 느린지 **숫자로** 남깁니다. "느리다" 를 고치려면 어디가
+    # 느린지부터 알아야 합니다.
+    st.markdown(ui.render_footnote(log.summary_line()), unsafe_allow_html=True)
 
     # 고지 문구 — 전에는 사이드바 맨 아래 있었는데 사이드바를 없앴습니다.
     # 본문 끝이 제자리입니다: 읽고 난 뒤에 보여야 합니다.

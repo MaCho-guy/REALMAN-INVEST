@@ -38,8 +38,12 @@ from typing import Literal
 # 전역 설정
 # ──────────────────────────────────────────────────────────────────────────────
 
-AUTO_REFRESH_SEC = 30
-CACHE_TTL_SEC = 20
+#: 시세 캐시. 20초였을 때는 섹션 버튼을 누를 때마다(20초가 지났으면)
+#: 시세 수십 개를 다시 받느라 화면 전환이 매번 몇 초씩 걸렸습니다.
+#: 야간 대체시세는 1분 단위로 봐도 충분합니다.
+AUTO_REFRESH_SEC = 60
+AUTO_REFRESH_DEFAULT = False
+CACHE_TTL_SEC = 60
 
 #: 기본 테마. "dark"(나이트) 또는 "light"(데이).
 DEFAULT_THEME: Literal["dark", "light"] = "dark"

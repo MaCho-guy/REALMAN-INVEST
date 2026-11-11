@@ -68,39 +68,33 @@ EXTRA_CSS = """
     align-self: flex-start;
   }
   .pv-main { flex: 1 1 auto; min-width: 0; }
-  .pv-tabs { display: flex; flex-direction: column; gap: 1px; }
+  /* 앱과 같은 모양: 스트림릿 버튼 — 흰 바탕 테두리, 지금 섹션은 남색 채움 */
+  .pv-tabs { display: flex; flex-direction: column; gap: 6px; }
   .pv-tab {
-    appearance: none; background: none; cursor: pointer; text-align: left;
-    border: none; border-left: 3px solid transparent;
-    color: var(--dash-ink-2);
+    appearance: none; cursor: pointer; text-align: left;
+    background: var(--dash-surface);
+    border: 1px solid color-mix(in srgb, var(--dash-ink) 26%, var(--dash-surface));
+    color: var(--dash-ink);
     font: inherit; font-size: var(--fs-4); font-weight: 600;
-    padding: 8px 10px; border-radius: 0 var(--r-inner) var(--r-inner) 0;
-    transition: color 0.12s ease, border-color 0.12s ease,
-                background 0.12s ease;
+    min-height: 40px; padding: 6px 12px; border-radius: var(--r-inner);
+    transition: background 0.12s ease, border-color 0.12s ease;
   }
-  .pv-tab:hover { color: var(--dash-ink); background: var(--dash-raised); }
+  .pv-tab:hover { background: var(--dash-raised); border-color: var(--dash-accent); }
   .pv-tab[aria-selected="true"] {
-    color: var(--dash-ink); border-left-color: var(--dash-accent);
-    background: var(--dash-raised); font-weight: 750;
+    background: var(--dash-accent); border-color: var(--dash-accent);
+    color: #fff; font-weight: 750;
   }
   .pv-navgroup {
     font-size: var(--fs-1); font-weight: 700; letter-spacing: .06em;
-    color: var(--dash-ink-muted); margin: 12px 0 4px; padding-left: 10px;
+    color: var(--dash-ink-muted); margin: 12px 0 2px; padding-left: 2px;
   }
   .pv-navgroup:first-child { margin-top: 0; }
   @media (max-width: 760px) {
     .pv-shell { display: block; }
     .pv-side { position: static; margin-bottom: 14px; flex: none; }
     .pv-tabs { flex-direction: row; flex-wrap: wrap; align-items: center; }
-    .pv-navgroup { width: 100%; margin: 8px 0 2px; padding-left: 0; }
-    .pv-tab {
-      border-left: none; border-bottom: 2px solid transparent;
-      border-radius: var(--r-inner) var(--r-inner) 0 0;
-    }
-    .pv-tab[aria-selected="true"] {
-      border-left-color: transparent;
-      border-bottom-color: var(--dash-accent);
-    }
+    .pv-navgroup { width: 100%; margin: 8px 0 0; }
+    .pv-tab { min-height: 36px; }
   }
   .pv-fold > summary {
     cursor: pointer; font-size: .8rem; font-weight: 600;

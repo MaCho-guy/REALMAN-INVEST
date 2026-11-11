@@ -76,6 +76,34 @@ try:
     check("옮길 경로를 말해 준다",
           any("sources/fred.py 로 옮기" in h for h in r.hints()))
 
+    print("\n=== 설정 파일은 값으로 비교 ===")
+    # 주석이 잔뜩 든 원본으로 매니페스트를 만들고
+    full_cfg = ('[theme]\n# 설명 주석\nbase = "light"  # 밝게\n'
+                'primaryColor = "#1f3a5f"\n\n[server]\nmaxUploadSize = 5\n')
+    with open(os.path.join(app, ".streamlit", "config.toml"), "w") as fh:
+        fh.write(full_cfg)
+    os.remove(os.path.join(app, "fred.py"))
+    with open(os.path.join(app, "sources", "fred.py"), "w") as fh:
+        fh.write("y = 2\n")
+    b.write_manifest(app)
+    os.remove(os.path.join(app, ".streamlit", "config.toml"))
+    # 사용자는 채팅의 짧은 버전(주석 없음, CRLF)을 루트에 붙여 넣음
+    with open(os.path.join(repo, ".streamlit", "config.toml"), "w", newline="") as fh:
+        fh.write('[theme]\r\nbase="light"\r\nprimaryColor =  "#1f3a5f"\r\n'
+                 '[server]\r\nmaxUploadSize=5\r\n')
+    r = b.verify(app)
+    check("주석·공백·줄바꿈만 다르면 통과", r.ok, r.message())
+    check("색상의 # 은 주석으로 지우지 않는다",
+          "#1f3a5f" in b.normalize_toml('a = "#1f3a5f" # x'))
+    with open(os.path.join(repo, ".streamlit", "config.toml"), "w") as fh:
+        fh.write('[theme]\nbase = "dark"\nprimaryColor = "#1f3a5f"\n'
+                 '[server]\nmaxUploadSize = 5\n')
+    r = b.verify(app)
+    check("값이 다르면 '다름'", b.THEME_FILE in r.stale)
+    hint = " ".join(r.hints())
+    check("'다름' 일 때는 숨김 폴더가 아니라 값 확인을 안내",
+          "설정 값이 최신과 다릅니다" in hint and "점(.)" not in hint, hint[:70])
+
     print("\n=== 경고 화면 ===")
     import components as ui  # noqa: E402
     html = ui.render_build_warning(r)

@@ -52,6 +52,39 @@ SKIP_DIRS = ("__pycache__", ".git", ".streamlit", "briefings", "analysis",
 SKIP_FILES = ("BUILD.json",)
 
 
+def _strip_toml_comment(line: str) -> str:
+    """따옴표 밖의 # 부터 끝까지 지웁니다 ("#1f3a5f" 같은 색은 남김)."""
+    quote = ""
+    for i, ch in enumerate(line):
+        if quote:
+            if ch == quote:
+                quote = ""
+        elif ch in "\"'":
+            quote = ch
+        elif ch == "#":
+            return line[:i]
+    return line
+
+
+def normalize_toml(text: str) -> str:
+    """설정 파일의 '값' 만 남깁니다 — 주석·빈 줄·공백·줄바꿈 차이는 무시.
+
+    2026-11-11: 채팅에 주석을 뺀 짧은 내용을 붙여 넣으라고 안내했는데,
+    검사는 주석까지 포함한 바이트를 비교해서 '내용이 다릅니다' 가
+    떴습니다. 설정 파일에서 의미가 있는 건 키와 값뿐입니다.
+    """
+    out = []
+    for raw in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        line = _strip_toml_comment(raw).strip()
+        if not line:
+            continue
+        if "=" in line and not line.startswith("["):
+            k, v = line.split("=", 1)
+            line = f"{k.strip()}={v.strip()}"
+        out.append(line)
+    return "\n".join(out)
+
+
 def file_hash(path: str) -> str:
     """파일 내용의 sha256 앞 12자리.
 
@@ -59,6 +92,11 @@ def file_hash(path: str) -> str:
     편집기가 줄바꿈을 바꿔도 내용이 같으면 같은 해시여야 하는데, 그건
     포기합니다. 줄바꿈이 바뀌었다는 것도 '다른 파일' 이 맞습니다.
     """
+    if path.endswith(".toml"):
+        with open(path, "rb") as fh:
+            text = fh.read().decode("utf-8", "replace")
+        return hashlib.sha256(
+            normalize_toml(text).encode("utf-8")).hexdigest()[:12]
     h = hashlib.sha256()
     with open(path, "rb") as fh:
         for chunk in iter(lambda: fh.read(65536), b""):
@@ -175,6 +213,14 @@ class Report:
             if where:
                 out.append(f"{rel} — 최신 파일이 엉뚱한 위치({where})에 올라가 "
                            f"있습니다. 앱 폴더 기준 {rel} 로 옮기십시오.")
+            elif rel == THEME_FILE and rel in self.stale:
+                where = self.found_at.get(rel, rel)
+                out.append(
+                    f"{rel} — 파일은 찾았지만({where}) 설정 값이 최신과 다릅니다 "
+                    "(주석·빈 줄 차이는 무시합니다). [theme] 아래 base 와 "
+                    "색상 다섯 줄이 안내한 내용과 같은지 확인하십시오. "
+                    "같은 이름의 파일이 앱 폴더(stock_dashboard/.streamlit)에도 "
+                    "있다면 그쪽이 우선하니 둘 다 확인하십시오.")
             elif rel == THEME_FILE:
                 out.append(
                     f"{rel} — 이름이 점(.)으로 시작하는 폴더는 Mac Finder 와 "

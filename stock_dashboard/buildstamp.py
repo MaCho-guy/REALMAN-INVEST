@@ -66,11 +66,55 @@ def file_hash(path: str) -> str:
     return h.hexdigest()[:12]
 
 
-#: .py 가 아니어도 **앱 동작을 바꾸는** 파일. 2026-11-11 에
-#: .streamlit/config.toml 이 다크 테마로 남아 있어서 위젯 글자가 흰 패널
-#: 위에서 안 보였습니다. .py 만 보면 이런 파일이 낡아도 검사를 통과합니다.
+#: .py 가 아니어도 **앱 동작을 바꾸는** 파일. .streamlit/config.toml 이
+#: 없으면 Streamlit 은 보는 기기의 다크/라이트 설정을 따라가서, 다크 모드
+#: 휴대폰에서는 위젯 글자가 밝은 패널 위에 밝게 찍혀 안 보입니다.
+#: .py 만 보면 이 파일이 빠져도 검사를 통과합니다.
 #: secrets.toml 은 사용자마다 다르므로 넣지 않습니다.
-EXTRA_TRACKED = (".streamlit/config.toml", "requirements.txt")
+THEME_FILE = ".streamlit/config.toml"
+EXTRA_TRACKED = (THEME_FILE, "requirements.txt")
+
+#: Streamlit Community Cloud 는 **저장소 루트**에서 streamlit run 을
+#: 실행하고, 설정 파일도 루트의 .streamlit/config.toml 을 읽습니다 (앱
+#: 폴더 옆에 둔 파일은 최신 버전에서만 덮어쓰기용으로 읽힙니다). 그래서
+#: 이 파일은 앱 폴더·작업 폴더·상위 폴더 어디에 있어도 '있음' 으로 봅니다.
+_ROOT_LEVEL = (THEME_FILE,)
+
+
+def _alt_roots(root: str) -> list[str]:
+    out = []
+    for cand in (os.getcwd(), os.path.dirname(os.path.abspath(root))):
+        if cand and os.path.abspath(cand) != os.path.abspath(root) \
+                and cand not in out:
+            out.append(cand)
+    return out
+
+
+def _find_misplaced(root: str, rel: str, want_hash: str) -> str:
+    """같은 이름·같은 내용의 파일이 다른 경로에 있으면 그 경로."""
+    base = os.path.basename(rel)
+    tops = [root] + _alt_roots(root)
+    seen = set()
+    for top in tops:
+        for dirpath, dirnames, filenames in os.walk(top):
+            depth = os.path.relpath(dirpath, top).count(os.sep)
+            dirnames[:] = [d for d in dirnames
+                           if d not in (".git", "__pycache__", "node_modules")
+                           and depth < 3]
+            if base not in filenames:
+                continue
+            full = os.path.abspath(os.path.join(dirpath, base))
+            if full in seen:
+                continue
+            seen.add(full)
+            if full == os.path.abspath(os.path.join(root, rel)):
+                continue
+            try:
+                if file_hash(full) == want_hash:
+                    return os.path.relpath(full, root).replace(os.sep, "/")
+            except OSError:
+                continue
+    return ""
 
 
 def _tracked(root: str) -> list[str]:
@@ -110,6 +154,10 @@ class Report:
     missing: list[str] = field(default_factory=list)  # 목록에 있는데 없는 파일
     extra: list[str] = field(default_factory=list)    # 목록에 없는 파일
     note: str = ""
+    #: 문제 파일 → 실제로 발견된 엉뚱한 위치 (내용은 최신과 같음)
+    misplaced: dict = field(default_factory=dict)
+    #: .streamlit/config.toml 을 어디서 찾았는가 (앱 폴더 / 저장소 루트)
+    found_at: dict = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
@@ -118,6 +166,29 @@ class Report:
     @property
     def problem_files(self) -> list[str]:
         return sorted(set(self.stale) | set(self.missing))
+
+    def hints(self) -> list[str]:
+        """파일마다 '무엇을 하면 되는지' 한 줄씩."""
+        out = []
+        for rel in self.problem_files:
+            where = self.misplaced.get(rel)
+            if where:
+                out.append(f"{rel} — 최신 파일이 엉뚱한 위치({where})에 올라가 "
+                           f"있습니다. 앱 폴더 기준 {rel} 로 옮기십시오.")
+            elif rel == THEME_FILE:
+                out.append(
+                    f"{rel} — 이름이 점(.)으로 시작하는 폴더는 Mac Finder 와 "
+                    "일부 업로드 창에서 숨겨져 같이 안 올라갑니다. GitHub 에서 "
+                    "'Add file → Create new file' 로 저장소 맨 위에 "
+                    ".streamlit/config.toml 을 직접 만들고 내용을 붙여 넣으십시오. "
+                    "이 파일이 없으면 휴대폰이 다크 모드일 때 버튼 글자가 "
+                    "배경에 묻힙니다.")
+            elif rel in self.missing:
+                out.append(f"{rel} — 파일이 없습니다. 이 경로 그대로 올리십시오.")
+            else:
+                out.append(f"{rel} — 예전 버전입니다. 폴더 경로까지 같은 자리에 "
+                           "덮어썼는지 확인하십시오.")
+        return out
 
     def message(self) -> str:
         """사람이 읽는 한 문단. 화면에 그대로 띄웁니다."""
@@ -165,9 +236,17 @@ def verify(root: str) -> Report:
     have = {}
     for rel in want:
         full = os.path.join(root, rel)
+        if not os.path.exists(full) and rel in _ROOT_LEVEL:
+            for alt in _alt_roots(root):
+                if os.path.exists(os.path.join(alt, rel)):
+                    full = os.path.join(alt, rel)
+                    break
         if not os.path.exists(full):
             rep.missing.append(rel)
             continue
+        if rel in _ROOT_LEVEL:
+            rep.found_at[rel] = os.path.relpath(
+                full, root).replace(os.sep, "/")
         try:
             have[rel] = file_hash(full)
         except OSError:
@@ -175,6 +254,14 @@ def verify(root: str) -> Report:
     for rel, want_hash in want.items():
         if rel in have and have[rel] != want_hash:
             rep.stale.append(rel)
+
+    for rel in rep.stale + rep.missing:
+        try:
+            where = _find_misplaced(root, rel, want[rel])
+        except Exception:  # noqa: BLE001
+            where = ""
+        if where:
+            rep.misplaced[rel] = where
 
     actual = set(_tracked(root))
     rep.extra = sorted(actual - set(want))

@@ -88,9 +88,20 @@ def key_problem() -> str:
     key = api_key()
     if not key:
         return "FRED_API_KEY 가 설정되지 않았습니다."
-    if len(key) != 32:
-        return (f"키 길이가 {len(key)}자입니다 — FRED 키는 32자입니다. "
-                "따옴표나 공백이 섞였는지 확인하십시오.")
+    if len(key) < 32:
+        # 짧은 건 따옴표 문제가 **아닙니다** — 따옴표가 섞이면 길어집니다.
+        # 복사하다 잘린 것입니다. 그 구분을 안 해주면 엉뚱한 데를 봅니다.
+        return (f"키가 {len(key)}자입니다 — {32 - len(key)}자 모자랍니다. "
+                "FRED 키는 32자이고, 짧다는 건 **복사할 때 잘렸다**는 "
+                "뜻입니다 (따옴표가 섞였다면 오히려 길어집니다). "
+                "FRED 계정 페이지에서 키 전체를 다시 복사하십시오.")
+    if len(key) > 32:
+        extra = ''.join(sorted({c for c in key if not c.isalnum()}))
+        hint = (f" 영숫자가 아닌 문자가 들어 있습니다: {extra!r}"
+                if extra else "")
+        return (f"키가 {len(key)}자입니다 — 32자보다 {len(key) - 32}자 "
+                f"깁니다.{hint} Secrets 값의 따옴표는 TOML 문법이라 값에 "
+                "포함되면 안 됩니다. 줄바꿈이나 앞뒤 공백도 확인하십시오.")
     if not KEY_RE.match(key):
         bad = "대문자" if any(c.isupper() for c in key) else "허용되지 않는 문자"
         return (f"키에 {bad}가 들어 있습니다 — FRED 키는 소문자 영숫자 "
@@ -318,12 +329,14 @@ def fetch_series(series_id: str, *, start: dt.date | None = None) -> Series:
     # 가 막힌 환경에서도 열려 있을 수 있습니다.
     key = api_key()
     if key:
-        try:
-            return _fetch_via_api(series_id, key, start)
-        except FredError:
-            # API 가 안 되면 키 없는 경로로 내려갑니다 — 둘 다 실패해야
-            # 진짜 실패입니다.
-            pass
+        # **키가 있으면 공식 API 가 유일한 경로입니다.** 실패해도 CSV 로
+        # 내려가지 않습니다.
+        #
+        # 2026-11-11 배포 환경 실측: api.stlouisfed.org 는 0.2초에 200,
+        # fred.stlouisfed.org 는 8초 타임아웃. 호스트가 막힌 것이라
+        # 계열마다 8초씩 더 기다리기만 하고 결과는 같습니다. 14계열이면
+        # 2분을 버리는 셈입니다. 안 될 걸 아는 길은 가지 않습니다.
+        return _fetch_via_api(series_id, key, start)
 
     last: Exception | None = None
     for attempt in range(RETRIES + 1):

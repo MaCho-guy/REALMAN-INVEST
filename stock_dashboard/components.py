@@ -2086,10 +2086,13 @@ def render_build_warning(rep) -> str:
         return ""
     cls = "dash-build-warn" if rep.checked else "dash-build-note"
     files = ""
-    if rep.problem_files:
-        files = ('<div class="dash-build-files">'
-                 + "".join(f'<code>{_esc(f)}</code>' for f in rep.problem_files)
-                 + "</div>")
+    hints = rep.hints() if hasattr(rep, "hints") else list(rep.problem_files)
+    if hints:
+        # 파일마다 한 줄 — 예전엔 <code> 를 붙여 써서 복사하면
+        # '.streamlit/config.tomlsources/fred.py' 처럼 이어졌습니다.
+        files = ('<ul class="dash-build-files">'
+                 + "".join(f"<li>{_esc(h)}</li>" for h in hints)
+                 + "</ul>")
     return (f'<div class="{cls}">{_md_bold(_esc(msg))}{files}</div>')
 
 

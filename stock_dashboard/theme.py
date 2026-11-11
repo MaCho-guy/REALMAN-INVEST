@@ -1082,13 +1082,9 @@ def build_rules() -> str:
     border: 1px dashed var(--dash-border); color: var(--dash-ink-muted);
   }}
   .dash-build-files {{
-    margin-top: var(--sp-2); display: flex; gap: var(--sp-2); flex-wrap: wrap;
+    margin: var(--sp-2) 0 0; padding-left: 1.2em;
   }}
-  .dash-build-files code {{
-    font-size: var(--fs-2); padding: 2px 7px;
-    border: 1px solid var(--dash-border); border-radius: var(--r-chip);
-    background: var(--dash-raised);
-  }}
+  .dash-build-files li {{ margin: var(--sp-1) 0; }}
 
   /* ── 사이드바 숨김 ────────────────────────────────────────────────── */
   /* 설정은 controls() 가 페이지 안에 그립니다. 사이드바를 비워 두면

@@ -55,17 +55,21 @@ KR_RULES: tuple[KrAccount, ...] = (
          "당기순이익(지배기업소유주지분)"),
         ("IS", "CIS"),
     ),
+    # 2026-11-11 실제 응답 확인: 삼성전자·SK하이닉스 모두 표준ID 로 매칭.
     KrAccount(
         "revenue", "매출액",
         ("ifrs-full_Revenue",),
         ("매출액", "수익(매출액)", "영업수익", "매출"),
         ("IS", "CIS"),
+        verified=True,
     ),
+    # 2026-11-11 실제 응답 확인: 삼성전자(IS)·SK하이닉스(CIS) 모두 매칭.
     KrAccount(
         "cost_of_revenue", "매출원가",
         ("ifrs-full_CostOfSales",),
         ("매출원가",),
         ("IS", "CIS"),
+        verified=True,
     ),
     KrAccount(
         "gross_profit", "매출총이익",

@@ -28,6 +28,7 @@
 from __future__ import annotations
 
 import sys
+import textwrap
 
 import config
 import cycle
@@ -138,7 +139,14 @@ def diagnose_dart() -> None:
             if m.dio_warning:
                 print(f"    경고: {m.dio_warning}")
         mix = m.inventory_mix
-        print(f"    재고 구성: {mix if mix else '산출 불가 (구성 계정 없음)'}")
+        if mix:
+            print(f"    재고 구성: {mix}")
+        else:
+            print("    재고 구성: 이 응답에 없습니다 — 고장이 아닙니다.")
+            print("              구성(원재료·재공품·완제품)은 사업보고서 "
+                  "**주석**에 있고,")
+            print("              fnlttSinglAcntAll 은 본표만 줍니다. "
+                  "DIO 는 위에서 정상 산출됩니다.")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -248,6 +256,59 @@ def diagnose_fred() -> None:
         print("미검증: " + ", ".join(s.series_id for s in unverified))
     print("\n틀린 계열 ID 는 404 로 조용히 비어 보입니다. 그래서 하나씩 확인합니다.\n")
 
+    # ── 연결 자체를 먼저 시험합니다 ────────────────────────────────────────
+    # 계열 14개가 전부 같은 오류로 실패하면 계열 ID 문제가 아니라 **연결**
+    # 문제입니다. 그때 ID 목록을 14줄 찍는 건 아무 도움이 안 됩니다.
+    import time as _t
+
+    import requests as _rq
+
+    print("  [연결 시험] fred.stlouisfed.org 에 닿는가")
+    probe_ok = False
+    _fred_key = fred.api_key()
+    _probes = [
+        ("CSV (키 불필요)", fred.CSV_URL, {"id": "DGS10"}),
+        ("일반 페이지", "https://fred.stlouisfed.org/series/DGS10", None),
+    ]
+    if _fred_key:
+        _probes.append((
+            "공식 API (키 사용)", fred.API_URL,
+            {"series_id": "DGS10", "api_key": _fred_key, "file_type": "json",
+             "limit": "1"}))
+    else:
+        print("    · FRED_API_KEY 가 없습니다. CSV 경로가 막혀 있다면 "
+              "무료 키를 발급해 Secrets 에 넣으면 다른 호스트로 받아옵니다:")
+        print("      https://fred.stlouisfed.org/docs/api/api_key.html")
+
+    for label, url, params in _probes:
+        t0 = _t.monotonic()
+        try:
+            r = _rq.get(url, params=params, timeout=fred.TIMEOUT,
+                        headers={"User-Agent": "stock-dashboard/1.0"})
+            el = _t.monotonic() - t0
+            print(f"    {'✓' if r.status_code == 200 else '✗'} {label}: "
+                  f"HTTP {r.status_code} · {el:.1f}초 · {len(r.content):,} bytes")
+            # 주소에 api_key 가 들어가므로 URL 은 찍지 않습니다.
+            if r.status_code == 200:
+                probe_ok = True
+                if params:
+                    print(f"        첫 줄: {r.text.splitlines()[0][:70]}")
+        except Exception as exc:  # noqa: BLE001
+            el = _t.monotonic() - t0
+            print(f"    ✗ {label}: {el:.1f}초 만에 실패")
+            msg = f"{type(exc).__name__}: {exc}"
+            if _fred_key:
+                msg = msg.replace(_fred_key, "…키가려짐…")
+            for chunk in textwrap.wrap(msg, 92):
+                print(f"        {chunk}")
+
+    if not probe_ok:
+        print()
+        print("    둘 다 실패했다면 이 서버에서 FRED 로 나가는 길이 막힌 것입니다.")
+        print("    계열 ID 는 문제가 아니니 아래 목록은 참고만 하십시오.")
+    print(f"    (타임아웃 {fred.TIMEOUT}초 · 실패 시 {fred.RETRIES}회 재시도)")
+    print()
+
     # 공포탐욕지수 — CNN 내부 엔드포인트라 따로 확인합니다
     print("\n  [공포탐욕지수] ← CNN 내부 엔드포인트가 아직 열려 있나?")
     fg = feargreed.fetch()
@@ -293,7 +354,13 @@ def diagnose_fred() -> None:
             mark = "✗"
             print(f"  {spec.series_id:<13}{mark:<6}{'—':>7}{'—':>6}{'—':>12}{'—':>7}  "
                   f"{spec.name}")
-            print(f"      → {errors.get(spec.series_id, '사유 불명')[:78]}")
+            # **자르지 않습니다.** 전에 78자에서 잘라서
+            # "HTTPSConnectionPool(host='fred.stlouisfed.org', port=443):"
+            # 까지만 보이고 진짜 사유(타임아웃인지 차단인지 SSL 인지)가
+            # 잘려 나갔습니다. 진단의 존재 이유가 사라집니다.
+            _why = errors.get(spec.series_id, "사유 불명")
+            for _i, _chunk in enumerate(textwrap.wrap(_why, 96) or [_why]):
+                print(f"      {'→' if _i == 0 else ' '} {_chunk}")
             continue
         was = "기존✓" if spec.verified else "신규✓"
         latest = series.latest

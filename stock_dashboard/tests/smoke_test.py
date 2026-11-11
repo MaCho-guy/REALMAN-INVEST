@@ -1402,3 +1402,101 @@ for _fn in ("load_dart_disclosures", "load_inventory_trends",
                "없으면 키를 넣어도 실패한 결과가 TTL 동안 남습니다")
 check_true("캐시를 수동으로 비울 수 있다",
            "st.cache_data.clear()" in _app_src)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+print("\n=== FRED 연결 실패 대응 ===")
+# 배포 환경에서 FRED 전 계열이 HTTPSConnectionPool 오류로 실패했는데,
+# 진단이 78자에서 잘라서 **진짜 사유가 안 보였습니다**. 진단의 존재
+# 이유가 사라지는 버그였습니다.
+import sources.fred as _fr5  # noqa: E402
+
+_diag_src = (_pl.Path(__file__).resolve().parent.parent
+             / "tools" / "diagnose.py").read_text(encoding="utf-8")
+check_true("진단이 오류를 자르지 않는다",
+           "errors.get(spec.series_id, '사유 불명')[:78]" not in _diag_src,
+           "자르면 타임아웃인지 차단인지 구분이 안 됩니다")
+check_true("진단이 전문을 줄바꿈해 보여준다", "textwrap.wrap(_why" in _diag_src)
+check_true("연결 자체를 먼저 시험한다", "[연결 시험]" in _diag_src)
+check_true("계열 ID 문제가 아님을 알려준다",
+           "계열 ID 는 문제가 아니니" in _diag_src)
+
+check_true("연결 실패는 재시도한다", _fr5.RETRIES >= 1)
+check_true("타임아웃을 늘렸다", _fr5.TIMEOUT >= 30, f"{_fr5.TIMEOUT}초")
+check_true("재시도 횟수를 오류에 적는다", "회 시도" in _fr5.fetch_series.__doc__
+           or "회 시도" in _pl.Path(_fr5.__file__).read_text(encoding="utf-8"))
+
+check_true("공식 API 가 대체 경로로 있다",
+           _fr5.API_URL.startswith("https://api.stlouisfed.org/"),
+           "호스트가 달라야 막힌 경로를 우회합니다")
+check_true("API 는 키가 있을 때만 쓴다",
+           'key = api_key()' in _pl.Path(_fr5.__file__).read_text(encoding="utf-8"))
+check_true("키가 없으면 지문도 없다",
+           _fr5.key_fingerprint() == "" or bool(os.environ.get("FRED_API_KEY")))
+check_true("load_macro 가 FRED 지문을 캐시 키로 받는다",
+           "load_macro(use_demo, fred.key_fingerprint())" in _app_src)
+
+# API JSON 파서 — 실제 API 를 못 치므로 응답 형태로 검증합니다
+import types as _ty5  # noqa: E402
+
+_payload = {"observations": [
+    {"date": "2026-11-03", "value": "4.12"},
+    {"date": "2026-11-04", "value": "."},          # 결측
+    {"date": "2026-11-05", "value": "1,234.5"},    # 쉼표
+    {"date": "엉뚱", "value": "9.9"},               # 깨진 날짜
+]}
+
+
+class _Resp:
+    status_code = 200
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return _payload
+
+
+_saved = _fr5.requests
+_fr5.requests = _ty5.SimpleNamespace(get=lambda *a, **k: _Resp(),
+                                     RequestException=Exception)
+try:
+    _ser = _fr5._fetch_via_api("DGS10", "key", None)  # noqa: SLF001
+    check_true("API 응답을 파싱한다", len(_ser.observations) == 2,
+               str(len(_ser.observations)))
+    check_true("결측(.)을 건너뛴다",
+               all(o.value != 0 for o in _ser.observations))
+    check_true("쉼표가 든 숫자를 읽는다",
+               any(abs(o.value - 1234.5) < 1e-9 for o in _ser.observations))
+    check_true("깨진 날짜를 버린다", len(_ser.observations) == 2)
+finally:
+    _fr5.requests = _saved
+
+print("\n=== DART 재고 구성 (받을 수 없음을 확인) ===")
+# 2026-11-11 실제 응답: 삼성전자·SK하이닉스 모두 재고 관련 계정이
+# ifrs-full_Inventories 한 줄뿐. 구성은 주석에 있어 이 API 로는 못 받습니다.
+import cycle as _cyc6  # noqa: E402
+
+_cyc_src = (_pl.Path(__file__).resolve().parent.parent
+            / "cycle.py").read_text(encoding="utf-8")
+check_true("구성 계정 규칙은 남겨 둔다",
+           {"raw_materials", "work_in_progress", "finished_goods"}
+           <= set(_cyc6.RULES),
+           "본표에 싣는 회사가 있을 수 있어 지우지 않습니다")
+check_true("'없을 수 있습니다' 추측을 사실로 바꿨다",
+           "확인했습니다" in _cyc_src and "없습니다" in _cyc_src)
+check_true("화면이 고장이 아니라고 말한다",
+           "고장이 아니라 데이터가 없는 것" in _app_src)
+check_true("진단도 고장이 아니라고 말한다",
+           "고장이 아닙니다" in _diag_src)
+
+print("\n=== 실제 응답으로 확인된 계정 ===")
+import buffett_kr as _bkr6  # noqa: E402
+
+_ok = {r.key for r in _bkr6.KR_RULES if r.verified}
+check_true("매출액이 검증됨", "revenue" in _ok)
+check_true("매출원가가 검증됨", "cost_of_revenue" in _ok)
+check_true("검증 근거를 주석에 남겼다",
+           "2026-11-11 실제 응답 확인"
+           in (_pl.Path(__file__).resolve().parent.parent
+               / "buffett_kr.py").read_text(encoding="utf-8"))

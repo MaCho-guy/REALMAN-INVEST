@@ -29,6 +29,7 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import io
+import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -36,8 +37,36 @@ from dataclasses import dataclass
 
 import requests
 
+#: 키 없이 쓰는 경로. 그래프 화면이 쓰는 CSV 로, 요청마다 생성됩니다.
 CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
-TIMEOUT = 15
+
+#: 공식 API. **호스트가 다릅니다**(api.stlouisfed.org). 무료 키가 필요하지만
+#: fredgraph.csv 가 막히거나 느릴 때의 대체 경로입니다 — 실제로 배포 환경에서
+#: fredgraph.csv 가 전 계열 실패한 적이 있어 넣었습니다.
+#: 키는 fred.stlouisfed.org/docs/api/api_key.html 에서 즉시 발급됩니다.
+API_URL = "https://api.stlouisfed.org/fred/series/observations"
+
+
+def api_key() -> str:
+    return (os.environ.get("FRED_API_KEY") or "").strip()
+
+
+def key_fingerprint() -> str:
+    """캐시 무효화용 지문. DART 와 같은 이유입니다 — 키를 넣는 순간
+    실패한 캐시가 저절로 버려져야 합니다."""
+    import hashlib
+
+    key = api_key()
+    return hashlib.sha256(key.encode()).hexdigest()[:8] if key else ""
+#: fredgraph.csv 는 요청마다 CSV 를 만들어 내려 주므로 정적 파일보다
+#: 느립니다. 15초에서 늘렸습니다 — Streamlit Cloud 에서 전 계열이
+#: HTTPSConnectionPool 오류로 실패했고, 타임아웃이 유력한 후보입니다.
+TIMEOUT = 30
+
+#: 연결 단계 실패는 한 번 더 시도합니다. HTTP 오류(404 등)는 재시도해도
+#: 같은 결과라 재시도하지 않습니다.
+RETRIES = 1
+RETRY_WAIT = 1.5
 #: FRED 는 CSV 엔드포인트의 공식 제한을 밝히지 않습니다. 키가 필요한 공식
 #: API 는 분당 120건(= 2건/초)이므로, 그보다 넉넉한 6.7건/초로 둡니다.
 #: 0.3초(3.3건/초)였을 때는 13개 계열에 대기만 4초가 들어갔습니다.
@@ -227,25 +256,95 @@ def fetch_series(series_id: str, *, start: dt.date | None = None) -> Series:
     if start is not None:
         params["cosd"] = start.isoformat()
 
+    headers = {"User-Agent": "stock-dashboard/1.0 (personal research)",
+               "Accept": "text/csv"}
+
+    # 키가 있으면 공식 API 를 먼저 씁니다. 호스트가 달라서, fredgraph.csv
+    # 가 막힌 환경에서도 열려 있을 수 있습니다.
+    key = api_key()
+    if key:
+        try:
+            return _fetch_via_api(series_id, key, start)
+        except FredError:
+            # API 가 안 되면 키 없는 경로로 내려갑니다 — 둘 다 실패해야
+            # 진짜 실패입니다.
+            pass
+
+    last: Exception | None = None
+    for attempt in range(RETRIES + 1):
+        try:
+            resp = requests.get(CSV_URL, params=params, timeout=TIMEOUT,
+                                headers=headers)
+            resp.raise_for_status()
+            return parse_csv(resp.text, series_id)
+        except requests.HTTPError as exc:
+            # HTTP 응답이 왔다는 뜻이므로 재시도해도 같습니다.
+            status = exc.response.status_code if exc.response is not None else "?"
+            if status == 404:
+                raise FredError(
+                    f"{series_id}: 그런 계열이 없습니다 (HTTP 404). "
+                    "fred.stlouisfed.org 에서 ID 를 확인하십시오."
+                ) from exc
+            raise FredError(
+                f"{series_id}: FRED 요청 실패 (HTTP {status})."
+            ) from exc
+        except requests.RequestException as exc:
+            # 연결·타임아웃 단계 실패. 한 번 더 해 봅니다.
+            last = exc
+            if attempt < RETRIES:
+                time.sleep(RETRY_WAIT)
+
+    raise FredError(
+        f"{series_id}: FRED 연결 실패 ({RETRIES + 1}회 시도) — "
+        f"{type(last).__name__}: {last}"
+    ) from last
+
+
+def _fetch_via_api(series_id: str, key: str,
+                   start: dt.date | None) -> Series:
+    """공식 API(JSON)로 받아옵니다. 키가 있을 때만 호출됩니다."""
+    params = {
+        "series_id": series_id,
+        "api_key": key,
+        "file_type": "json",
+    }
+    if start is not None:
+        params["observation_start"] = start.isoformat()
     try:
         resp = requests.get(
-            CSV_URL, params=params, timeout=TIMEOUT,
-            headers={"User-Agent": "stock-dashboard/1.0 (personal research)",
-                     "Accept": "text/csv"},
+            API_URL, params=params, timeout=TIMEOUT,
+            headers={"User-Agent": "stock-dashboard/1.0 (personal research)"},
         )
         resp.raise_for_status()
-    except requests.HTTPError as exc:
-        status = exc.response.status_code if exc.response is not None else "?"
-        if status == 404:
-            raise FredError(
-                f"{series_id}: 그런 계열이 없습니다 (HTTP 404). "
-                "fred.stlouisfed.org 에서 ID 를 확인하십시오."
-            ) from exc
-        raise FredError(f"{series_id}: FRED 요청 실패 (HTTP {status}).") from exc
-    except requests.RequestException as exc:
-        raise FredError(f"{series_id}: FRED 요청 실패 — {exc}") from exc
+        payload = resp.json()
+    except Exception as exc:  # noqa: BLE001
+        raise FredError(
+            f"{series_id}: FRED API 실패 — {type(exc).__name__}: {exc}"
+        ) from exc
 
-    return parse_csv(resp.text, series_id)
+    rows = payload.get("observations")
+    if not isinstance(rows, list):
+        raise FredError(f"{series_id}: FRED API 응답에 observations 가 없습니다.")
+
+    obs: list[Observation] = []
+    for row in rows:
+        raw = str(row.get("value", "")).strip()
+        if not raw or raw == MISSING:        # 결측은 '.' 입니다 (CSV 와 같음)
+            continue
+        try:
+            value = float(raw.replace(",", ""))
+        except ValueError:
+            continue
+        try:
+            when = dt.date.fromisoformat(str(row.get("date", "")))
+        except ValueError:
+            continue
+        obs.append(Observation(when, value))
+
+    if not obs:
+        raise FredError(f"{series_id}: FRED API 가 관측치를 주지 않았습니다.")
+    obs.sort(key=lambda o: o.date)
+    return Series(series_id=series_id, observations=obs)
 
 
 def fetch_many(series_ids: list[str], *, years: int = 4,

@@ -72,8 +72,14 @@ RULES: dict[str, AccountRule] = {
         names=("매출액", "수익(매출액)", "영업수익", "매출"),
         sj=("IS", "CIS"),
     ),
-    # 재고 구성 — 주석 항목이라 전체 재무제표 API 에 없을 수 있습니다.
-    # 있으면 쓰고, 없으면 '확인 필요' 로 남깁니다 (추정하지 않음).
+    # 재고 구성 — **실제 응답으로 확인했습니다(2026-11): 없습니다.**
+    # 삼성전자·SK하이닉스 2026 2Q 응답에서 재고 관련 계정은
+    # ifrs-full_Inventories(재고자산) 한 줄뿐이었습니다. 구성(원재료·
+    # 재공품·완제품)은 사업보고서 **주석**에 있고, fnlttSinglAcntAll 은
+    # 본표만 주므로 이 경로로는 받을 수 없습니다.
+    #
+    # 그래도 규칙을 남겨 두는 이유: 회사·분기에 따라 본표에 싣는 경우가
+    # 있고, 있으면 쓰는 게 맞기 때문입니다. 없다고 추정하지 않습니다.
     "raw_materials": AccountRule(
         "원재료",
         ids=("ifrs-full_CurrentRawMaterialsAndCurrentProductionSupplies",

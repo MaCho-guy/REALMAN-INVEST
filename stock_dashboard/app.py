@@ -313,7 +313,7 @@ def load_briefings() -> list:
 
 
 @st.cache_data(ttl=config.MACRO_CACHE_TTL_SEC, show_spinner=False)
-def load_macro(use_demo: bool) -> tuple[dict, dict]:
+def load_macro(use_demo: bool, key_fp: str = "") -> tuple[dict, dict]:
     """FRED 매크로 계열. 키가 필요 없어 설정 없이 바로 동작합니다.
 
     캐시가 깁니다 — 월간 통계는 하루에 몇 번 조회해도 같은 값입니다.
@@ -410,7 +410,7 @@ def _risk_free_pct(use_demo: bool) -> float | None:
     없습니다. 화면에는 '미연동' 이라고 적힙니다.
     """
     try:
-        series_map, _errors = load_macro(use_demo)
+        series_map, _errors = load_macro(use_demo, fred.key_fingerprint())
     except Exception:  # noqa: BLE001
         return None
     series = series_map.get("DGS10")
@@ -595,7 +595,7 @@ def render_summary_tab(data: dict[str, dict[str, Quote]], fx,
 
     fg = load_feargreed(use_demo)
     vix_state = load_vix(use_demo)
-    series_map, errors = load_macro(use_demo)
+    series_map, errors = load_macro(use_demo, fred.key_fingerprint())
     readings = macro_mod.build_readings(config.macro_series(), series_map, errors)
 
     summary = sm.build(
@@ -895,7 +895,10 @@ def render_diag_panel() -> None:
     from tools import diagnose as diag
 
     checks = (
-        ("fred", "경제지표 계열 확인", "FRED 계열 13개가 실제로 존재하는지. 키 불필요.",
+        # 개수를 적어 두면 계열을 늘릴 때마다 어긋납니다.
+        ("fred", "경제지표 계열 확인",
+         f"FRED 계열 {len(config.MACRO_SERIES)}개가 실제로 받아지는지. "
+         "연결 자체도 먼저 시험합니다. 키 불필요.",
          diag.diagnose_fred),
         ("screen", "미국 스크리너 확인", "companyfacts 에서 계정이 잡히는지 (앞 8개 기업). 키 불필요.",
          diag.diagnose_screen),
@@ -1322,7 +1325,7 @@ def render_macro_tab(data: dict[str, dict[str, Quote]], fx, use_demo: bool) -> N
     )
 
     # 4) 통계 — FRED, 발표 지연 있음
-    series_map, errors = load_macro(use_demo)
+    series_map, errors = load_macro(use_demo, fred.key_fingerprint())
     readings = macro_mod.build_readings(config.macro_series(), series_map, errors)
     triggers = macro_mod.evaluate_all(readings)
     hit_keys = {t.reading.spec.key for t in triggers}
@@ -1916,8 +1919,12 @@ def render_cycle_tab(use_demo: bool) -> None:
             "<b>마이크론(EDGAR XBRL)</b> — us-gaap 태그 후보를 순서대로 시도하고, 같은 기간이 "
             "여러 공시에 반복 실리므로 제출일이 가장 늦은 보고만 남깁니다. 구간의 실제 "
             "일수를 쓰기 때문에 53주 회계연도(14주 분기)도 정확히 반영됩니다.<br>"
-            "재고 구성(원재료·재공품·완제품)은 주석 항목이라 두 소스 모두 비어 있는 경우가 "
-            "많습니다 — 그때는 추정하지 않고 '판정 불가' 로 둡니다."
+            "<b>재고 구성(원재료·재공품·완제품)은 이 경로로 받을 수 없습니다.</b> "
+            "2026년 11월 삼성전자·SK하이닉스 실제 응답을 확인한 결과, 재고 관련 "
+            "계정은 <code>ifrs-full_Inventories</code> 한 줄뿐이었습니다. 구성은 "
+            "사업보고서 <b>주석</b>에 있고 DART 의 전체 재무제표 API 는 본표만 "
+            "줍니다. 고장이 아니라 데이터가 없는 것이고, 추정하지 않습니다. "
+            "DIO 는 정상 산출됩니다."
         ),
         unsafe_allow_html=True,
     )

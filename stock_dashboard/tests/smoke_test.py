@@ -396,16 +396,14 @@ print("\n=== 목적 기준 5개 탭 ===")
 import discover as _disc  # noqa: E402
 
 _tabs = dict(config.tab_labels())
-# 요약(휴대폰 10초) + 목적 기준 6개. 2026-11-11 에 '뉴스·공시·지표' 가
-# 들어왔습니다 — 종목이 아니라 시장 흐름을 보는 화면이라 축이 또 다릅니다.
-check_true("탭이 7개", len(_tabs) == 7, f"{len(_tabs)}개: {list(_tabs)}")
-check_true("순서가 맞다",
-           list(_tabs) == ["summary", "holdings", "discover", "macro",
-                           "flows", "valuation", "cycle"],
-           str(list(_tabs)))
-check_true("뉴스·공시·지표가 매크로 바로 뒤",
-           list(_tabs).index("flows") == list(_tabs).index("macro") + 1,
-           "둘 다 시장 배경이라 붙여 둡니다")
+# 2026-11-11: 시장이 최상위 축이 되면서 탭이 '시장마다 다른 목록' 이
+# 됐습니다. 전체 목록은 두 시장의 합집합이고, 시장마다 보이는 게 다릅니다.
+check_true("전체 탭 9개", len(_tabs) == 9, f"{len(_tabs)}개: {list(_tabs)}")
+for _need in ("summary", "holdings", "discover", "valuation", "sector_heat",
+              "kr_flows", "macro", "us_flows", "cycle"):
+    check_true(f"탭 '{_need}' 이 있다", _need in _tabs, str(list(_tabs)))
+check_true("옛 flows 탭은 없다", "flows" not in _tabs,
+           "한국·미국 흐름으로 나뉘었습니다")
 check_true("라벨 한국어", all(_tabs.values()), str(_tabs))
 
 # 내린 탭의 섹션은 코드가 남아 있어야 합니다 — 되돌릴 수 있어야 하니까
@@ -738,11 +736,9 @@ check_true("요약 줄 스타일", ".dash-srow" in _rules)
 print("\n=== 탭 구성 ===")
 _tabs6 = dict(config.tab_labels())
 check_true("요약이 맨 앞", list(_tabs6)[0] == "summary", str(list(_tabs6)))
-check_true("탭 7개", len(_tabs6) == 7, f"{len(_tabs6)}개")
-check_true("목적 6개는 그대로",
-           list(_tabs6)[1:] == ["holdings", "discover", "macro", "flows",
-                                "valuation", "cycle"],
-           str(list(_tabs6)[1:]))
+for _mk in ("kr", "us"):
+    _ks = config.market_tab_keys(_mk)
+    check_true(f"{_mk} 시장도 요약이 맨 앞", _ks[0] == "summary", str(_ks))
 
 
 print("\n=== 휴대폰 모드 ===")
@@ -1686,15 +1682,15 @@ check_true("build_css 가 모드를 받지 않는다",
 print("\n=== 한국·미국 시장 분리 ===")
 import config as _cfg_m  # noqa: E402
 
-check_true("시장 선택지는 전체·미국·한국",
-           list(_cfg_m.MARKETS) == ["all", "us", "kr"], str(_cfg_m.MARKETS))
+check_true("시장은 한국·미국 둘뿐", list(_cfg_m.MARKETS) == ["kr", "us"],
+           f"{_cfg_m.MARKETS} — '전체' 가 기본이면 아무것도 갈리지 않습니다")
+check_true("처음 여는 시장이 정해져 있다",
+           _cfg_m.DEFAULT_MARKET in _cfg_m.MARKETS)
 _w = _cfg_m.SECTION_WATCHLIST.instruments
 check_true("naver 종목은 한국",
            all(_cfg_m.market_of(i) == "kr" for i in _w if i.source == "naver"))
 check_true("yahoo 종목은 미국",
            all(_cfg_m.market_of(i) == "us" for i in _w if i.source == "yahoo"))
-check_true("전체는 거르지 않는다",
-           len(_cfg_m.filter_instruments(_w, "all")) == len(_w))
 check_true("미국만 고르면 한국 종목이 빠진다",
            all(i.source != "naver"
                for i in _cfg_m.filter_instruments(_w, "us")))
@@ -1705,6 +1701,35 @@ check_true("미국 + 한국 = 전체",
            len(_cfg_m.filter_instruments(_w, "us"))
            + len(_cfg_m.filter_instruments(_w, "kr")) == len(_w),
            "어느 쪽에도 안 들어가는 종목이 있으면 화면에서 사라집니다")
+
+print("\n=== 시장이 최상위 축이다 ===")
+# '분리가 실현 안 된 것 같다' — 전에는 내비 맨 아래 작은 라디오였고
+# 기본값 '전체' 라 아무것도 안 갈렸습니다. 이제는 시장마다 **목록 자체**가
+# 다릅니다.
+_kr = _cfg_m.market_tab_keys("kr")
+_us = _cfg_m.market_tab_keys("us")
+check_true("두 시장의 목록이 다르다", _kr != _us, f"{_kr} / {_us}")
+check_true("섹터 온도는 한국에만", "sector_heat" in _kr
+           and "sector_heat" not in _us)
+check_true("물가·유동성은 미국에만", "us_flows" in _us
+           and "us_flows" not in _kr)
+check_true("메모리 사이클은 양쪽", "cycle" in _kr and "cycle" in _us,
+           "한·미 3사를 같이 봐야 하는 화면입니다")
+_all = set(dict(_cfg_m.tab_labels()))
+check_true("어느 시장에도 없는 탭이 없다",
+           _all <= (set(_kr) | set(_us)), str(_all - set(_kr) - set(_us)))
+check_true("시장 전환이 내비보다 먼저",
+           _app_src.index("market = _market_switch()")
+           < _app_src.index("nav_col, body_col = st.columns"))
+check_true("시장마다 내비 키가 다르다", 'key=f"nav_{market}"' in _app_src,
+           "하나면 시장을 바꿀 때 없는 탭이 선택돼 오류가 납니다")
+check_true("주소창에 시장을 남긴다", 'st.query_params["m"]' in _app_src,
+           "새로고침하면 기본값으로 돌아갑니다")
+check_true("제목줄에 지금 시장을 적는다", "market_label=" in _app_src)
+check_true("'전체' 안내가 남지 않았다",
+           "'전체' 로 바꾸십시오" not in _app_src
+           and 'market == "all"' not in _app_src)
+check_true("보는 시장 라디오를 없앴다", "보는 시장" not in _app_src)
 
 # 탭마다 market 을 받아야 합니다 — 하나라도 빠지면 그 탭만 안 걸러집니다
 for _fn in ("render_summary_tab", "render_holdings_tab", "render_discover_tab",
@@ -1719,6 +1744,9 @@ check_true("탭마다 있던 시장 라디오를 없앴다",
 check_true("매크로는 시장으로 거르지 않는다",
            "매크로는 **일부러 시장별로 나누지 않습니다.**" in _app_src,
            "금리·환율은 어느 시장을 보든 같은 배경입니다")
+check_true("한국에서 매크로는 공통에 있다",
+           any(g == "공통" and "macro" in ks
+               for g, ks in _cfg_m.MARKET_TABS["kr"]))
 
 print("\n=== 섹션 내비는 세로 ===")
 check_true("세로 라디오를 쓴다",
@@ -1859,6 +1887,71 @@ check_true("진단 패널 호출을 감싼다",
            "try:\n                render_diag_panel()" in _ctrl,
            "controls() 안에서 죽으면 화면이 통째로 빕니다")
 check_true("실패해도 나머지는 그린다", "나머지 화면은 그대로 씁니다" in _ctrl)
+
+# ──────────────────────────────────────────────────────────────────────────────
+print("\n=== CSS 변수가 전부 정의돼 있는가 ===")
+# 2026-11-11: 내비 hover 가 --dash-surface-raised 를 가리켰는데 그런
+# 변수가 없었습니다. CSS 는 **조용히 무시**하므로 아무 일도 안 일어나고,
+# "버튼이 잘 안 보인다" 로만 드러납니다. 오타 하나를 눈으로 못 잡습니다.
+import re as _re_v  # noqa: E402
+
+_theme_src = pathlib.Path("theme.py").read_text(encoding="utf-8")
+_defined = set(_re_v.findall(r"^\s*(--dash-[a-z0-9-]+):", _theme_src,
+                             _re_v.M))
+_used: set[str] = set()
+for _f in ("theme.py", "tools/preview.py", "components.py"):
+    _used |= set(_re_v.findall(r"var\((--dash-[a-z0-9-]+)\)",
+                               pathlib.Path(_f).read_text(encoding="utf-8")))
+check_true("정의되지 않은 CSS 변수가 없다", not (_used - _defined),
+           f"{sorted(_used - _defined)} — CSS 는 조용히 무시합니다")
+check_true("안 쓰는 변수도 없다", not (_defined - _used),
+           str(sorted(_defined - _used)))
+
+print("\n=== 왼쪽 내비가 보이는가 ===")
+check_true("선택된 항목에 표시를 준다",
+           'div[role="radiogroup"] > label:has(input:checked)' in _theme_src,
+           "프리뷰의 .pv-tab 만 꾸미면 실제 앱에는 적용되지 않습니다")
+_checked = _theme_src.split('label:has(input:checked)')[1].split("}}")[0]
+check_true("남색 막대로 표시", "--dash-accent" in _checked, _checked[:80])
+check_true("굵기로도 표시", "font-weight" in _checked,
+           "막대만 있으면 색각이상에서 약합니다")
+check_true("hover 도 있다",
+           'div[role="radiogroup"] > label:hover' in _theme_src)
+check_true("내비 칸이 패널로 보인다",
+           'div[data-testid="stColumn"]:has(.dash-navmark)' in _theme_src)
+check_true("라디오 동그라미를 숨긴다",
+           "display: none !important" in _theme_src)
+# 프리뷰도 같은 모양이어야 '봤으니 됐다' 가 성립합니다
+_pv_src = pathlib.Path("tools/preview.py").read_text(encoding="utf-8")
+check_true("프리뷰 내비도 패널", ".pv-side {" in _pv_src
+           and "border-radius: var(--r-card)" in
+           _pv_src.split(".pv-side {")[1][:260])
+check_true("프리뷰 선택 표시도 남색",
+           "--dash-accent" in
+           _pv_src.split('.pv-tab[aria-selected="true"]')[1][:200])
+
+# ──────────────────────────────────────────────────────────────────────────────
+print("\n=== 정의되지 않은 이름 (스트림릿 없이 잡는 오타) ===")
+# 샌드박스에 스트림릿이 없어 app.py 를 돌려 볼 수 없습니다. 함수 이름을
+# 틀려도 그 탭을 눌러야 NameError 로 드러납니다. 정적으로 잡습니다.
+from tools.names import check_source as _names  # noqa: E402
+
+_name_targets = sorted(
+    {str(p) for p in pathlib.Path(".").glob("*.py")}
+    | {str(p) for p in pathlib.Path("sources").glob("*.py")}
+    | {str(p) for p in pathlib.Path("tools").glob("*.py")})
+_bad_names = []
+for _f in _name_targets:
+    for _w, _n, _ln in _names(pathlib.Path(_f).read_text(encoding="utf-8"), _f):
+        _bad_names.append(f"{_f}:{_ln} {_w}() '{_n}'")
+check_true(f"미정의 이름 없음 ({len(_name_targets)}개 파일)", not _bad_names,
+           str(_bad_names[:3]))
+# 검사기 자체가 잡는지 — 아무것도 안 잡는 검사기는 통과해도 의미가 없습니다
+check_true("검사기가 함수명 오타를 잡는다",
+           bool(_names("def a():\n    render_sectr()\n")))
+check_true("검사기가 클로저를 오탐하지 않는다",
+           not _names("def a():\n    x = 1\n    def b():\n"
+                      "        return x\n    return b\n"))
 
 print("\n" + "=" * 54)
 if FAILURES:

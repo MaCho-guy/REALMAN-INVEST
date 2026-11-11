@@ -66,8 +66,15 @@ def file_hash(path: str) -> str:
     return h.hexdigest()[:12]
 
 
+#: .py 가 아니어도 **앱 동작을 바꾸는** 파일. 2026-11-11 에
+#: .streamlit/config.toml 이 다크 테마로 남아 있어서 위젯 글자가 흰 패널
+#: 위에서 안 보였습니다. .py 만 보면 이런 파일이 낡아도 검사를 통과합니다.
+#: secrets.toml 은 사용자마다 다르므로 넣지 않습니다.
+EXTRA_TRACKED = (".streamlit/config.toml", "requirements.txt")
+
+
 def _tracked(root: str) -> list[str]:
-    """검사 대상 .py 파일의 상대경로 목록."""
+    """검사 대상 파일의 상대경로 목록 (.py + EXTRA_TRACKED)."""
     out: list[str] = []
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
@@ -76,7 +83,10 @@ def _tracked(root: str) -> list[str]:
                 continue
             full = os.path.join(dirpath, name)
             out.append(os.path.relpath(full, root).replace(os.sep, "/"))
-    return sorted(out)
+    for rel in EXTRA_TRACKED:
+        if os.path.exists(os.path.join(root, rel)):
+            out.append(rel)
+    return sorted(set(out))
 
 
 def build_manifest(root: str) -> dict:

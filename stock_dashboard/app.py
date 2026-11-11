@@ -28,6 +28,7 @@ import buildstamp
 import briefing_store as bfs
 import inflation
 import kr_screen
+import sector_heat
 import liquidity
 import value as vl
 import analysis_store
@@ -288,6 +289,38 @@ def load_news(targets: tuple[tuple[str, str, str], ...], use_demo: bool) -> dict
         return news.fetch_for_many(list(targets), limit=config.NEWS_PER_TICKER)
     except Exception:  # noqa: BLE001 - 뉴스는 보조이므로 조용히 비웁니다
         return {}
+
+
+@st.cache_data(ttl=1_800, show_spinner=False)
+def load_sector_heat(use_demo: bool):
+    """KODEX 업종 ETF 14개 → 섹터 온도.
+
+    일봉은 장중에도 1일 수익률이 바뀌므로 캐시를 30분으로 둡니다.
+    이름(야후 shortName)은 코드 검증용이라 같이 받습니다 — 한 번 더
+    호출하는 비용(14회)이 들지만, 틀린 코드를 조용히 쓰는 것보다 낫습니다.
+    """
+    specs = config.KR_SECTOR_ETFS
+    if use_demo:
+        return demo_mod.demo_sector_heat(specs)
+    syms = {s[0]: f"{s[0]}.KS" for s in specs}
+    try:
+        closes_by_sym, errs = yahoo.fetch_closes(list(syms.values()))
+    except Exception as exc:  # noqa: BLE001
+        return [sector_heat.SectorRow(code=s[0], label=s[1],
+                                      error=f"일봉 실패: {exc}")
+                for s in specs]
+    names: dict[str, str] = {}
+    try:
+        info = yahoo.fetch_fundamentals(list(syms.values()), ())
+        for code, sym in syms.items():
+            names[code] = str((info.get(sym) or {}).get("_name") or "")
+            if names[code] == sym:      # 이름을 못 받으면 심볼을 돌려줍니다
+                names[code] = ""
+    except Exception:  # noqa: BLE001 - 이름은 검증용이라 없어도 됩니다
+        pass
+    closes = {code: closes_by_sym.get(sym) or [] for code, sym in syms.items()}
+    errors = {code: errs.get(sym, "") for code, sym in syms.items()}
+    return sector_heat.build(specs, closes, names, errors)
 
 
 @st.cache_data(ttl=3_600, show_spinner=False)
@@ -810,14 +843,22 @@ def render_summary_tab(data: dict[str, dict[str, Quote]], fx,
     urgent = [s for s in collapsed if s.severity >= 3]
     soon = [s for s in collapsed if s.severity == 2]
 
-    fg = load_feargreed(use_demo)
-    vix_state = load_vix(use_demo)
+    # 시장마다 둘째 줄이 다릅니다 — 미국은 심리(공포탐욕·VIX), 한국은
+    # 섹터 온도. 안 쓰는 쪽은 **받아오지 않습니다**.
+    fg = vix_state = None
+    sector_rows = None
+    if market == "kr":
+        sector_rows = load_sector_heat(use_demo)
+    else:
+        fg = load_feargreed(use_demo)
+        vix_state = load_vix(use_demo)
     series_map, errors = load_macro(use_demo, fred.key_fingerprint())
     readings = macro_mod.build_readings(config.macro_series(), series_map, errors)
 
     summary = sm.build(
         urgent=urgent, soon=soon, holdings_total=len(instruments),
         fg=fg, vix_state=vix_state, trends=trends, macro_readings=readings,
+        market=market, sector_rows=sector_rows,
     )
 
     st.markdown(ui.render_summary(summary), unsafe_allow_html=True)
@@ -953,9 +994,6 @@ def render_discover_tab(use_demo: bool, *, market: str = "all") -> None:
     if market == "kr":
         _discover_kr(use_demo)
     else:
-        if market == "all":
-            st.caption("발굴은 한 시장씩만 봅니다 — 지금은 **미국**입니다. "
-                       "왼쪽에서 '한국' 을 고르면 국내 스크리너로 바뀝니다.")
         _discover_us(use_demo)
 
 
@@ -1213,24 +1251,37 @@ def _render_skill_buttons(code: str, name: str, cli) -> None:
 # 뉴스 · 공시 · 지표
 # ──────────────────────────────────────────────────────────────────────────────
 
-def render_flows_tab(use_demo: bool, *, market: str = "all") -> None:
-    """시장 배경 — 종목이 아니라 **흐름**을 보는 화면.
-
-    다른 탭과 축이 다릅니다. 발굴·밸류에이션은 '어느 종목인가' 이고,
-    여기는 '지금 무슨 바람이 부나' 입니다. 한국 쪽은 섹터 뉴스·주요
-    공시·경제지표, 미국 쪽은 물가 속도와 유동성입니다.
-
-    **왼쪽 시장 선택을 따릅니다** — 한국만 보면 물가·유동성이 빠지는데,
-    그건 매크로 탭과 달라도 됩니다. 매크로는 '금리·환율' 처럼 어느
-    시장이든 같은 배경이고, 여기 미국 쪽은 미국 지표 해석입니다.
-    """
-    show_kr = market in ("all", "kr")
-    show_us = market in ("all", "us")
-
-    if show_kr:
-        _flows_korea(use_demo)
-    if show_us:
-        _flows_us(use_demo)
+def render_sector_heat_tab(use_demo: bool) -> None:
+    """섹터 온도 — 업종별로 어디가 뜨겁고 어디가 식었나."""
+    rows = load_sector_heat(use_demo)
+    st.markdown(
+        ui.render_section_head(
+            "섹터 온도", "KODEX 업종 ETF · KODEX 200 대비 1개월 순",
+            len([r for r in rows if not r.benchmark])),
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        ui.render_footnote(
+            "<b>왜 'KODEX 200 대비' 로 줄을 세우나.</b> 업종 하나가 5% 올랐어도 "
+            "시장 전체가 6% 올랐다면 그 업종은 <b>덜 오른</b> 것입니다. "
+            "업종 순환(어디로 돈이 옮겨가나)을 보려면 절대 수익률이 아니라 "
+            "시장 대비 수익률을 봐야 합니다.<br>"
+            "업종지수를 직접 받을 공개 경로가 없어 <b>ETF 를 대용</b>으로 "
+            "씁니다. 운용보수·추적오차 때문에 실제 업종지수와 조금 다를 수 "
+            "있습니다."),
+        unsafe_allow_html=True,
+    )
+    st.markdown(ui.render_sector_heat_summary(rows), unsafe_allow_html=True)
+    st.markdown(ui.render_sector_heat(rows), unsafe_allow_html=True)
+    st.markdown(
+        ui.render_footnote(
+            "색 진하기는 크기입니다 — 기간마다 눈금이 다릅니다(1일 ±3% · "
+            "1주 ±6% · 1개월 ±12% · 3개월 ±25% 에서 가장 진함). 하나로 두면 "
+            "1일은 늘 연하고 3개월은 늘 진해서 색이 정보를 못 줍니다.<br>"
+            "52주 위치는 지난 1년 저가(왼쪽)~고가(오른쪽) 사이 어디인지입니다. "
+            "3개월 추이의 점선은 시작점입니다."),
+        unsafe_allow_html=True,
+    )
 
 
 def _flows_korea(use_demo: bool) -> None:
@@ -1744,13 +1795,12 @@ def render_macro_tab(data: dict[str, dict[str, Quote]], fx, use_demo: bool,
     # 한국을 고른 날 금리가 사라져서, 분리가 아니라 누락이 됩니다.
     if section is not None:
         render_section(section, data, fx)
-    if market != "all":
+    if market == "kr":
         st.markdown(
             ui.render_footnote(
-                f"<b>매크로는 {config.MARKETS.get(market, market)}만 "
-                "골라도 그대로 전부 보여줍니다.</b> 금리·환율·유가는 어느 "
-                "시장을 보든 같은 배경이라 가려 두면 누락이 됩니다. "
-                "종목 목록만 왼쪽 선택을 따릅니다."),
+                "<b>한국 화면에서도 매크로는 '공통' 입니다.</b> 미국 금리·"
+                "원달러·유가·VIX 는 국내 종목만 보는 날에도 같은 배경이라, "
+                "한국 쪽으로 옮겨 놓지 않고 두 시장이 같이 씁니다."),
             unsafe_allow_html=True,
         )
 
@@ -1962,7 +2012,7 @@ def render_section(section: Section, data: dict[str, dict[str, Quote]], fx,
         st.markdown(
             ui.render_footnote(
                 f"<b>{config.MARKETS.get(market, market)} 종목이 이 구역에 "
-                "없습니다.</b> 왼쪽에서 시장을 '전체' 로 바꾸십시오."),
+                "없습니다.</b> 맨 위에서 다른 시장을 고르십시오."),
             unsafe_allow_html=True,
         )
         return
@@ -2044,9 +2094,6 @@ def render_valuation_tab(data: dict[str, dict[str, Quote]], fx,
     # (달러 FCF 와 원화 FCF 를 같은 표에 둘 수 없습니다) 재무 출처도
     # SEC/DART 로 갈리므로, '전체' 는 미국으로 봅니다.
     kr_only = market == "kr"
-    if market == "all":
-        st.caption("역DCF 는 통화가 섞이면 비교가 안 돼 한 시장씩만 봅니다 — "
-                   "지금은 **미국**입니다.")
     if kr_only:
         screens_map, errors = load_kr_screens(use_demo, dart.key_fingerprint())
         currency = "KRW"
@@ -2365,10 +2412,10 @@ def render_cycle_tab(use_demo: bool, *, market: str = "all") -> None:
         ),
         unsafe_allow_html=True,
     )
-    if market != "all":
+    if True:  # 메모리 사이클은 어느 시장에서 열어도 같은 화면입니다
         st.markdown(
             ui.render_footnote(
-                "<b>이 화면은 시장 선택과 무관하게 한·미를 함께 보여줍니다.</b> "
+                "<b>이 화면은 시장과 무관하게 한·미를 함께 보여줍니다.</b> "
                 "삼성전자·SK하이닉스·마이크론의 재고를 나란히 놓아야 "
                 "업황인지 회사 사정인지 구분이 됩니다."),
             unsafe_allow_html=True,
@@ -2413,7 +2460,7 @@ def render_cycle_tab(use_demo: bool, *, market: str = "all") -> None:
     # 분기 실적을 기다리지 않고 수요를 읽는 유일한 월간 지표입니다.
     # 미국만 볼 때도 의미가 있지만(마이크론 수요의 선행 지표), 출처가
     # 산업통상자원부라 '한국' 쪽에 둡니다.
-    if market in ("all", "kr"):
+    if True:  # 사이클 탭은 공통 — 한국 수출도 같이 봅니다
         _exp, _exp_err = load_kr_exports(use_demo)
         st.markdown(ui.render_kr_exports(_exp, error=_exp_err),
                     unsafe_allow_html=True)
@@ -2858,10 +2905,86 @@ SECTION_LOADING = {
     "holdings": "내 종목 — 시세와 공시를 불러옵니다 (처음 10~30초)",
     "discover": "종목 발굴 — 95개 기업 재무제표를 받아옵니다 (처음 1~3분)",
     "macro": "매크로 — FRED 13종·VIX·공포탐욕 (처음 10~20초)",
-    "flows": "뉴스·공시·지표 — 섹터 뉴스·DART 공시·물가·유동성 (처음 20~40초)",
+    "sector_heat": "섹터 온도 — 업종 ETF 14개 일봉 (처음 10~20초)",
+    "kr_flows": "뉴스·공시·지표 — 섹터 뉴스·DART 공시·한국 지표 (처음 20~40초)",
+    "us_flows": "물가·유동성 — FRED 물가 6 · 유동성 6 (처음 10~20초)",
     "valuation": "밸류에이션 — 스크리닝 결과로 역DCF 를 계산합니다 (처음 1~3분)",
     "cycle": "메모리 사이클 — 재고 추이를 받아옵니다 (처음 20~60초)",
 }
+
+
+def _peek_market() -> str:
+    """제목줄에 적을 시장. 전환 위젯보다 **먼저** 그려지므로 세션·주소에서
+    미리 읽습니다. 위젯을 누르면 스트림릿이 새 값을 세션에 넣고 처음부터
+    다시 돌리므로 여기서 읽는 값이 곧 화면의 값입니다."""
+    keys = list(config.MARKETS)
+    for cand in (st.session_state.get("market"),
+                 st.session_state.get("_market_last")):
+        if cand in keys:
+            return cand
+    try:
+        m = st.query_params.get("m", "")
+    except Exception:  # noqa: BLE001
+        m = ""
+    return m if m in keys else config.DEFAULT_MARKET
+
+
+def _market_switch() -> str:
+    """한국 / 미국 — 화면 맨 위의 큰 전환. 고른 값을 돌려줍니다.
+
+    **주소창에 남깁니다** (?m=kr). 새로고침해도, 휴대폰 홈 화면에 즐겨찾기를
+    걸어도 마지막에 본 시장으로 열립니다. 세션 상태만 쓰면 새로고침할
+    때마다 기본값으로 돌아갑니다.
+    """
+    keys = list(config.MARKETS)
+    if "market" not in st.session_state:
+        try:
+            from_url = st.query_params.get("m", "")
+        except Exception:  # noqa: BLE001 - 구버전 스트림릿
+            from_url = ""
+        st.session_state["market"] = (from_url if from_url in keys
+                                      else config.DEFAULT_MARKET)
+
+    st.markdown('<div class="dash-marketmark"></div>', unsafe_allow_html=True)
+    last = st.session_state.get("_market_last")
+    if last not in keys:
+        last = st.session_state.get("market")
+    if last not in keys:
+        last = config.DEFAULT_MARKET
+
+    # **'위젯이 없다' 와 '위젯이 None 을 돌려줬다' 를 구분합니다.**
+    # segmented_control 은 이미 고른 칸을 다시 누르면 선택이 풀려 None 을
+    # 돌려줍니다. 전에는 그걸 '위젯이 없다' 로 읽고 라디오로 내려갔다가,
+    # 세션의 None 으로 index 를 찾다 ValueError 로 앱이 죽었습니다.
+    # 휴대폰에서 '한국 시장' 을 두 번 누르면 그렇게 됩니다.
+    picker = getattr(st, "segmented_control", None)
+    used_picker = False
+    choice = None
+    if picker is not None:
+        try:
+            choice = picker(
+                "시장", keys, key="market",
+                format_func=lambda k: f"{config.MARKETS[k]} 시장",
+                label_visibility="collapsed",
+            )
+            used_picker = True
+        except Exception:  # noqa: BLE001 - 위젯 인자는 버전마다 다릅니다
+            used_picker = False
+    if not used_picker:
+        choice = st.radio("시장", keys, horizontal=True, key="market_r",
+                          index=keys.index(last),
+                          format_func=lambda k: f"{config.MARKETS[k]} 시장",
+                          label_visibility="collapsed")
+    # 선택이 풀렸으면 직전 시장을 유지합니다 — 빈 화면을 만들지 않습니다.
+    if choice not in keys:
+        choice = last
+    st.session_state["_market_last"] = choice
+    try:
+        if st.query_params.get("m") != choice:
+            st.query_params["m"] = choice
+    except Exception:  # noqa: BLE001
+        pass
+    return choice
 
 
 def render_body(opts: dict) -> None:
@@ -2876,7 +2999,9 @@ def render_body(opts: dict) -> None:
     )
 
     st.markdown(
-        ui.render_topbar("주식 대시보드", "야간 대체시세 · 시장 지표 · 관심종목", clock),
+        ui.render_topbar(
+            "주식 대시보드", "야간 대체시세 · 시장 지표 · 관심종목", clock,
+            market_label=f"{config.MARKETS.get(_peek_market(), '')} 시장"),
         unsafe_allow_html=True,
     )
 
@@ -2894,63 +3019,37 @@ def render_body(opts: dict) -> None:
             icon="ℹ️",
         )
 
-    pairs = config.tab_labels()
-    keys = [k for k, _l in pairs]
-    labels = dict(pairs)
+    labels = dict(config.tab_labels())
 
-    # st.tabs 는 **보이지 않는 탭의 본문까지 전부 실행합니다.** 탭 전환이
-    # 브라우저에서 즉시 되는 이유가 그것입니다 — 이미 다 그려둔 것을
-    # 보여주기만 합니다. 그래서 요약만 보려 해도 스크리닝 95종목(SEC 65 +
-    # DART 30×4)과 재고 추이까지 돌아 요청이 250건 가까이 나갔습니다.
-    # 선택한 섹션 하나만 실행하도록 바꿉니다. 탭 전환 때 서버를 한 번
-    # 왕복하는 대신, 첫 로딩에서 안 볼 섹션 값을 치르지 않습니다.
-    # 섹션은 **세로**로 둡니다. 가로 한 줄이면 섹션이 늘어날 때마다 글자가
-    # 줄고 휴대폰에서는 줄바꿈이 됩니다. 세로 목록은 지금 어디에 있는지가
-    # 항상 보이고, 바로 아래에 시장 선택을 붙일 자리도 생깁니다.
+    # ── 시장 — 최상위 축 ───────────────────────────────────────────────
+    # 전에는 내비 맨 아래 작은 라디오였고 기본값이 '전체' 라 아무것도
+    # 갈리지 않았습니다. 이제는 **가장 먼저** 고르고, 고른 시장에 따라
+    # 왼쪽 섹션 목록 자체가 바뀝니다.
+    market = _market_switch()
+    opts["market"] = market
+
+    # st.tabs 는 보이지 않는 탭의 본문까지 전부 실행합니다 — 그래서
+    # 선택한 섹션 하나만 실행하는 세로 내비를 씁니다.
     nav_col, body_col = st.columns([1, 5], gap="medium")
 
     with nav_col:
-        # 섹션이 7개가 되면서 평평한 목록으로는 '어디로 가야 하지' 가
-        # 됐습니다. 두 참고 사이트가 쓰는 방식대로 묶음 이름을 답니다.
-        # 라디오는 하나여야 하므로(두 개면 선택이 갈립니다) 목록은
-        # 그대로 두고 **라벨 앞에 묶음 이름**을 붙입니다.
-        groups = config.tab_groups()
-        head_of = {}
-        for gname, items in groups:
-            if items:
-                head_of[items[0][0]] = gname
+        groups = config.tab_groups(market)
         ordered = [k for _g, items in groups for k, _l in items]
-
-        def _nav_label(key: str) -> str:
-            return labels.get(key, key)
-
-        # 묶음 이름(오늘·찾기·시장)이 머리말 역할을 하므로 '섹션' 이라는
-        # 줄은 빼습니다 — 바로 아래 '오늘' 과 겹쳐 읽힙니다.
-        # 묶음 이름은 CSS 로 끼워 넣습니다. 라디오를 그룹마다 따로 두면
-        # 선택이 두 군데로 갈려서 '어느 탭에 있는지' 가 흔들립니다.
-        # 스트림릿이 DOM 을 바꾸면 **묶음 이름만** 사라지고 내비는 그대로
-        # 돕니다 — 깨져도 쓸 수 있는 쪽으로 만들었습니다.
+        # 묶음 이름은 CSS 로 끼워 넣습니다(라디오를 그룹마다 나누면
+        # 선택이 두 군데로 갈립니다). 표식은 내비 칸을 흰 패널로 만드는
+        # 데도 쓰입니다.
         st.markdown(ui.render_nav_groups(groups), unsafe_allow_html=True)
+        # 시장마다 **다른 키**를 씁니다. 하나로 두면 한국에서 '섹터 온도'
+        # 를 보다가 미국으로 바꿨을 때 그 값이 목록에 없어 오류가 나고,
+        # 시장을 오갈 때 각자 보던 자리도 잊어버립니다.
         active = st.radio(
-            "섹션", ordered, key="nav",
-            format_func=_nav_label,
+            "섹션", ordered, key=f"nav_{market}",
+            format_func=lambda k: labels.get(k, k),
             label_visibility="collapsed",
-        )
-        st.markdown('<div class="dash-navhead">보는 시장</div>',
-                    unsafe_allow_html=True)
-        market = st.radio(
-            "시장", list(config.MARKETS), key="market",
-            format_func=lambda k: config.MARKETS[k],
-            label_visibility="collapsed",
-            help="한국과 미국은 거래 시간·회계 기준·공시 출처가 전부 달라서 "
-                 "한 화면에 섞으면 비교가 아니라 잡음이 됩니다.",
         )
 
-    if active not in labels:
-        active = keys[0]
-    if market not in config.MARKETS:
-        market = "all"
-    opts["market"] = market
+    if active not in ordered:
+        active = ordered[0]
 
     with body_col:
         if opts["demo"]:
@@ -2964,13 +3063,17 @@ def render_body(opts: dict) -> None:
                                     market=market)
             elif active == "discover":
                 render_discover_tab(opts["demo"], market=market)
-            elif active == "macro":
-                render_macro_tab(data, fx, opts["demo"], market=market)
             elif active == "valuation":
                 render_valuation_tab(data, fx, opts["demo"], opts["phone"],
                                      market=market)
-            elif active == "flows":
-                render_flows_tab(opts["demo"], market=market)
+            elif active == "sector_heat":
+                render_sector_heat_tab(opts["demo"])
+            elif active == "kr_flows":
+                _flows_korea(opts["demo"])
+            elif active == "us_flows":
+                _flows_us(opts["demo"])
+            elif active == "macro":
+                render_macro_tab(data, fx, opts["demo"], market=market)
             elif active == "cycle":
                 render_cycle_tab(opts["demo"], market=market)
             else:

@@ -398,10 +398,16 @@ def render_footnote(text: str) -> str:
             if text else "")
 
 
-def render_topbar(title: str, subtitle: str, clock: str) -> str:
+def render_topbar(title: str, subtitle: str, clock: str,
+                  market_label: str = "") -> str:
+    """맨 위 제목줄. market_label 을 주면 제목 옆에 **지금 보는 시장**을
+    크게 적습니다 — 시장마다 섹션이 다르므로 어느 쪽인지가 항상 보여야
+    합니다."""
+    badge = (f'<span class="dash-market-badge">{_esc(market_label)}</span>'
+             if market_label else "")
     return (
         '<div class="dash-topbar">'
-        f'<span class="dash-logo">{_esc(title)}</span>'
+        f'<span class="dash-logo">{_esc(title)}</span>{badge}'
         f'<span class="dash-logo-sub">{_esc(subtitle)}</span>'
         f'<span class="dash-clock">{_esc(clock)}</span>'
         "</div>"
@@ -2450,3 +2456,148 @@ def render_nav_groups(groups) -> str:
     rules.append(f"{sel}:nth-of-type(1)::before {{ margin-top: 0; }}")
     return ('<div class="dash-navmark"></div><style>'
             + "".join(rules) + "</style>")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 섹터 온도
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _heat_cell(value: float | None, scale: float) -> str:
+    """수익률 칸. 배경 진하기 = 크기, 색 = 방향.
+
+    color-mix 로 등락 변수에 흰색을 섞습니다. 등락 색 관행(한국/미국)을
+    바꾸면 온도 색도 같이 바뀝니다 — 색을 여기서 따로 정하면 두 군데가
+    어긋납니다.
+    """
+    if value is None:
+        return '<td class="num heat na">—</td>'
+    strength = min(1.0, abs(value) / scale) if scale else 0.0
+    pct = round(8 + strength * 50)          # 8%~58% 진하기
+    var = "--dash-up" if value > 0 else ("--dash-down" if value < 0
+                                         else "--dash-flat")
+    arrow = "▲" if value > 0 else ("▼" if value < 0 else "")
+    style = (f"background: color-mix(in srgb, var({var}) {pct}%, "
+             "var(--dash-surface));")
+    # 진한 칸은 글자를 진하게 — 연한 칸에서 굵은 글씨는 소음입니다
+    weight = "700" if strength > 0.6 else "600"
+    return (f'<td class="num heat" style="{style} font-weight:{weight}">'
+            f'<span class="heat-arrow">{arrow}</span>{value:+.1f}%</td>')
+
+
+def _sparkline(values: list[float], width: int = 96, height: int = 26) -> str:
+    """3개월 추이 — 축 없는 작은 선. 시작점 대비 위면 상승색."""
+    pts = [v for v in values if v and v > 0]
+    if len(pts) < 5:
+        return ""
+    lo, hi = min(pts), max(pts)
+    span = (hi - lo) or 1.0
+    n = len(pts) - 1
+    coords = " ".join(
+        f"{i / n * (width - 2) + 1:.1f},"
+        f"{height - 2 - (v - lo) / span * (height - 4):.1f}"
+        for i, v in enumerate(pts))
+    color = ("var(--dash-up)" if pts[-1] > pts[0]
+             else "var(--dash-down)" if pts[-1] < pts[0]
+             else "var(--dash-flat)")
+    base_y = height - 2 - (pts[0] - lo) / span * (height - 4)
+    return (
+        f'<svg class="heat-spark" viewBox="0 0 {width} {height}" '
+        f'width="{width}" height="{height}" aria-hidden="true">'
+        f'<line x1="1" x2="{width - 1}" y1="{base_y:.1f}" y2="{base_y:.1f}" '
+        'stroke="var(--dash-divider)" stroke-width="1" '
+        'stroke-dasharray="2 2"/>'
+        f'<polyline points="{coords}" fill="none" stroke="{color}" '
+        'stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>'
+        "</svg>"
+    )
+
+
+def render_sector_heat(rows: list) -> str:
+    """섹터 온도 표. 줄 = 업종, 칸 = 기간별 수익률 + 상대강도 + 추이."""
+    import sector_heat as _sh  # noqa: PLC0415
+
+    if not rows:
+        return render_footnote("업종 ETF 목록이 비어 있습니다.")
+    usable = [r for r in rows if r.ok]
+    if not usable:
+        return render_footnote(
+            "<b>업종 ETF 를 하나도 받지 못했습니다.</b> 야후 파이낸스 연결을 "
+            "확인하십시오 — 이 표는 키가 필요 없습니다.")
+
+    head = (
+        "<tr><th>업종</th>"
+        + "".join(f'<th class="num">{_esc(lab)}</th>'
+                  for _k, lab, _n in _sh.PERIODS)
+        + '<th class="num" title="KODEX 200 대비 1개월 초과수익">'
+          "200 대비</th>"
+        + '<th class="num">52주 위치</th>'
+        + "<th>3개월 추이</th></tr>"
+    )
+    body = []
+    for r in rows:
+        name_flag = ""
+        if r.name_ok is False:
+            name_flag = (f' <span class="heat-bad" title="야후 이름: '
+                         f'{_esc(r.yahoo_name)}">✗ 코드 확인</span>')
+        label = (f'<span class="heat-name">{_esc(r.label)}</span>'
+                 f'<span class="heat-code">{_esc(r.code)}</span>{name_flag}')
+        if not r.ok:
+            body.append(
+                f'<tr class="heat-fail"><td>{label}</td>'
+                f'<td colspan="{len(_sh.PERIODS) + 3}" class="na">'
+                f"{_esc(r.error[:80])}</td></tr>")
+            continue
+        cells = "".join(
+            _heat_cell(r.returns.get(k), _sh.COLOR_SCALE[k])
+            for k, _lab, _n in _sh.PERIODS)
+        rel = ('<td class="num na">기준</td>' if r.benchmark
+               else _heat_cell(r.rel_1m, _sh.COLOR_SCALE["m1"]))
+        band = ("—" if r.band_52w is None
+                else f'<span class="heat-band"><i style="left:'
+                     f'{r.band_52w:.0f}%"></i></span>'
+                     f'<span class="heat-band-num">{r.band_52w:.0f}%</span>')
+        cls = ' class="heat-bench"' if r.benchmark else ""
+        body.append(
+            f"<tr{cls}><td>{label}</td>{cells}{rel}"
+            f'<td class="num">{band}</td>'
+            f"<td>{_sparkline(r.spark)}</td></tr>")
+
+    bad = _sh.mismatched(rows)
+    warn = ""
+    if bad:
+        warn = render_footnote(
+            f"<b>✗ 종목코드를 확인하십시오 ({len(bad)}건).</b> 야후가 돌려준 "
+            "이름이 업종과 맞지 않습니다 — 다른 ETF 의 수익률일 수 있습니다: "
+            + " · ".join(f"{_esc(r.label)}({_esc(r.code)}) → "
+                         f"'{_esc(r.yahoo_name)}'" for r in bad)
+            + ". config.KR_SECTOR_ETFS 에서 코드를 고치십시오.")
+
+    return (
+        '<div class="dash-table-wrap"><table class="dash-table dash-heat">'
+        f"<thead>{head}</thead><tbody>{''.join(body)}</tbody></table></div>"
+        + warn
+    )
+
+
+def render_sector_heat_summary(rows: list) -> str:
+    """표 위의 한 줄 — 강세·약세 업종. 표를 다 읽기 전에 결론부터."""
+    import sector_heat as _sh  # noqa: PLC0415
+
+    hot, cold = _sh.hot_and_cold(rows, n=3)
+    if not hot and not cold:
+        return ""
+
+    def chips(items, cls):
+        return "".join(
+            f'<span class="heat-chip {cls}">{_esc(r.label)} '
+            f'<b>{r.rel_1m:+.1f}%p</b></span>' for r in items)
+
+    parts = []
+    if hot:
+        parts.append('<div class="heat-sum-row"><span class="heat-sum-lab">'
+                     f'강세</span>{chips(hot, "up")}</div>')
+    if cold:
+        parts.append('<div class="heat-sum-row"><span class="heat-sum-lab">'
+                     f'약세</span>{chips(cold, "down")}</div>')
+    return ('<div class="heat-sum">' + "".join(parts)
+            + '<div class="heat-sum-note">1개월 · KODEX 200 대비</div></div>')

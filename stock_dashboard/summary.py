@@ -200,13 +200,51 @@ def row_discover(note: str = "") -> Row:
     )
 
 
+def row_sector(sector_rows) -> Row:
+    """한국 — 섹터 온도. 업종 순환이 보이면 '볼 것 있음'."""
+    import sector_heat as _sh  # noqa: PLC0415
+
+    row = Row(key="sector", title="섹터 온도", goto="섹터 온도")
+    usable = [r for r in (sector_rows or []) if r.ok and not r.benchmark]
+    if not usable:
+        row.level = "unknown"
+        row.headline = "업종 ETF 를 받지 못했습니다"
+        return row
+    hot, cold = _sh.hot_and_cold(sector_rows, n=2)
+    row.headline = _sh.summary_line(sector_rows)
+    # 시장보다 10%p 넘게 벌어진 업종이 있으면 볼 만한 순환입니다.
+    spread = [abs(r.rel_1m) for r in usable if r.rel_1m is not None]
+    row.level = "watch" if spread and max(spread) >= 10 else "quiet"
+    bad = _sh.mismatched(sector_rows)
+    if bad:
+        row.detail = (f"✗ 종목코드 확인 필요 {len(bad)}건 — "
+                      + ", ".join(r.label for r in bad))
+    else:
+        row.detail = f"업종 ETF {len(usable)}개 · KODEX 200 대비"
+    return row
+
+
 def build(*, urgent=None, soon=None, holdings_total: int = 0,
           fg=None, vix_state=None, trends=None,
-          macro_readings=None) -> Summary:
-    """요약을 만듭니다. 없는 입력은 '데이터 없음' 으로 표시합니다."""
+          macro_readings=None, market: str = "us",
+          sector_rows=None) -> Summary:
+    """요약을 만듭니다. 없는 입력은 '데이터 없음' 으로 표시합니다.
+
+    **시장마다 둘째 줄이 다릅니다.** 미국은 시장 심리(공포탐욕·VIX),
+    한국은 섹터 온도입니다. 공포탐욕과 VIX 는 미국 지표라 한국 화면의
+    둘째 줄에 둘 이유가 약하고, 한국에서 매일 보는 건 '어느 업종으로
+    돈이 가나' 입니다.
+    """
+    second = (row_sector(sector_rows) if market == "kr"
+              else row_sentiment(fg, vix_state))
+    discover_note = (
+        "국내 50종목 변동성 수축·신고가·전통 밸류 스크리닝. 일봉 1년치를 "
+        "받아와야 해서 휴대폰에서는 느립니다." if market == "kr" else
+        "미국 68종목 버핏식 품질 스크리닝과 역DCF 는 10년 재무를 받아와야 "
+        "해서 휴대폰에서는 느립니다.")
     return Summary(rows=[
         row_holdings(urgent or [], soon or [], holdings_total),
-        row_sentiment(fg, vix_state),
+        second,
         row_cycle(trends or {}, macro_readings or []),
-        row_discover(),
+        row_discover(discover_note + " 발굴·밸류에이션 탭에서 확인하십시오."),
     ])

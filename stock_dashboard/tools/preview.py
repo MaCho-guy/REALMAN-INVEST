@@ -39,35 +39,58 @@ EXTRA_CSS = """
   @media (max-width: 1100px) { .dash-grid { --cols: 2 !important; } }
   @media (max-width: 680px)  { .dash-grid { --cols: 1 !important; } }
 
+  /* 시장 전환 — 최상위 축 */
+  .pv-market {
+    display: inline-flex; gap: 4px; padding: 4px; margin: 0 0 16px;
+    background: var(--dash-surface); border: 1px solid var(--dash-border);
+    border-radius: var(--r-card);
+  }
+  .pv-mkt {
+    appearance: none; border: none; cursor: pointer; font: inherit;
+    font-size: var(--fs-5); font-weight: 700; color: var(--dash-ink-2);
+    background: transparent; padding: 9px 24px;
+    border-radius: var(--r-inner); min-height: 42px;
+  }
+  .pv-mkt:hover { background: var(--dash-raised); color: var(--dash-ink); }
+  .pv-mkt[aria-pressed="true"] {
+    background: var(--dash-accent); color: #ffffff;
+  }
+  .pv-nav[hidden] { display: none !important; }
+
   /* 섹션 내비 — 앱과 같이 세로입니다 */
   .pv-shell { display: flex; gap: 26px; align-items: flex-start; }
-  .pv-side { flex: 0 0 150px; position: sticky; top: 14px; }
+  .pv-side {
+    flex: 0 0 176px; position: sticky; top: 14px;
+    background: var(--dash-surface);
+    border: 1px solid var(--dash-border);
+    border-radius: var(--r-card);
+    padding: 12px 8px;
+    align-self: flex-start;
+  }
   .pv-main { flex: 1 1 auto; min-width: 0; }
   .pv-tabs { display: flex; flex-direction: column; gap: 1px; }
   .pv-tab {
     appearance: none; background: none; cursor: pointer; text-align: left;
-    border: none; border-left: 2px solid transparent;
-    color: var(--dash-ink-muted);
+    border: none; border-left: 3px solid transparent;
+    color: var(--dash-ink-2);
     font: inherit; font-size: var(--fs-4); font-weight: 600;
-    padding: 7px 11px; border-radius: 0 var(--r-inner) var(--r-inner) 0;
+    padding: 8px 10px; border-radius: 0 var(--r-inner) var(--r-inner) 0;
     transition: color 0.12s ease, border-color 0.12s ease,
                 background 0.12s ease;
   }
-  .pv-tab:hover {
-    color: var(--dash-ink-2); background: var(--dash-surface-raised);
-  }
+  .pv-tab:hover { color: var(--dash-ink); background: var(--dash-raised); }
   .pv-tab[aria-selected="true"] {
     color: var(--dash-ink); border-left-color: var(--dash-accent);
-    background: var(--dash-surface); font-weight: 700;
+    background: var(--dash-raised); font-weight: 750;
   }
   .pv-navgroup {
     font-size: var(--fs-1); font-weight: 700; letter-spacing: .06em;
-    color: var(--dash-ink-muted); margin: 11px 0 3px; padding-left: 11px;
+    color: var(--dash-ink-muted); margin: 12px 0 4px; padding-left: 10px;
   }
   .pv-navgroup:first-child { margin-top: 0; }
   @media (max-width: 760px) {
     .pv-shell { display: block; }
-    .pv-side { position: static; margin-bottom: 14px; }
+    .pv-side { position: static; margin-bottom: 14px; flex: none; }
     .pv-tabs { flex-direction: row; flex-wrap: wrap; align-items: center; }
     .pv-navgroup { width: 100%; margin: 8px 0 2px; padding-left: 0; }
     .pv-tab {
@@ -131,34 +154,63 @@ EXTRA_CSS = """
 
 TAB_SCRIPT = """
 (function () {
-  var tabs = Array.prototype.slice.call(document.querySelectorAll('.pv-tab'));
+  // 앱과 같은 구조: 시장을 먼저 고르면 그 시장의 섹션 목록이 나옵니다.
+  var markets = Array.prototype.slice.call(document.querySelectorAll('.pv-mkt'));
+  var navs = Array.prototype.slice.call(document.querySelectorAll('.pv-nav'));
   var panels = Array.prototype.slice.call(document.querySelectorAll('.pv-panel'));
+  var badge = document.getElementById('pv-badge');
+  var current = 'kr';
+
+  function navOf(m) {
+    return navs.filter(function (n) { return n.dataset.market === m; })[0];
+  }
+  function tabsOf(m) {
+    var n = navOf(m);
+    return n ? Array.prototype.slice.call(n.querySelectorAll('.pv-tab')) : [];
+  }
 
   function show(key) {
-    tabs.forEach(function (t) {
+    tabsOf(current).forEach(function (t) {
       t.setAttribute('aria-selected', String(t.dataset.key === key));
     });
     panels.forEach(function (p) {
       if (p.dataset.key === key) { p.removeAttribute('hidden'); }
       else { p.setAttribute('hidden', ''); }
     });
-    if (location.hash.slice(1) !== key) {
-      history.replaceState(null, '', '#' + key);
-    }
+    var h = current + '/' + key;
+    if (location.hash.slice(1) !== h) { history.replaceState(null, '', '#' + h); }
   }
 
-  tabs.forEach(function (t) {
-    t.addEventListener('click', function () { show(t.dataset.key); });
+  function setMarket(m, key) {
+    current = m;
+    markets.forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.market === m));
+    });
+    navs.forEach(function (n) {
+      if (n.dataset.market === m) { n.removeAttribute('hidden'); }
+      else { n.setAttribute('hidden', ''); }
+    });
+    if (badge) {
+      var btn = markets.filter(function (b) { return b.dataset.market === m; })[0];
+      badge.textContent = btn ? btn.textContent : '';
+    }
+    var tabs = tabsOf(m);
+    var ok = tabs.some(function (t) { return t.dataset.key === key; });
+    show(ok ? key : (tabs[0] ? tabs[0].dataset.key : ''));
+  }
+
+  markets.forEach(function (b) {
+    b.addEventListener('click', function () { setMarket(b.dataset.market); });
   });
-  window.addEventListener('hashchange', function () {
-    var key = location.hash.slice(1);
-    if (tabs.some(function (t) { return t.dataset.key === key; })) { show(key); }
+  navs.forEach(function (n) {
+    Array.prototype.slice.call(n.querySelectorAll('.pv-tab')).forEach(function (t) {
+      t.addEventListener('click', function () { show(t.dataset.key); });
+    });
   });
 
-  var start = location.hash.slice(1);
-  show(tabs.some(function (t) { return t.dataset.key === start; })
-       ? start : tabs[0].dataset.key);
-
+  var parts = location.hash.slice(1).split('/');
+  var startM = (parts[0] === 'us' || parts[0] === 'kr') ? parts[0] : 'kr';
+  setMarket(startM, parts[1] || '');
 })();
 """
 
@@ -601,26 +653,30 @@ def _premium_panel(data, fx) -> str:
     return "".join(parts)
 
 
-def _summary_panel(data, fx, use_demo: bool) -> str:
-    """0. 요약 — 휴대폰 10초 화면."""
+def _summary_panel(data, fx, use_demo: bool, market: str = "kr") -> str:
+    """요약 — 시장마다 둘째 줄이 다릅니다 (미국 심리 / 한국 섹터 온도)."""
     import config as cfg
     import macro as macro_mod
     import summary as sm
 
+    fg = vix_state = sector_rows = None
     if use_demo:
-        fg = demo_mod.demo_feargreed()
-        vix_state = demo_mod.demo_vix()
+        if market == "kr":
+            sector_rows = demo_mod.demo_sector_heat(cfg.KR_SECTOR_ETFS)
+        else:
+            fg = demo_mod.demo_feargreed()
+            vix_state = demo_mod.demo_vix()
         trends = demo_mod.demo_inventory_trends()
         series, errs = demo_mod.demo_macro_series()
     else:
-        fg = vix_state = None
         trends, series, errs = {}, {}, {}
     readings = macro_mod.build_readings(cfg.macro_series(), series, errs)
+    held = cfg.filter_instruments(cfg.SECTION_WATCHLIST.instruments, market)
 
     summary = sm.build(
-        urgent=[], soon=[],
-        holdings_total=len(cfg.SECTION_WATCHLIST.instruments),
-        fg=fg, vix_state=vix_state, trends=trends, macro_readings=readings)
+        urgent=[], soon=[], holdings_total=len(held),
+        fg=fg, vix_state=vix_state, trends=trends, macro_readings=readings,
+        market=market, sector_rows=sector_rows)
 
     parts = [
         ui.render_section_head(
@@ -634,23 +690,23 @@ def _summary_panel(data, fx, use_demo: bool) -> str:
             "<b>임계값을 건드린 것만</b> 올립니다 — 올라온 게 없으면 앱을 "
             "닫아도 됩니다."))
     parts.append(ui.render_footnote(
-        "<b>왜 탭이 하나 더 늘었나:</b> 아래 5개는 \"무엇을 하려는 화면인가\" 로 "
-        "묶었고, 이 요약은 <b>\"휴대폰에서 10초\"</b> 입니다 — 축이 다릅니다. "
-        "간간히 확인하는 용도라면 탭 5개를 돌 게 아니라 한 화면에서 끝나야 "
-        "합니다.<br><b>발굴·밸류에이션은 일부러 뺐습니다</b> — 68종목의 10년 "
-        "재무를 받아오는 작업이라 휴대폰 글랜스에 맞지 않습니다."))
+        "<b>시장마다 둘째 줄이 다릅니다.</b> 미국은 시장 심리(공포탐욕·VIX), "
+        "한국은 섹터 온도입니다. 공포탐욕과 VIX 는 미국 지표라 한국 화면에 "
+        "둘 이유가 약하고, 한국에서 매일 보는 건 '어느 업종으로 돈이 "
+        "가나' 입니다."))
     return "".join(parts)
 
 
-def _holdings_panel(data, fx, use_demo: bool) -> str:
-    """1. 내 종목 — 변화 감지 + 시세 + 공시 분석."""
+def _holdings_panel(data, fx, use_demo: bool, market: str = "kr") -> str:
+    """내 종목 — 고른 시장의 종목만."""
     parts = [_signals_panel(data, use_demo)]
     watchlist = config.SECTION_WATCHLIST
+    shown = config.filter_instruments(watchlist.instruments, market)
     parts.append(ui.render_section_head(
-        "보유 · 관심 종목", watchlist.subtitle, len(watchlist.instruments)))
+        "보유 · 관심 종목", watchlist.subtitle, len(shown)))
     cards = "".join(
         ui.render_card(inst, (data.get(inst.source) or {}).get(inst.symbol), fx)
-        for inst in watchlist.instruments)
+        for inst in shown)
     parts.append(f'<div class="dash-grid cols-4">{cards}</div>')
     # 공시 분석은 앱에서 **접혀 있습니다** — 프리뷰에도 접힌 상태로 보여줍니다
     parts.append(
@@ -661,16 +717,40 @@ def _holdings_panel(data, fx, use_demo: bool) -> str:
     return "".join(parts)
 
 
-def _flows_panel(use_demo: bool) -> str:
-    """뉴스 · 공시 · 지표 — 앱에서는 왼쪽 시장 선택을 따릅니다."""
+def _sector_heat_panel(use_demo: bool) -> str:
+    """섹터 온도 — 업종 ETF 히트맵. 앱의 render_sector_heat_tab 과 같은 순서."""
+    rows = (demo_mod.demo_sector_heat(config.KR_SECTOR_ETFS)
+            if use_demo else [])
+    return "".join([
+        ui.render_section_head(
+            "섹터 온도", "KODEX 업종 ETF · KODEX 200 대비 1개월 순",
+            len([r for r in rows if not r.benchmark])),
+        ui.render_footnote(
+            "<b>왜 'KODEX 200 대비' 로 줄을 세우나.</b> 업종 하나가 5% "
+            "올랐어도 시장 전체가 6% 올랐다면 그 업종은 <b>덜 오른</b> "
+            "것입니다. 업종 순환(어디로 돈이 옮겨가나)을 보려면 절대 "
+            "수익률이 아니라 시장 대비 수익률을 봐야 합니다.<br>"
+            "업종지수를 직접 받을 공개 경로가 없어 <b>ETF 를 대용</b>으로 "
+            "씁니다. 운용보수·추적오차 때문에 실제 업종지수와 조금 다를 수 "
+            "있습니다."),
+        ui.render_sector_heat_summary(rows),
+        ui.render_sector_heat(rows),
+        ui.render_footnote(
+            "색 진하기는 크기입니다 — 기간마다 눈금이 다릅니다(1일 ±3% · "
+            "1주 ±6% · 1개월 ±12% · 3개월 ±25% 에서 가장 진함).<br>"
+            "52주 위치는 지난 1년 저가(왼쪽)~고가(오른쪽) 사이 어디인지입니다. "
+            "3개월 추이의 점선은 시작점입니다.<br>"
+            "<b>데모에서는 '은행' 줄에 일부러 틀린 이름을 넣었습니다</b> — "
+            "코드가 틀렸을 때 화면이 어떻게 알려주는지 보이려고."),
+    ])
+
+
+def _kr_flows_panel(use_demo: bool) -> str:
+    """한국 — 섹터 뉴스 · 주요 공시 · 경제지표."""
     import inflation
     import liquidity  # noqa: F401 - 데모가 반환하는 타입
 
     parts = [
-        ui.render_footnote(
-            "<b>앱에서는 왼쪽 시장 선택을 따릅니다</b> — '한국' 을 고르면 "
-            "섹터 뉴스·공시·한국 지표만, '미국' 을 고르면 물가·유동성만 "
-            "나옵니다. 프리뷰는 둘 다 보여줍니다."),
         ui.render_section_head(
             "한국 — 섹터별 뉴스", "업종 바람이 먼저 불고 종목이 따라갑니다",
             len(config.KR_SECTORS)),
@@ -697,7 +777,15 @@ def _flows_panel(use_demo: bool) -> str:
         "<b>한국 계열 ID 는 전부 미검증입니다.</b> FRED 의 한국 통계는 "
         "OECD 경유라 ID 체계가 미국 계열과 다르고 중단된 것도 많습니다. "
         "'—' 로 나오면 그 계열이 없는 것입니다."))
+    return "".join(parts)
 
+
+def _us_flows_panel(use_demo: bool) -> str:
+    """미국 — 물가 속도 · 글로벌 유동성."""
+    import inflation
+    import liquidity  # noqa: F401 - 데모가 반환하는 타입
+
+    parts: list[str] = []
     readings = (demo_mod.demo_inflation(config.INFLATION_SERIES)
                 if use_demo else [])
     parts.append(ui.render_section_head(
@@ -724,8 +812,11 @@ def _flows_panel(use_demo: bool) -> str:
     return "".join(parts)
 
 
-def _discover_panel(use_demo: bool) -> str:
-    """2. 종목 발굴 — 미국은 품질 기준만, 국내는 변동성·밸류 스크리너."""
+def _discover_panel(use_demo: bool, market: str = "us") -> str:
+    """종목 발굴 — 미국은 품질 기준만, 국내는 변동성·밸류 스크리너.
+
+    앱과 같게 **고른 시장 하나만** 보여줍니다.
+    """
     import buffett
     import kr_screen
 
@@ -756,6 +847,10 @@ def _discover_panel(use_demo: bool) -> str:
             f"/{len(buffett.CRITERIA)} 통과</summary>"
             f'<div class="pv-fold-body">{ui.render_screen(screen)}</div>'
             "</details>")
+
+    if market != "kr":
+        return "".join(parts)
+    parts = []
 
     # ── 국내 ────────────────────────────────────────────────────────────
     parts.append(ui.render_section_head(
@@ -824,7 +919,7 @@ def _discover_panel(use_demo: bool) -> str:
     return "".join(parts)
 
 
-def _valuation_tab_panel(data, fx, use_demo: bool) -> str:
+def _valuation_tab_panel(data, fx, use_demo: bool, market: str = "us") -> str:
     """4. 밸류에이션 판단 — 역DCF + 사분면.
 
     아래쪽의 _valuation_panel(fundamentals) 은 야후 집계 지표표이고 다른
@@ -839,16 +934,21 @@ def _valuation_tab_panel(data, fx, use_demo: bool) -> str:
             "뒤집어 <b>현재 가격이 요구하는 성장률</b>을 역산하고, 그걸 "
             "<b>과거 실제 성장률</b>과 비교합니다. FCF 와 순부채는 공시에서 "
             "자동으로 나오고, 외부에서 오는 건 시가총액 하나뿐입니다.<br>"
-            "앱에서는 <b>미국/국내</b>와 <b>보유+발굴 통과 / 전체</b>를 "
-            "전환할 수 있습니다."),
+            "통화가 섞이면 비교가 안 되므로 <b>맨 위에서 고른 시장 하나만</b> "
+            "봅니다."),
     ]
     if not use_demo:
         parts.append(ui.render_footnote("실데이터 프리뷰는 앱에서 확인하십시오."))
         return "".join(parts)
 
-    screens_map, _errors = demo_mod.demo_screens()
-    caps = demo_mod.demo_market_caps()
-    triples = _attach(buffett.rank(list(screens_map.values())), caps, "USD")
+    if market == "kr":
+        screens_map, _errors = demo_mod.demo_kr_screens()
+        caps = demo_mod.demo_kr_market_caps()
+        triples = _attach(buffett.rank(list(screens_map.values())), caps, "KRW")
+    else:
+        screens_map, _errors = demo_mod.demo_screens()
+        caps = demo_mod.demo_market_caps()
+        triples = _attach(buffett.rank(list(screens_map.values())), caps, "USD")
     parts.insert(0, ui.render_section_head(
         "밸류에이션 판단", "현재 가격이 요구하는 성장률 vs 과거 실제",
         len(triples)))
@@ -1194,48 +1294,80 @@ def build_html(convention: str, use_demo: bool) -> str:
         fundamentals = yahoo.fetch_fundamentals(val_symbols, config.VALUATION_FIELDS)
 
     fx = resolve_fx(data.get("yahoo", {}), config.FX_OVERRIDE)
-    pairs = config.tab_labels()
 
-    # 탭 버튼
-    # 묶음 이름을 붙입니다 — 앱의 세로 내비와 같은 구조입니다.
-    tab_buttons = "".join(
-        f'<div class="pv-navgroup">{gname}</div>'
-        + "".join(
-            f'<button class="pv-tab" role="tab" data-key="{key}" '
-            f'aria-selected="false">{label}</button>'
-            for key, label in items)
-        for gname, items in config.tab_groups()
-    )
-    theme_toggle = ""
+    # ── 시장이 최상위 축 — 앱과 같은 구조 ─────────────────────────────
+    # 시장마다 내용이 다른 탭은 패널을 따로 만듭니다 (kr:summary, us:summary).
+    # 한쪽에만 있거나 공통인 탭은 하나만 만듭니다.
+    PER_MARKET = {"summary", "holdings", "discover", "valuation"}
 
-    # 탭 패널
+    def panel_key(market: str, key: str) -> str:
+        return f"{market}:{key}" if key in PER_MARKET else key
+
+    def render_panel(market: str, key: str) -> str:
+        if key == "summary":
+            return _summary_panel(data, fx, use_demo, market)
+        if key == "holdings":
+            return _holdings_panel(data, fx, use_demo, market)
+        if key == "discover":
+            return _discover_panel(use_demo, market)
+        if key == "valuation":
+            return _valuation_tab_panel(data, fx, use_demo, market)
+        if key == "sector_heat":
+            return _sector_heat_panel(use_demo)
+        if key == "kr_flows":
+            return _kr_flows_panel(use_demo)
+        if key == "us_flows":
+            return _us_flows_panel(use_demo)
+        if key == "cycle":
+            return _cycle_panel(use_demo)
+        if key == "macro":
+            note = ""
+            if market == "kr":
+                note = ui.render_footnote(
+                    "<b>한국 화면에서도 매크로는 '공통' 입니다.</b> 미국 금리·"
+                    "원달러·유가·VIX 는 국내 종목만 보는 날에도 같은 배경이라, "
+                    "두 시장이 같이 씁니다.")
+            return _macro_panel(config.SECTION_BY_KEY.get("macro"),
+                                data, fx, use_demo) + note
+        section = config.SECTION_BY_KEY.get(key)
+        return _section_panel(section, data, fx) if section is not None else ""
+
+    navs: list[str] = []
     panels: list[str] = []
-    for key, _label in pairs:
-        if key == "signals":
-            body = _signals_panel(data, use_demo)
-        elif key == "cycle":
-            body = _cycle_panel(use_demo)
-        elif key == "summary":
-            body = _summary_panel(data, fx, use_demo)
-        elif key == "holdings":
-            body = _holdings_panel(data, fx, use_demo)
-        elif key == "discover":
-            body = _discover_panel(use_demo)
-        elif key == "flows":
-            body = _flows_panel(use_demo)
-        elif key == "valuation":
-            body = _valuation_tab_panel(data, fx, use_demo)
-        elif key == "macro":
-            body = _macro_panel(config.SECTION_BY_KEY.get("macro"),
-                                data, fx, use_demo)
-        else:
-            section = config.SECTION_BY_KEY.get(key)
-            body = _section_panel(section, data, fx) if section is not None else ""
-        # 데모 배너를 모든 패널 맨 위에 — 데모 숫자가 그럴듯해서 실제 값과
-        # 구분이 안 되는 문제가 있었습니다. 어느 탭을 열어도 보여야 합니다.
-        banner = ui.render_demo_banner(preview=True) if use_demo else ""
-        panels.append(
-            f'<div class="pv-panel" data-key="{key}" hidden>{banner}{body}</div>')
+    made: set[str] = set()
+    demo_top = ui.render_demo_banner(preview=True) if use_demo else ""
+    for market in config.MARKETS:
+        groups = config.tab_groups(market)
+        buttons = "".join(
+            f'<div class="pv-navgroup">{gname}</div>'
+            + "".join(
+                f'<button class="pv-tab" role="tab" '
+                f'data-key="{panel_key(market, key)}" '
+                f'aria-selected="false">{label}</button>'
+                for key, label in items)
+            for gname, items in groups)
+        navs.append(f'<div class="pv-tabs pv-nav" data-market="{market}" '
+                    f'role="tablist" hidden>{buttons}</div>')
+        for _g, items in groups:
+            for key, _label in items:
+                pk = panel_key(market, key)
+                if pk in made:
+                    continue
+                made.add(pk)
+                # 공통 탭(매크로)은 한국에서 열 때만 설명 각주가 붙으므로
+                # 한국 쪽에서 먼저 만들어집니다 — 미국에서도 같은 패널을
+                # 쓰지만 각주 한 줄이 남는 건 감수합니다.
+                body = render_panel(market, key)
+                panels.append(f'<div class="pv-panel" data-key="{pk}" '
+                              f'hidden>{demo_top}{body}</div>')
+
+    market_switch = (
+        '<div class="pv-market" role="tablist">'
+        + "".join(
+            f'<button class="pv-mkt" type="button" data-market="{m}" '
+            f'aria-pressed="false">{label} 시장</button>'
+            for m, label in config.MARKETS.items())
+        + "</div>")
 
     css = (
         "<style>"
@@ -1248,7 +1380,7 @@ def build_html(convention: str, use_demo: bool) -> str:
     banner = (
         '<div class="demo-banner"><b>레이아웃 프리뷰 (데모 데이터)</b><br>'
         "숫자는 레이아웃 확인용 가짜 값이며 실제 시세가 아닙니다. "
-        "왼쪽 목록에서 섹션을 고르십시오. "
+        "맨 위에서 시장을 고르고, 왼쪽 목록에서 섹션을 고르십시오. "
         "카드 제목을 누르면 해당 종목 페이지로 이동합니다. "
         "실제 시세는 <code>streamlit run app.py</code> 로 확인하십시오.</div>"
         if use_demo
@@ -1264,22 +1396,13 @@ def build_html(convention: str, use_demo: bool) -> str:
         '</head><body><div class="dash-wrap">',
         '<div class="dash-topbar">'
         '<span class="dash-logo">주식 대시보드</span>'
+        '<span class="dash-market-badge" id="pv-badge">한국 시장</span>'
         '<span class="dash-logo-sub">야간 대체시세 · 시장 지표 · 관심종목</span>'
-        f"{theme_toggle}</div>",
-        banner,
-        '<div class="pv-shell">',
-        '<div class="pv-side">'
-        f'<div class="pv-tabs" role="tablist">{tab_buttons}</div>'
-        '<div class="dash-navhead">보는 시장</div>'
-        '<div class="pv-tabs">'
-        '<button class="pv-tab" aria-selected="true" type="button">전체</button>'
-        '<button class="pv-tab" type="button">미국</button>'
-        '<button class="pv-tab" type="button">한국</button>'
-        "</div>"
-        '<div class="dash-footnote" style="margin-top:10px">'
-        "프리뷰에서는 시장 선택이 표시만 됩니다 — 실제 앱에서 목록이 "
-        "걸러집니다.</div>"
         "</div>",
+        banner,
+        market_switch,
+        '<div class="pv-shell">',
+        '<div class="pv-side">' + "".join(navs) + "</div>",
         f'<div class="pv-main">{"".join(panels)}</div>',
         "</div>",
         ui.render_footnote(

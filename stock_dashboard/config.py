@@ -910,13 +910,15 @@ TAB_ORDER: tuple[str, ...] = (
     # 요약은 축이 다릅니다 — 5개는 "무엇을 하려는 화면인가", 요약은 "휴대폰에서
     # 10초". 휴대폰으로 간간히 보는 용도라면 탭 5개를 돌 게 아니라 한 화면에서
     # 끝나야 하므로 맨 앞에 둡니다.
-    "summary",     # 0. 요약 — 지금 알아야 할 것만
-    "holdings",    # 1. 내가 가진 종목 — 변화 감지 + 시세 + 공시 분석
-    "discover",    # 2. 종목 발굴 — 52주 신고가 + 버핏식 (미국·국내)
-    "macro",       # 3. 매크로 지표 및 중요 기사
-    "flows",       # 4. 뉴스·공시·지표 — 한국 섹터/공시, 미국 물가·유동성
-    "valuation",   # 4. 걸러낸 종목 밸류에이션 — 역DCF + 사분면
-    "cycle",       # 5. 메모리 사이클 지표 — 재고(레이어 2) + 반도체 생산·가격
+    "summary",      # 요약 — 지금 알아야 할 것만
+    "holdings",     # 내가 가진 종목 — 변화 감지 + 시세 + 공시 분석
+    "discover",     # 종목 발굴 — 미국 버핏식 / 한국 변동성·밸류
+    "valuation",    # 걸러낸 종목 밸류에이션 — 역DCF + 사분면
+    "sector_heat",  # 한국 — 섹터 온도 (KODEX 업종 ETF)
+    "kr_flows",     # 한국 — 섹터 뉴스 · 주요 공시 · 경제지표
+    "macro",        # 미국 중심 매크로 — 금리·환율·원자재·VIX·FRED
+    "us_flows",     # 미국 — 물가 속도 · 글로벌 유동성
+    "cycle",        # 메모리 사이클 — 한·미 3사를 같이 봐야 하는 화면
 )
 
 #: 탭에서 내린 섹션들. **코드는 그대로 남아 있습니다** — 아래 목록에서
@@ -957,15 +959,36 @@ SECTIONS_MERGED_INTO: dict[str, str] = {
 }
 
 
-#: 섹션을 묶는 그룹. 두 참고 사이트(모닝 브리프·주식봇)가 공통으로 쓰는
-#: 패턴입니다 — 섹션이 7개를 넘으면 평평한 목록은 '어디로 가야 하지' 가
-#: 됩니다. 묶음 이름은 **무엇을 하려는가**로 답니다.
-TAB_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("오늘", ("summary", "holdings")),
-    ("찾기", ("discover", "valuation")),
-    # '시장' 은 아래 시장(한국/미국) 선택과 헷갈려서 '흐름' 으로 둡니다
-    ("흐름", ("macro", "flows", "cycle")),
-)
+#: **시장이 최상위 축입니다.** (2026-11-11)
+#:
+#: 전에는 '보는 시장' 라디오를 내비 맨 아래 두고 목록을 거르는 방식이었는데,
+#: 기본값이 '전체' 라 처음 열면 아무것도 갈리지 않았고 어느 시장을 보는지
+#: 화면 어디에도 안 적혀 있었습니다. 분리가 아니라 숨은 필터였습니다.
+#:
+#: 이제는 맨 위에서 한국/미국을 먼저 고르고, 시장마다 **다른 섹션 목록**을
+#: 봅니다. 모닝 브리프가 index.html / kr.html 을 따로 두는 것과 같은
+#: 구조입니다. '전체' 는 없앴습니다.
+#:
+#: '공통' 은 시장을 바꿔도 같은 화면입니다. 메모리 사이클은 한·미 3사를
+#: 나란히 봐야 의미가 있고, 매크로(금리·환율·유가·VIX)는 어느 시장을
+#: 보든 같은 배경입니다.
+MARKET_TABS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
+    "kr": (
+        ("오늘", ("summary", "holdings")),
+        ("찾기", ("discover", "valuation")),
+        ("한국 시장", ("sector_heat", "kr_flows")),
+        ("공통", ("macro", "cycle")),
+    ),
+    "us": (
+        ("오늘", ("summary", "holdings")),
+        ("찾기", ("discover", "valuation")),
+        ("미국 시장", ("macro", "us_flows")),
+        ("공통", ("cycle",)),
+    ),
+}
+
+#: 처음 열었을 때의 시장
+DEFAULT_MARKET = "kr"
 
 
 SPECIAL_TAB_LABELS = {
@@ -973,7 +996,9 @@ SPECIAL_TAB_LABELS = {
     "holdings": "내 종목",
     "discover": "종목 발굴",
     "macro": "매크로",
-    "flows": "뉴스 · 공시 · 지표",
+    "sector_heat": "섹터 온도",
+    "kr_flows": "뉴스 · 공시 · 지표",
+    "us_flows": "물가 · 유동성",
     "valuation": "밸류에이션",
     "cycle": "메모리 사이클",
 }
@@ -1094,9 +1119,8 @@ def all_hyperliquid_symbols() -> list[str]:
 # currency 가 그것입니다. 새 필드를 만들지 않고 그걸 읽습니다.
 
 MARKETS: dict[str, str] = {
-    "all": "전체",
-    "us": "미국",
     "kr": "한국",
+    "us": "미국",
 }
 
 
@@ -1229,21 +1253,49 @@ KR_SECTORS: tuple[tuple[str, str, str], ...] = (
 #: 섹터당 가져올 헤드라인 수. 9섹터 × 3건 = 27건이면 한 화면입니다.
 SECTOR_NEWS_PER = 3
 
-def tab_groups() -> list[tuple[str, list[tuple[str, str]]]]:
-    """[(그룹명, [(key, 라벨), …]), …]. TAB_ORDER 에 있는 것만 넣습니다.
-
-    그룹에 안 적힌 섹션이 생기면 '기타' 로 모읍니다 — 조용히 사라지면
-    새 섹션을 추가하고 왜 안 보이나 한참 찾게 됩니다.
-    """
+def tab_groups(market: str = "kr") -> list[tuple[str, list[tuple[str, str]]]]:
+    """[(그룹명, [(key, 라벨), …]), …] — 그 시장에서 보이는 섹션만."""
     labels = dict(tab_labels())
+    groups = MARKET_TABS.get(market) or MARKET_TABS[DEFAULT_MARKET]
     out: list[tuple[str, list[tuple[str, str]]]] = []
-    placed: set[str] = set()
-    for group, keys in TAB_GROUPS:
+    for group, keys in groups:
         items = [(k, labels[k]) for k in keys if k in labels]
-        placed.update(k for k, _l in items)
         if items:
             out.append((group, items))
-    rest = [(k, v) for k, v in labels.items() if k not in placed]
-    if rest:
-        out.append(("기타", rest))
     return out
+
+
+def market_tab_keys(market: str) -> list[str]:
+    """그 시장에서 보이는 섹션 key 순서대로."""
+    return [k for _g, items in tab_groups(market) for k, _l in items]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 섹터 온도 — KODEX 업종 ETF
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# (6자리 코드, 업종 이름, 야후 이름에 들어 있어야 할 말들, 기준선 여부)
+#
+# 업종지수를 직접 받을 공개 경로가 없어 ETF 를 대용으로 씁니다.
+#
+# **코드는 검증되지 않았습니다.** 틀리면 다른 ETF 의 수익률이 이 이름표를
+# 달고 나오는데, 화면에서는 이상이 안 보입니다. 그래서 세 번째 칸에 야후가
+# 돌려줄 이름에 들어 있어야 할 말을 적어 두고, 화면이 대조해서 안 맞으면
+# 그 줄에 ✗ 를 붙입니다. 야후는 국내 ETF 이름을 영어로 줄 때가 많아
+# 한글·영어를 둘 다 적습니다.
+KR_SECTOR_ETFS: tuple[tuple, ...] = (
+    ("069500", "KODEX 200", ("200",), True),
+    ("229200", "코스닥150", ("코스닥150", "kosdaq150", "kosdaq 150")),
+    ("091160", "반도체", ("반도체", "semicon")),
+    ("305720", "2차전지", ("2차전지", "battery", "secondary")),
+    ("091180", "자동차", ("자동차", "auto")),
+    ("244580", "바이오", ("바이오", "bio")),
+    ("091170", "은행", ("은행", "bank")),
+    ("102970", "증권", ("증권", "securities")),
+    ("140700", "보험", ("보험", "insurance")),
+    ("117460", "에너지화학", ("에너지", "energy", "chem")),
+    ("117680", "철강", ("철강", "steel")),
+    ("117700", "건설", ("건설", "construction")),
+    ("102960", "기계장비", ("기계", "machinery")),
+    ("140710", "운송", ("운송", "transport")),
+)

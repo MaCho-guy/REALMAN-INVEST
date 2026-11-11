@@ -614,7 +614,7 @@ def build_rules() -> str:
   /* 데모 배지 — 가짜 숫자를 가짜라고 말해주는 장치.
      데모 데이터가 그럴듯해서 실제 값과 구분이 안 되는 문제가 있었습니다. */
   .dash-demo-banner {{
-    background: var(--dash-surface-2);
+    background: var(--dash-raised);
     border: 1px solid var(--dash-up); border-left-width: 3px;
     border-radius: var(--r-card); padding: 11px 14px; margin: 0 0 14px;
     font-family: {FONT_STACK};
@@ -635,7 +635,7 @@ def build_rules() -> str:
 
   /* 요약 — 휴대폰 10초 화면 */
   .dash-verdict-band {{
-    background: var(--dash-surface-2); border: 1px solid var(--dash-border);
+    background: var(--dash-raised); border: 1px solid var(--dash-border);
     border-left: 3px solid var(--dash-ink-muted);
     border-radius: var(--r-card); padding: 13px 15px; margin: 2px 0 14px;
     font-family: {FONT_STACK};
@@ -831,7 +831,7 @@ def build_rules() -> str:
     white-space: nowrap;
   }}
   .dash-pair {{
-    background: var(--dash-surface-2); border: 1px solid var(--dash-border);
+    background: var(--dash-raised); border: 1px solid var(--dash-border);
     border-radius: var(--r-card); padding: 12px 14px; margin-bottom: 10px;
     font-family: {FONT_STACK};
   }}
@@ -869,7 +869,7 @@ def build_rules() -> str:
 
   /* 판단 재료 (사분면) */
   .dash-verdict {{
-    background: var(--dash-surface-2); border: 1px solid var(--dash-border);
+    background: var(--dash-raised); border: 1px solid var(--dash-border);
     border-left: 3px solid var(--dash-ink-muted);
     border-radius: var(--r-card); padding: 11px 14px; margin: 9px 0 0;
     font-family: {FONT_STACK};
@@ -1105,28 +1105,84 @@ def build_rules() -> str:
     padding-top: var(--sp-4);
   }}
 
+  /* ── 시장 전환 — 최상위 축 ────────────────────────────────────────── */
+  /* 제목 옆 배지 — 지금 어느 시장인지 항상 보이게 */
+  .dash-market-badge {{
+    display: inline-block; margin-left: 10px;
+    font-size: var(--fs-4); font-weight: 750;
+    color: #ffffff; background: var(--dash-accent);
+    padding: 3px 11px; border-radius: var(--r-pill);
+    vertical-align: middle; letter-spacing: -0.01em;
+  }}
+  /* 전환 버튼 — 다른 위젯보다 크게. 표식 바로 다음 위젯만 집습니다. */
+  div[data-testid="stElementContainer"]:has(.dash-marketmark)
+    + div[data-testid="stElementContainer"] button {{
+    font-size: var(--fs-5) !important; font-weight: 700 !important;
+    padding: 8px 22px !important; min-height: 42px;
+  }}
+  div[data-testid="stElementContainer"]:has(.dash-marketmark)
+    + div[data-testid="stElementContainer"] {{
+    margin-bottom: var(--sp-2);
+  }}
+
   /* ── 세로 섹션 내비 ───────────────────────────────────────────────── */
-  /* 가로 한 줄짜리 segmented_control 은 섹션이 늘어날수록 글자가 줄고
-     휴대폰에서 줄바꿈이 됩니다. 세로 목록은 지금 어디에 있는지가 항상
-     보이고, 아래에 시장 선택을 붙일 자리도 생깁니다. */
+  /*
+     2026-11-11: "왼쪽 버튼이 잘 안 보인다". 원인이 둘이었습니다.
+     (1) hover 배경이 **존재하지 않는 변수**(--dash-surface-raised)를
+         가리켜서 아무 일도 안 일어났습니다.
+     (2) 선택된 항목에 아무 표시를 안 줬습니다. 프리뷰에서는 남색 막대가
+         보였는데 그건 .pv-tab 전용이었고, 실제 앱의 라디오에는 적용되지
+         않았습니다 — 프리뷰만 보고 다 됐다고 여긴 제 실수입니다.
+
+     이제 내비 전체를 **흰 패널 한 장**으로 두고, 선택된 항목에 남색
+     막대와 굵은 글씨를 줍니다. 회색 바탕 위의 흰 패널이라 어디까지가
+     내비인지 경계가 보입니다.
+  */
+  /* 내비가 들어 있는 **칸 자체**를 흰 패널로 만듭니다. 스트림릿 위젯을
+     HTML div 로 감쌀 수 없어서, 표식을 하나 넣고 :has() 로 그 칸을
+     집습니다. :has() 가 없으면 배경만 안 깔리고 목록은 그대로 돕니다. */
+  div[data-testid="stColumn"]:has(.dash-navmark),
+  div[data-testid="column"]:has(.dash-navmark) {{
+    background: var(--dash-surface);
+    border: 1px solid var(--dash-border);
+    border-radius: var(--r-card);
+    padding: var(--sp-3) var(--sp-2) var(--sp-3);
+    align-self: flex-start;
+  }}
   .dash-navhead {{
-    font-size: var(--fs-1); font-weight: 700; letter-spacing: .04em;
-    color: var(--dash-ink-muted); text-transform: none;
-    margin: var(--sp-3) 0 var(--sp-2);
+    font-size: var(--fs-1); font-weight: 700; letter-spacing: .06em;
+    color: var(--dash-ink-muted);
+    margin: var(--sp-3) 0 var(--sp-2); padding-left: 10px;
   }}
   .dash-navhead:first-child {{ margin-top: 0; }}
 
-  /* 라디오를 목록처럼 보이게 합니다 — 점은 남기되 간격과 적중 영역을 키워
-     손가락으로도 눌리게 합니다. */
+  /* 라디오를 목록처럼. 점은 지우고 **막대와 굵기**로 선택을 표시합니다 —
+     점은 작아서 멀리서 안 보입니다. */
   div[data-testid="stVerticalBlock"] div[role="radiogroup"] {{
-    gap: 1px;
+    gap: 2px;
   }}
   div[role="radiogroup"] > label {{
-    padding: 6px 9px; border-radius: var(--r-inner);
-    font-size: var(--fs-4);
+    display: flex; align-items: center;
+    padding: 8px 10px;
+    border-left: 3px solid transparent;
+    border-radius: 0 var(--r-inner) var(--r-inner) 0;
+    font-size: var(--fs-4); color: var(--dash-ink-2);
+    cursor: pointer;
+    transition: background .12s ease, border-color .12s ease;
   }}
   div[role="radiogroup"] > label:hover {{
-    background: var(--dash-surface-raised);
+    background: var(--dash-raised); color: var(--dash-ink);
+  }}
+  /* 선택된 항목 — :has() 가 없는 브라우저에서는 이 규칙만 빠지고
+     목록은 그대로 돕니다. */
+  div[role="radiogroup"] > label:has(input:checked) {{
+    background: var(--dash-raised);
+    border-left-color: var(--dash-accent);
+    color: var(--dash-ink); font-weight: 750;
+  }}
+  /* 라디오 동그라미는 숨깁니다. 막대가 같은 일을 더 크게 합니다. */
+  div[role="radiogroup"] > label > div:first-child {{
+    display: none !important;
   }}
 
   /* ── 국내 스크리너 ────────────────────────────────────────────────── */
@@ -1215,7 +1271,7 @@ def build_rules() -> str:
     font-size: var(--fs-2); font-weight: 600;
     padding: 6px 11px; border-radius: var(--r-inner);
     border: 1px solid var(--dash-border);
-    background: var(--dash-surface-raised); color: var(--dash-ink);
+    background: var(--dash-raised); color: var(--dash-ink);
     white-space: nowrap;
   }}
   .dash-skill-btn:hover {{ border-color: var(--dash-ink-muted); }}
@@ -1267,6 +1323,83 @@ def build_rules() -> str:
     font-size: var(--fs-4); font-weight: 650; margin-left: 8px;
     color: var(--dash-ink-2);
   }}
+
+  /* ── 섹터 온도 ────────────────────────────────────────────────────── */
+  table.dash-heat td.heat {{
+    color: var(--dash-ink); white-space: nowrap;
+    border-left: 1px solid var(--dash-surface);
+  }}
+  table.dash-heat .heat-arrow {{
+    font-size: .72em; margin-right: 3px; opacity: .8;
+  }}
+  /* 줄무늬가 온도색을 덮으면 안 됩니다 — 히트맵에서는 끕니다 */
+  table.dash-heat tbody tr:nth-child(even) {{ background: transparent; }}
+  table.dash-heat tbody tr:nth-child(even) td:first-child {{
+    background: var(--dash-surface);
+  }}
+  table.dash-heat .heat-name {{
+    font-weight: 700; color: var(--dash-ink); display: block;
+  }}
+  table.dash-heat .heat-code {{
+    font-size: var(--fs-1); color: var(--dash-ink-muted); font-weight: 500;
+  }}
+  table.dash-heat .heat-bad {{
+    display: inline-block; margin-left: 4px;
+    font-size: var(--fs-1); font-weight: 700;
+    color: var(--dash-badge-error);
+    border: 1px solid var(--dash-badge-error);
+    border-radius: var(--r-chip); padding: 0 4px;
+  }}
+  table.dash-heat tr.heat-bench td {{
+    border-bottom: 2px solid var(--dash-border);
+  }}
+  table.dash-heat tr.heat-bench .heat-name::after {{
+    content: " 기준"; font-size: var(--fs-1); font-weight: 600;
+    color: var(--dash-accent);
+  }}
+  table.dash-heat tr.heat-fail td {{ color: var(--dash-ink-muted); }}
+  /* 52주 위치 — 막대 위의 눈금 */
+  .heat-band {{
+    position: relative; display: inline-block; vertical-align: middle;
+    width: 54px; height: 6px; border-radius: var(--r-chip);
+    background: var(--dash-raised); border: 1px solid var(--dash-divider);
+    margin-right: 6px;
+  }}
+  .heat-band i {{
+    position: absolute; top: -3px; width: 4px; height: 10px;
+    margin-left: -2px; border-radius: var(--r-chip); background: var(--dash-ink);
+  }}
+  .heat-band-num {{
+    font-size: var(--fs-2); color: var(--dash-ink-2);
+    display: inline-block; min-width: 36px; text-align: right;
+  }}
+  .heat-spark {{ display: block; }}
+  .heat-sum {{
+    background: var(--dash-surface); border: 1px solid var(--dash-border);
+    border-radius: var(--r-card); padding: 12px 14px; margin: 0 0 12px;
+    display: flex; flex-direction: column; gap: 8px;
+  }}
+  .heat-sum-row {{
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }}
+  .heat-sum-lab {{
+    font-size: var(--fs-2); font-weight: 700; color: var(--dash-ink-muted);
+    width: 34px; flex: none;
+  }}
+  .heat-chip {{
+    font-size: var(--fs-3); padding: 4px 10px;
+    border-radius: var(--r-pill); color: var(--dash-ink);
+  }}
+  .heat-chip b {{ font-variant-numeric: tabular-nums; margin-left: 2px; }}
+  .heat-chip.up {{
+    background: color-mix(in srgb, var(--dash-up) 16%, var(--dash-surface));
+  }}
+  .heat-chip.up b {{ color: var(--dash-up); }}
+  .heat-chip.down {{
+    background: color-mix(in srgb, var(--dash-down) 16%, var(--dash-surface));
+  }}
+  .heat-chip.down b {{ color: var(--dash-down); }}
+  .heat-sum-note {{ font-size: var(--fs-1); color: var(--dash-ink-muted); }}
 
   /* ── 한국 반도체 수출 ─────────────────────────────────────────────── */
   .dash-exp {{

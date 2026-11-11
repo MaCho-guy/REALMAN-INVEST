@@ -1148,3 +1148,27 @@ def demo_market_filings():
                            title=t, kind=k, rcept_no=f"2026111{i:07d}")
         for i, (d, n, c, t, k) in enumerate(rows)
     ]
+
+
+def demo_sector_heat(specs):
+    """섹터 온도 데모 — 업종마다 다른 추세를 줘서 색이 고루 나오게."""
+    import sector_heat  # noqa: PLC0415
+
+    closes, names = {}, {}
+    for idx, spec in enumerate(specs):
+        code, label = spec[0], spec[1]
+        rnd = random.Random(f"heat-{code}")
+        drift = (0.0004 if idx == 0 else
+                 [0.0022, 0.0015, -0.0012, 0.0006, -0.0006, 0.0011,
+                  -0.0018, 0.0002, 0.0018, -0.0003, 0.0009, -0.0009,
+                  0.0004][(idx - 1) % 13])
+        p, out = 10_000.0, []
+        for _ in range(300):
+            p *= math.exp(rnd.gauss(drift, 0.013))
+            out.append(p)
+        closes[code] = out
+        names[code] = f"(데모) KODEX {label}"
+    # 하나는 일부러 이름을 틀리게 — 화면이 잡아내는지 보이려고
+    if len(specs) > 6:
+        names[specs[6][0]] = "(데모) TIGER 화장품"
+    return sector_heat.build(specs, closes, names)

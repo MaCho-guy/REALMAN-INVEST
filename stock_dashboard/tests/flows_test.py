@@ -230,11 +230,12 @@ check("공시 응답을 이스케이프한다",
 
 print("\n=== 앱 배선 ===")
 _app = pathlib.Path("app.py").read_text(encoding="utf-8")
-check("flows 탭이 디스패치에 있다", 'active == "flows"' in _app)
-check("flows 가 시장을 받는다", "def render_flows_tab(use_demo: bool, *, market" in _app)
+check("한국 흐름 탭이 디스패치에 있다", 'active == "kr_flows"' in _app)
+check("미국 흐름 탭이 디스패치에 있다", 'active == "us_flows"' in _app)
 check("한국/미국을 나눠 그린다",
-      "_flows_korea(use_demo)" in _app and "_flows_us(use_demo)" in _app)
-check("로딩 안내가 있다", '"flows":' in _app)
+      "_flows_korea(opts[\"demo\"])" in _app
+      and "_flows_us(opts[\"demo\"])" in _app)
+check("로딩 안내가 있다", '"kr_flows":' in _app and '"us_flows":' in _app)
 check("FRED 키 지문을 캐시 키로 쓴다",
       "load_inflation(use_demo, fred.key_fingerprint())" in _app)
 check("DART 키 지문도", "load_market_filings(use_demo, dart.key_fingerprint())"
@@ -243,11 +244,14 @@ check("한국 계열이 미검증임을 화면에 적는다",
       "한국 계열 ID 는 전부 미검증입니다" in _app)
 
 _cfg = pathlib.Path("config.py").read_text(encoding="utf-8")
-check("flows 가 탭 순서에 있다", '"flows",' in _cfg)
-check("탭 라벨이 있다", '"flows": "뉴스' in _cfg)
+check("한국 흐름이 한국 시장에만", "kr_flows" in config.market_tab_keys("kr")
+      and "kr_flows" not in config.market_tab_keys("us"))
+check("미국 흐름이 미국 시장에만", "us_flows" in config.market_tab_keys("us")
+      and "us_flows" not in config.market_tab_keys("kr"))
 
 _pv = pathlib.Path("tools/preview.py").read_text(encoding="utf-8")
-check("프리뷰에도 flows 패널", "_flows_panel" in _pv)
+check("프리뷰에도 한국 흐름 패널", "_kr_flows_panel" in _pv)
+check("프리뷰에도 미국 흐름 패널", "_us_flows_panel" in _pv)
 
 print("\n=== 딥링크 ===")
 links = ui.render_skill_links("005930", "삼성전자")

@@ -1025,6 +1025,27 @@ def build_rules() -> str:
     font-size: var(--fs-3); color: var(--dash-ink-muted); line-height: 1.6;
   }}
 
+  /* ── 파일 버전 경고 ───────────────────────────────────────────────── */
+  .dash-build-warn, .dash-build-note {{
+    border-radius: var(--r-card); padding: var(--sp-3) 15px;
+    margin: 0 0 var(--sp-4); font-size: var(--fs-3); line-height: 1.6;
+  }}
+  .dash-build-warn {{
+    border: 1px solid var(--dash-badge-error);
+    color: var(--dash-ink);
+  }}
+  .dash-build-note {{
+    border: 1px dashed var(--dash-border); color: var(--dash-ink-muted);
+  }}
+  .dash-build-files {{
+    margin-top: var(--sp-2); display: flex; gap: var(--sp-2); flex-wrap: wrap;
+  }}
+  .dash-build-files code {{
+    font-size: var(--fs-2); padding: 2px 7px;
+    border: 1px solid var(--dash-border); border-radius: var(--r-chip);
+    background: var(--dash-raised);
+  }}
+
   /* ── 사이드바 숨김 ────────────────────────────────────────────────── */
   /* 설정은 controls() 가 페이지 안에 그립니다. 사이드바를 비워 두면
      Streamlit 이 왼쪽에 펼침 화살표만 남기는데, 눌러도 빈 패널이 나와

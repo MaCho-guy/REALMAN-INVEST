@@ -24,6 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 import streamlit as st
 
 import brief
+import buildstamp
 import briefing_store as bfs
 import value as vl
 import analysis_store
@@ -128,7 +129,15 @@ def load_corp_codes() -> tuple[dict, str]:
 
 
 @st.cache_data(ttl=config.DART_CACHE_TTL_SEC, show_spinner=False)
-def load_dart_disclosures(use_demo: bool) -> tuple[dict[str, list], dict[str, str]]:
+def load_dart_disclosures(use_demo: bool,
+                          key_fp: str = "") -> tuple[dict[str, list], dict[str, str]]:
+    """국내 공시 목록.
+
+    key_fp 는 **쓰지 않습니다.** 캐시 키를 바꾸려고만 받습니다 —
+    Secrets 에 DART 키를 넣는 순간 지문이 달라져 캐시가 자동으로
+    무효화됩니다. 없으면 키 없이 실패한 결과가 TTL 동안 그대로
+    남아서, 키를 넣어도 바뀌지 않습니다.
+    """
     """한국 종목 공시. 키가 없으면 빈 결과 + 안내 메시지."""
     codes = config.dart_stock_codes()
     if use_demo:
@@ -214,7 +223,7 @@ def load_us_inventory_trends(use_demo: bool) -> tuple[dict[str, object], dict[st
 
 
 @st.cache_data(ttl=config.DART_FINANCIALS_CACHE_TTL_SEC, show_spinner=False)
-def load_inventory_trends(use_demo: bool) -> tuple[dict[str, object], dict[str, str]]:
+def load_inventory_trends(use_demo: bool, key_fp: str = "") -> tuple[dict[str, object], dict[str, str]]:
     """재고 지표(레이어 2). 분기별 재무제표를 모아 추세로 만듭니다."""
     if use_demo:
         return demo_mod.demo_inventory_trends(), {}
@@ -780,7 +789,7 @@ def render_discover_tab(use_demo: bool) -> None:
         screens_map, errors = load_screens(use_demo)
     else:
         instruments = kr_inst
-        screens_map, errors = load_kr_screens(use_demo)
+        screens_map, errors = load_kr_screens(use_demo, dart.key_fingerprint())
 
     positions = disc.build_positions(instruments, quotes, screens=screens_map)
     counts = disc.summary_counts(positions)
@@ -865,6 +874,19 @@ def render_diag_panel() -> None:
         "일부 데이터는 실제 응답으로 확인되지 않았습니다. 버튼을 누르면 "
         "실제로 되는지 확인합니다. 출력을 복사해 Claude 에 붙여넣으십시오. "
         "인증키는 출력에 들어가지 않습니다 (끝 4자리만)."
+    )
+
+    # 캐시 비우기 — 국내 재무는 24시간, 공시는 30분 캐시됩니다. DART 키를
+    # 새로 넣으면 지문이 바뀌어 자동으로 무효화되지만, 그 밖의 이유로
+    # 오래된 값을 치우고 싶을 때가 있습니다.
+    if st.button("캐시 비우고 다시 불러오기", width="stretch"):
+        st.cache_data.clear()
+        st.success("캐시를 비웠습니다. 다음 화면부터 새로 받아옵니다.")
+        st.rerun()
+    st.caption(
+        "국내 재무 24시간 · 공시 30분 · 시세 수십 초 단위로 캐시합니다. "
+        "DART 키를 Secrets 에 **새로 넣은 경우에는 누를 필요가 없습니다** — "
+        "키 지문이 바뀌면 캐시가 저절로 무효화됩니다."
     )
 
     import io
@@ -958,7 +980,7 @@ def render_screen_kr_tab(use_demo: bool) -> None:
         show_source = st.toggle("각 기준의 출처와 한계 표시", value=False,
                                 key="screen_kr_src")
 
-    screens_map, errors = load_kr_screens(use_demo)
+    screens_map, errors = load_kr_screens(use_demo, dart.key_fingerprint())
     screens = buffett.rank(list(screens_map.values()))
     triples = _attach_dcf(screens, use_demo, currency="KRW")
 
@@ -987,7 +1009,7 @@ def render_screen_kr_tab(use_demo: bool) -> None:
 
 
 @st.cache_data(ttl=config.SCREEN_CACHE_TTL_SEC, show_spinner=False)
-def load_kr_screens(use_demo: bool) -> tuple[dict, dict]:
+def load_kr_screens(use_demo: bool, key_fp: str = "") -> tuple[dict, dict]:
     """국내 스크리닝. 종목당 사업보고서 4회 요청(각 3년)."""
     if use_demo:
         return demo_mod.demo_kr_screens()
@@ -1162,7 +1184,7 @@ def render_briefing_section(use_demo: bool, *, readings=None,
     없습니다. 카드는 조회용이고 브리핑은 통독용입니다.
     """
     exports, _exp_err = load_kr_exports(use_demo)
-    trends, _tr_err = load_inventory_trends(use_demo)
+    trends, _tr_err = load_inventory_trends(use_demo, dart.key_fingerprint())
 
     lines = brief.compose(
         readings=readings, triggers=triggers, fg=fg, vix_state=vix_state,
@@ -1486,7 +1508,7 @@ def render_valuation_tab(data: dict[str, dict[str, Quote]], fx,
         held = {i.symbol for i in config.SECTION_WATCHLIST.instruments
                 if i.source == "yahoo"}
     else:
-        screens_map, errors = load_kr_screens(use_demo)
+        screens_map, errors = load_kr_screens(use_demo, dart.key_fingerprint())
         currency = "KRW"
         held = {i.symbol for i in config.SECTION_WATCHLIST.instruments
                 if i.source == "naver"}
@@ -1619,10 +1641,10 @@ def _detect_signals(data: dict[str, dict[str, Quote]], use_demo: bool):
     # EDGAR(미국) + DART(한국) 공시를 하나로 — 두 Filing 이 같은 속성을
     # 제공하므로 signals 는 구분하지 않습니다.
     filings, filing_errors = load_filings(use_demo)
-    dart_filings, dart_errors = load_dart_disclosures(use_demo)
+    dart_filings, dart_errors = load_dart_disclosures(use_demo, dart.key_fingerprint())
     merged_filings = {**filings, **dart_filings}
 
-    kr_trends, trend_errors = load_inventory_trends(use_demo)
+    kr_trends, trend_errors = load_inventory_trends(use_demo, dart.key_fingerprint())
     us_trends, us_trend_errors = load_us_inventory_trends(use_demo)
     trends = {**kr_trends, **us_trends}
     errors = {
@@ -1775,14 +1797,14 @@ def render_cycle_tab(use_demo: bool) -> None:
         unsafe_allow_html=True,
     )
 
-    kr_trends, kr_errors = load_inventory_trends(use_demo)
+    kr_trends, kr_errors = load_inventory_trends(use_demo, dart.key_fingerprint())
     us_trends, us_errors = load_us_inventory_trends(use_demo)
 
     # 잠정실적 레이더 — 재고 지표는 정식 분기보고서가 있어야 계산되는데,
     # 영업(잠정)실적은 그보다 2주쯤 먼저 나옵니다. 그 사이 기간에 메모리
     # 사이클에 대한 가장 이른 확정 숫자라 재고 지표 **위에** 둡니다.
     # 이미 받아둔 공시 목록을 쓰므로 추가 네트워크 호출이 없습니다.
-    _disc, _disc_err = load_dart_disclosures(use_demo)
+    _disc, _disc_err = load_dart_disclosures(use_demo, dart.key_fingerprint())
     _prelim = []
     for _rows in _disc.values():
         _prelim.extend(cycle.preliminary_radar(_rows))
@@ -2363,6 +2385,16 @@ def main() -> None:
         # 가렸습니다.
         initial_sidebar_state="collapsed",
     )
+
+    # 파일 버전 검사를 **가장 먼저** 합니다. 일부만 올라간 상태면 아래
+    # 코드가 AttributeError 로 죽는데, Streamlit Cloud 는 오류 본문을 가려서
+    # 어느 파일인지 알 수 없습니다. 죽기 전에 파일 이름을 말해 줍니다.
+    try:
+        _build = buildstamp.verify(BASE_DIR)
+    except Exception:  # noqa: BLE001 - 검사가 앱을 막으면 안 됩니다
+        _build = None
+    if _build is not None and not _build.ok:
+        st.markdown(ui.render_build_warning(_build), unsafe_allow_html=True)
 
     opts = controls()
     st.markdown(build_css(opts["mode"], opts["convention"]), unsafe_allow_html=True)

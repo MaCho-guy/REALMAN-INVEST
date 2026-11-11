@@ -2035,3 +2035,24 @@ def render_brief(lines, headline_text: str, as_of_text: str) -> str:
         f"{body}</div>"
     )
 
+
+
+def render_build_warning(rep) -> str:
+    """파일 버전 불일치 경고. 앱 맨 위에 띄웁니다.
+
+    Streamlit Cloud 는 오류 본문을 가려서("redacted to prevent data leaks")
+    AttributeError 만 보이고 어느 파일이 문제인지 알 수 없습니다. 그래서
+    **죽기 전에** 파일 이름을 말해 주는 것이 이 블록의 목적입니다.
+    """
+    if rep is None or rep.ok:
+        return ""
+    msg = rep.message()
+    if not msg:
+        return ""
+    cls = "dash-build-warn" if rep.checked else "dash-build-note"
+    files = ""
+    if rep.problem_files:
+        files = ('<div class="dash-build-files">'
+                 + "".join(f'<code>{_esc(f)}</code>' for f in rep.problem_files)
+                 + "</div>")
+    return (f'<div class="{cls}">{_md_bold(_esc(msg))}{files}</div>')

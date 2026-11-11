@@ -1315,3 +1315,90 @@ check_true("슬라이더 기본값이 기준 수에 비례한다",
 for _bad in ('len(buffett.CRITERIA), 4,', 'len(buffett.CRITERIA), 3,'):
     check_true(f"고정 기본값이 남아 있지 않다: {_bad[-3:].strip()}",
                _bad not in _app_src)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+print("\n=== 파일 버전 검사 ===")
+# GitHub 웹에서 손으로 올리다 일부만 올라간 일이 네 번 있었고, 네 번 다
+# 배포한 뒤 AttributeError 로 알았습니다. Streamlit Cloud 는 오류 본문을
+# 가려서 어느 파일인지도 안 보입니다. 죽기 전에 이름을 말해야 합니다.
+import buildstamp as _bs  # noqa: E402
+import shutil as _sh  # noqa: E402
+
+_root = _pl.Path(__file__).resolve().parent.parent
+check_true("BUILD.json 이 패키지에 들어 있다",
+           (_root / _bs.MANIFEST).exists(),
+           "없으면 검사 자체를 못 합니다")
+
+_rep = _bs.verify(str(_root))
+check_true("현재 파일들이 목록과 일치한다", _rep.ok,
+           f"stale={_rep.stale} missing={_rep.missing} — "
+           "패키징 전에 python -m tools.stamp 를 돌려야 합니다")
+check_true("정상일 때는 경고를 그리지 않는다",
+           ui_mod.render_build_warning(_rep) == "")
+
+# 실제로 잡는지 — 임시 폴더에 가짜 배포본을 만들어 한 파일만 바꿔 봅니다
+with _tf.TemporaryDirectory() as _d:
+    _fake = _pl.Path(_d) / "app_copy"
+    _fake.mkdir()
+    (_fake / "a.py").write_text("x = 1\n", encoding="utf-8")
+    (_fake / "b.py").write_text("y = 2\n", encoding="utf-8")
+    _bs.write_manifest(str(_fake))
+    check_true("갓 만든 목록은 일치", _bs.verify(str(_fake)).ok)
+
+    (_fake / "b.py").write_text("y = 3\n", encoding="utf-8")
+    _r2 = _bs.verify(str(_fake))
+    check_true("내용이 바뀐 파일을 잡는다", _r2.stale == ["b.py"], str(_r2.stale))
+    check_true("파일 이름이 메시지에 들어간다", "b.py" in _r2.message())
+    check_true("경고 블록에 파일명이 보인다",
+               "b.py" in ui_mod.render_build_warning(_r2))
+
+    (_fake / "b.py").unlink()
+    _r3 = _bs.verify(str(_fake))
+    check_true("사라진 파일을 잡는다", _r3.missing == ["b.py"], str(_r3.missing))
+    check_true("'아예 없습니다' 로 구분한다", "아예 없습니다" in _r3.message())
+
+    (_root / "nonexistent_check").exists()  # no-op
+    (_pl.Path(_d) / "empty").mkdir()
+    _r4 = _bs.verify(str(_pl.Path(_d) / "empty"))
+    check_true("BUILD.json 이 없으면 '검사 못 함'", not _r4.checked)
+    check_true("검사 못 함을 정상으로 치지 않는다", not _r4.ok,
+               "없는 것과 일치하는 것은 다릅니다")
+    check_true("검사 못 함은 경고 색을 쓰지 않는다",
+               "dash-build-note" in ui_mod.render_build_warning(_r4))
+
+check_true("앱이 시작할 때 검사한다",
+           "buildstamp.verify(BASE_DIR)" in _app_src
+           and "render_build_warning" in _app_src)
+check_true("검사 실패가 앱을 막지 않는다",
+           "except Exception:  # noqa: BLE001 - 검사가 앱을 막으면 안 됩니다"
+           in _app_src)
+check_true("사용자가 넣는 폴더는 검사하지 않는다",
+           {"briefings", "analysis", ".streamlit"} <= set(_bs.SKIP_DIRS),
+           "사용자 파일이 다르다고 경고하면 안 됩니다")
+
+print("\n=== DART 키 캐시 무효화 ===")
+import sources.dart as _dart5  # noqa: E402
+
+_old_env = os.environ.pop("DART_API_KEY", None)
+check_true("키가 없으면 지문도 없다", _dart5.key_fingerprint() == "")
+os.environ["DART_API_KEY"] = "a" * 40
+_fp1 = _dart5.key_fingerprint()
+os.environ["DART_API_KEY"] = "b" * 40
+_fp2 = _dart5.key_fingerprint()
+check_true("키가 생기면 지문이 생긴다", bool(_fp1))
+check_true("키가 바뀌면 지문도 바뀐다", _fp1 != _fp2, f"{_fp1} vs {_fp2}")
+check_true("지문에 키가 들어가지 않는다",
+           "a" * 40 not in _fp1 and len(_fp1) <= 12, _fp1)
+if _old_env is None:
+    os.environ.pop("DART_API_KEY", None)
+else:
+    os.environ["DART_API_KEY"] = _old_env
+
+for _fn in ("load_dart_disclosures", "load_inventory_trends",
+            "load_kr_screens"):
+    check_true(f"{_fn} 이 지문을 캐시 키로 받는다",
+               f"{_fn}(use_demo, dart.key_fingerprint())" in _app_src,
+               "없으면 키를 넣어도 실패한 결과가 TTL 동안 남습니다")
+check_true("캐시를 수동으로 비울 수 있다",
+           "st.cache_data.clear()" in _app_src)

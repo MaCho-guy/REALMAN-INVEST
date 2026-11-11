@@ -127,6 +127,25 @@ def api_key() -> str:
     return key
 
 
+def key_fingerprint() -> str:
+    """인증키의 **지문**. 키 자체가 아니라 해시 앞자리입니다.
+
+    왜 필요한가: Streamlit 캐시는 인자가 같으면 결과를 재사용합니다.
+    키가 없어 실패한 결과가 24시간 캐시에 남으면, Secrets 에 키를 넣어도
+    그대로 실패가 보입니다. 지문을 인자로 넘기면 **키가 생기거나 바뀌는
+    순간 캐시 키가 달라져** 자동으로 다시 받아옵니다.
+
+    키를 그대로 넘기지 않는 이유는, 캐시 키가 로그나 오류 메시지에 찍힐
+    수 있기 때문입니다.
+    """
+    import hashlib
+
+    key = (os.environ.get("DART_API_KEY") or "").strip()
+    if not key:
+        return ""
+    return hashlib.sha256(key.encode()).hexdigest()[:8]
+
+
 def key_status() -> tuple[bool, str]:
     """UI 표시용 — (사용 가능 여부, 설명)."""
     try:

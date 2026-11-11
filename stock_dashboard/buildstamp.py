@@ -119,6 +119,83 @@ EXTRA_TRACKED = (THEME_FILE, "requirements.txt")
 _ROOT_LEVEL = (THEME_FILE,)
 
 
+#: 테마 설정이 가져야 할 값. theme.py PALETTE["light"] 와 같아야 하며,
+#: 테스트가 셋(.streamlit/config.toml · 이 표 · PALETTE)이 일치하는지 봅니다.
+#: 설정 파일은 바이트가 아니라 **이 값들**로 검사합니다 — 2026-11-11 에
+#: 주석·위치 차이로 '다릅니다' 가 두 번 잘못 떴습니다.
+EXPECTED_THEME = {
+    "base": "light",
+    "primaryColor": "#1f3a5f",
+    "backgroundColor": "#eceef1",
+    "secondaryBackgroundColor": "#ffffff",
+    "textColor": "#15181c",
+}
+_CURLY = "\u201c\u201d\u2018\u2019"   # 휴대폰 자동 고침이 만드는 둥근 따옴표
+
+
+def _parse_theme(text: str) -> dict:
+    """[theme] 구역의 key = "value" 만 읽습니다 (tomllib 없이도 동작)."""
+    section, out = "", {}
+    for raw in text.replace("\r", "\n").split("\n"):
+        line = _strip_toml_comment(raw).strip()
+        if not line:
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            section = line[1:-1].strip()
+            continue
+        if section == "theme" and "=" in line:
+            k, v = line.split("=", 1)
+            v = v.strip()
+            if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+                v = v[1:-1]
+            out[k.strip()] = v
+    return out
+
+
+def theme_problems(path: str) -> list[str]:
+    """설정 파일 하나의 문제 목록 (비어 있으면 정상)."""
+    try:
+        with open(path, "rb") as fh:
+            # utf-8-sig: 윈도 메모장이 붙이는 BOM 을 떼고 읽습니다
+            text = fh.read().decode("utf-8-sig", "replace")
+    except OSError as exc:
+        return [f"읽지 못함 ({type(exc).__name__})"]
+    text = text.replace("\u00a0", " ").replace("\u200b", "")
+    probs = []
+    if any(c in text for c in _CURLY):
+        probs.append("따옴표가 둥근 따옴표(“ ”)로 바뀌어 있습니다 — 휴대폰 "
+                     "자동 고침 때문입니다. 이러면 Streamlit 이 파일을 못 읽습니다. "
+                     "곧은 따옴표(\")로 바꾸십시오")
+        text = text.translate({ord(c): '"' for c in _CURLY})
+    got = _parse_theme(text)
+    if not got:
+        probs.append("[theme] 구역을 찾지 못했습니다 — 첫 줄이 [theme] 인지 "
+                     "확인하십시오")
+        return probs
+    for k, want in EXPECTED_THEME.items():
+        have = got.get(k)
+        if have is None:
+            probs.append(f"{k} 줄이 없습니다 (기대 {want})")
+        elif have.lower() != want.lower():
+            probs.append(f"{k} = {have} (기대 {want})")
+    return probs
+
+
+def _theme_locations(root: str) -> list[tuple[str, str]]:
+    """(설명, 경로) — 실제로 존재하는 설정 파일들. 앱 폴더가 먼저(우선)."""
+    out = []
+    app = os.path.join(root, THEME_FILE)
+    if os.path.exists(app):
+        out.append((f"앱 폴더({os.path.basename(os.path.abspath(root))}/"
+                    f"{THEME_FILE})", app))
+    for alt in _alt_roots(root):
+        full = os.path.join(alt, THEME_FILE)
+        if os.path.exists(full) and all(
+                os.path.abspath(full) != os.path.abspath(p) for _, p in out):
+            out.append((f"저장소 맨 위({THEME_FILE})", full))
+    return out
+
+
 def _alt_roots(root: str) -> list[str]:
     out = []
     for cand in (os.getcwd(), os.path.dirname(os.path.abspath(root))):
@@ -196,6 +273,8 @@ class Report:
     misplaced: dict = field(default_factory=dict)
     #: .streamlit/config.toml 을 어디서 찾았는가 (앱 폴더 / 저장소 루트)
     found_at: dict = field(default_factory=dict)
+    #: 설정 파일 위치별 문제 [(설명, [문제...])]
+    theme_issues: list = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -214,13 +293,13 @@ class Report:
                 out.append(f"{rel} — 최신 파일이 엉뚱한 위치({where})에 올라가 "
                            f"있습니다. 앱 폴더 기준 {rel} 로 옮기십시오.")
             elif rel == THEME_FILE and rel in self.stale:
-                where = self.found_at.get(rel, rel)
-                out.append(
-                    f"{rel} — 파일은 찾았지만({where}) 설정 값이 최신과 다릅니다 "
-                    "(주석·빈 줄 차이는 무시합니다). [theme] 아래 base 와 "
-                    "색상 다섯 줄이 안내한 내용과 같은지 확인하십시오. "
-                    "같은 이름의 파일이 앱 폴더(stock_dashboard/.streamlit)에도 "
-                    "있다면 그쪽이 우선하니 둘 다 확인하십시오.")
+                for label, probs in self.theme_issues:
+                    if probs:
+                        out.append(f"{label} — " + "; ".join(probs) + ".")
+                if len(self.theme_issues) > 1:
+                    out.append("설정 파일이 두 곳에 있습니다. 앱 폴더 쪽이 "
+                               "우선하므로, 앱 폴더의 파일을 지우고 저장소 맨 "
+                               "위 하나만 남기는 것이 가장 간단합니다.")
             elif rel == THEME_FILE:
                 out.append(
                     f"{rel} — 이름이 점(.)으로 시작하는 폴더는 Mac Finder 와 "
@@ -281,6 +360,17 @@ def verify(root: str) -> Report:
     rep.checked = True
     have = {}
     for rel in want:
+        if rel == THEME_FILE:
+            locs = _theme_locations(root)
+            if not locs:
+                rep.missing.append(rel)
+                continue
+            rep.theme_issues = [(label, theme_problems(path))
+                                for label, path in locs]
+            rep.found_at[rel] = ", ".join(label for label, _ in locs)
+            if any(probs for _, probs in rep.theme_issues):
+                rep.stale.append(rel)
+            continue
         full = os.path.join(root, rel)
         if not os.path.exists(full) and rel in _ROOT_LEVEL:
             for alt in _alt_roots(root):
@@ -302,6 +392,8 @@ def verify(root: str) -> Report:
             rep.stale.append(rel)
 
     for rel in rep.stale + rep.missing:
+        if rel == THEME_FILE:
+            continue
         try:
             where = _find_misplaced(root, rel, want[rel])
         except Exception:  # noqa: BLE001

@@ -6,7 +6,7 @@
 
 구성:
   상단 탭      섹션 전환 (관심종목 / 밸류에이션 / 공시 분석 / DEX 선물 / …)
-  사이드바     테마(나이트·데이), 등락 색상, 갱신, 환율
+  설정 패널   테마(나이트·데이), 등락 색상, 갱신, 환율 — 페이지 상단
   카드 제목    클릭하면 야후·네이버·Hyperliquid 해당 종목 페이지로 이동
 
 jusikbot.com 의 정보 구조를 참고했으나 UI·코드는 전부 직접 작성한 것입니다.
@@ -23,6 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import streamlit as st
 
+import brief
 import briefing_store as bfs
 import value as vl
 import analysis_store
@@ -761,8 +762,12 @@ def render_discover_tab(use_demo: bool) -> None:
                       key="disc_market")
     col1, col2 = st.columns([1, 1])
     with col1:
+        # 기준이 6개에서 9개로 늘었습니다. 기본값을 4로 두면 전보다
+        # 느슨해지므로, 같은 비율(약 2/3)을 유지합니다.
         quality_min = st.slider("품질 기준 통과 수 (이상이면 '통과')",
-                                1, len(buffett.CRITERIA), 4, key="disc_q")
+                                1, len(buffett.CRITERIA),
+                                round(len(buffett.CRITERIA) * 2 / 3),
+                                key="disc_q")
     with col2:
         view = st.radio("정렬", ["고가권부터", "저가권부터"], horizontal=True,
                         key="disc_sort")
@@ -804,7 +809,7 @@ def render_discover_tab(use_demo: bool) -> None:
                 "모두 있어야 분류되므로, 나머지는 '중간 구간 · 판정 없음' 으로 "
                 "갑니다 — 해당하는 종목이 없다는 뜻이 아닙니다."
                 + ("<br>데모 모드에서는 재무 데이터가 몇 종목만 들어 있습니다. "
-                   "실제 데이터로 보려면 사이드바에서 데모 모드를 끄십시오."
+                   "실제 데이터로 보려면 화면 위쪽 표시 패널에서 데모 모드를 끄십시오."
                    if use_demo else "")
             ),
             unsafe_allow_html=True,
@@ -850,7 +855,7 @@ def render_discover_tab(use_demo: bool) -> None:
 
 
 def render_diag_panel() -> None:
-    """진단 — 터미널 없이 버튼으로. 사이드바에 들어갑니다.
+    """진단 — 터미널 없이 버튼으로. 페이지 상단 패널에 들어갑니다.
 
     이 대시보드의 일부는 실제 API 응답을 받아본 적이 없습니다(개발 환경에서
     DART·SEC·FRED 가 차단). 버튼을 누르면 실제로 되는지 확인해 주고, 출력을
@@ -946,7 +951,8 @@ def render_screen_kr_tab(use_demo: bool) -> None:
 
     col1, col2 = st.columns([1, 1])
     with col1:
-        min_pass = st.slider("최소 통과 기준 수", 0, len(buffett.CRITERIA), 3,
+        min_pass = st.slider("최소 통과 기준 수", 0, len(buffett.CRITERIA),
+                             round(len(buffett.CRITERIA) / 2),
                              key="screen_kr_min")
     with col2:
         show_source = st.toggle("각 기준의 출처와 한계 표시", value=False,
@@ -1061,7 +1067,8 @@ def render_screen_tab(use_demo: bool) -> None:
     col1, col2 = st.columns([1, 1])
     with col1:
         min_pass = st.slider(
-            "최소 통과 기준 수", 0, len(buffett.CRITERIA), 4, key="screen_min",
+            "최소 통과 기준 수", 0, len(buffett.CRITERIA),
+            round(len(buffett.CRITERIA) * 2 / 3), key="screen_min",
             help="이 수 이상 통과한 기업만 카드로 봅니다. 표에는 전부 나옵니다.")
     with col2:
         show_source = st.toggle(
@@ -1146,24 +1153,53 @@ def _render_briefing_body(bf) -> None:
     st.markdown(bf.body, unsafe_allow_html=bf.is_html)
 
 
-def render_briefing_section(use_demo: bool) -> None:
-    """매크로 탭 맨 위. 브리핑은 '중요기사' 와 같은 성격이라 이 탭입니다."""
-    briefings = load_briefings()
+def render_briefing_section(use_demo: bool, *, readings=None,
+                            triggers=None, fg=None, vix_state=None) -> None:
+    """매크로 탭 맨 위.
+
+    **대시보드가 가진 숫자로 직접 씁니다.** 전에는 외부 대시보드로 보내는
+    링크였는데, 다른 화면으로 나가야 하면 이 대시보드를 여는 의미가
+    없습니다. 카드는 조회용이고 브리핑은 통독용입니다.
+    """
+    exports, _exp_err = load_kr_exports(use_demo)
+    trends, _tr_err = load_inventory_trends(use_demo)
+
+    lines = brief.compose(
+        readings=readings, triggers=triggers, fg=fg, vix_state=vix_state,
+        exports=exports, trends=trends,
+    )
     st.markdown(
         ui.render_section_head(
-            "증시 브리핑", "다른 대화에서 쓴 글을 날짜별로 읽어옵니다",
-            len(briefings)),
+            "증시 브리핑", "지금 화면의 숫자를 문장으로 — 오늘 달라진 것",
+            len(lines)),
         unsafe_allow_html=True,
     )
-    # 이미 돌아가는 대시보드로 보냅니다. 뉴스·일정·섹터 온도·수출 레이더를
-    # 여기서 다시 만들면 중복이고, 그쪽이 더 잘 하고 있습니다.
     st.markdown(
-        ui.render_external_dashboard(config.EXTERNAL_DASHBOARDS),
+        ui.render_brief(lines, brief.headline(lines), brief.as_of()),
         unsafe_allow_html=True,
     )
+    st.markdown(
+        ui.render_footnote(
+            "<b>새로 받아오는 데이터가 없습니다.</b> 아래 카드에 이미 있는 "
+            "값을 문장으로 엮은 것이라, 브리핑 때문에 느려지지 않습니다. "
+            "받지 못한 값은 그 줄을 통째로 건너뜁니다 — 빈칸을 '보합' 같은 "
+            "말로 메우지 않습니다."
+        ),
+        unsafe_allow_html=True,
+    )
+
+    briefings = load_briefings()
+    if briefings:
+        st.markdown(
+            ui.render_section_head(
+                "직접 쓴 브리핑", "briefings/ 폴더의 글을 날짜별로 읽어옵니다",
+                len(briefings)),
+            unsafe_allow_html=True,
+        )
     if not briefings:
-        st.markdown(ui.render_briefing_empty(bfs.example_file()),
-                    unsafe_allow_html=True)
+        with st.expander("직접 쓴 브리핑을 넣는 방법", expanded=False):
+            st.markdown(ui.render_briefing_empty(bfs.example_file()),
+                        unsafe_allow_html=True)
         return
 
     latest_bf = briefings[0]
@@ -1210,7 +1246,7 @@ def render_macro_tab(data: dict[str, dict[str, Quote]], fx, use_demo: bool) -> N
             'target="_blank" rel="noopener noreferrer">CNN 공식 페이지</a>'
             " 와 직접 대조해 보십시오. "
             + ("<b>지금은 데모 모드라 가짜 숫자입니다.</b>" if use_demo else
-               "다르면 사이드바 진단 → 경제지표 확인을 돌려 출력을 "
+               "다르면 화면 위쪽 진단 패널 → 경제지표 확인을 돌려 출력을 "
                "알려주십시오 — 응답 구조가 바뀌었을 수 있습니다.")
         ),
         unsafe_allow_html=True,
@@ -1387,6 +1423,28 @@ def render_section(section: Section, data: dict[str, dict[str, Quote]], fx) -> N
         st.markdown(ui.render_footnote(section.footnote), unsafe_allow_html=True)
 
 
+def _valuation_label(screen, result, price, *, held: bool) -> str:
+    """접힌 카드 제목. 펼치지 않고도 비교되도록 숫자를 다 적습니다.
+
+    st.expander 의 제목은 **평문만** 들어갑니다(HTML 이 안 먹습니다).
+    그래서 기호로 구분합니다.
+    """
+    parts = [f"{screen.ticker}"]
+    if held:
+        parts.append("보유")
+    parts.append(f"질 {screen.passed_count}/{len(buffett.CRITERIA)}")
+    if price is not None and price.ok:
+        parts.append(f"가격 {price.passed_count}/{len(price.checks)}")
+    else:
+        parts.append("가격 판정 불가")
+    if result is not None and getattr(result, "ok", False) \
+            and result.implied_growth is not None:
+        parts.append(f"요구 성장률 연 {result.implied_growth * 100:.1f}%")
+    name = (screen.name or "").strip()
+    head = f"{parts[0]} {name}" if name else parts[0]
+    return f"{head}  ·  " + "  ·  ".join(parts[1:])
+
+
 def render_valuation_tab(data: dict[str, dict[str, Quote]], fx,
                          use_demo: bool, phone: bool = False) -> None:
     """4. 걸러낸 종목 밸류에이션 — 역DCF 가 중심, 지표표는 보조.
@@ -1468,29 +1526,36 @@ def render_valuation_tab(data: dict[str, dict[str, Quote]], fx,
     )
     st.markdown(ui.render_quadrant_map(verdicts), unsafe_allow_html=True)
 
-    for screen, result, verdict_obj in triples:
-        badge = " · 보유" if screen.ticker in held else ""
-        st.markdown(
-            ui.render_screen(screen, show_source=show_source),
-            unsafe_allow_html=True,
-        )
-        st.markdown(ui.render_dcf_cells(result), unsafe_allow_html=True)
-        st.markdown(
-            ui.render_price_block(prices.get(screen.ticker),
-                                  show_source=show_source,
-                                  metrics_meta=vl.METRICS),
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            ui.render_verdict(verdict_obj,
-                              prompt=vd.prompt_for(verdict_obj, screen)),
-            unsafe_allow_html=True,
-        )
+    # 종목마다 접습니다. 펼친 상태로 5종목이면 페이지가 8,000px 가 넘어
+    # 가격 조건이 어디 있는지 찾지 못합니다. 접힌 제목에 **질·가격 점수와
+    # 판정을 그대로 적어서**, 펼치지 않고도 줄 세워 비교할 수 있게 합니다.
+    for idx, (screen, result, verdict_obj) in enumerate(triples):
+        price = prices.get(screen.ticker)
+        label = _valuation_label(screen, result, price,
+                                 held=screen.ticker in held)
+        # 첫 종목만 펼쳐 둡니다 — 전부 접혀 있으면 빈 화면처럼 보이고,
+        # 전부 펼치면 접는 의미가 없습니다.
+        with st.expander(label, expanded=(idx == 0)):
+            st.markdown(
+                ui.render_screen(screen, show_source=show_source),
+                unsafe_allow_html=True,
+            )
+            st.markdown(ui.render_dcf_cells(result), unsafe_allow_html=True)
+            st.markdown(
+                ui.render_price_block(price, show_source=show_source,
+                                      metrics_meta=vl.METRICS),
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                ui.render_verdict(verdict_obj,
+                                  prompt=vd.prompt_for(verdict_obj, screen)),
+                unsafe_allow_html=True,
+            )
 
     if phone:
         st.caption(
             "야후 집계 지표(PER · PBR 등)는 9컬럼 표라서 휴대폰 모드에서는 "
-            "생략합니다. 사이드바에서 끄시면 나옵니다."
+            "생략합니다. 화면 위쪽 표시 패널에서 끄시면 나옵니다."
         )
     else:
         with st.expander(
@@ -2010,7 +2075,7 @@ def render_analysis_tab(*, embed: bool = False,
                     # DOM 에 넣지 않습니다 — 전송량을 아끼는 게 목적입니다
                     st.caption(
                         f"{label} 전문 {size_kb:,.0f}KB — 휴대폰 모드에서는 "
-                        "싣지 않습니다. 사이드바에서 끄시거나 컴퓨터에서 "
+                        "싣지 않습니다. 화면 위쪽 표시 패널에서 끄시거나 컴퓨터에서 "
                         "보십시오."
                     )
                 elif embed:
@@ -2040,112 +2105,129 @@ def render_analysis_tab(*, embed: bool = False,
 # 사이드바
 # ──────────────────────────────────────────────────────────────────────────────
 
-def sidebar() -> dict:
-    st.sidebar.markdown("### 주식 대시보드")
+def _pane(label: str, help_text: str = ""):
+    """설정 묶음 하나. st.popover 가 있으면 그걸, 없으면 expander 를 씁니다.
 
-    theme_label = st.sidebar.radio(
-        "테마",
-        ["🌙 나이트 모드", "☀️ 데이 모드"],
-        index=0 if config.DEFAULT_THEME == "dark" else 1,
-        horizontal=True,
-    )
-    mode = "dark" if theme_label.startswith("🌙") else "light"
+    popover 는 버튼을 누르면 떠오르는 작은 패널이라 페이지를 밀어내지
+    않습니다. Streamlit 버전에 따라 없을 수 있어 대체 경로를 둡니다.
+    """
+    pop = getattr(st, "popover", None)
+    if pop is not None:
+        try:
+            return pop(label, help=help_text, use_container_width=True)
+        except TypeError:
+            return pop(label)
+    return st.expander(label)
 
-    convention_label = st.sidebar.radio(
-        "등락 색상",
-        ["상승 적색 (한국)", "상승 녹색 (미국)"],
-        index=0 if config.COLOR_CONVENTION == "kr" else 1,
-        help="한국·일본 증시는 상승을 적색으로, 미국 증시는 녹색으로 표시합니다.",
-    )
-    convention = "kr" if convention_label.startswith("상승 적색") else "us"
 
-    st.sidebar.divider()
+def controls() -> dict:
+    """설정을 **페이지 안**에 둡니다.
 
-    phone = st.sidebar.toggle(
-        "휴대폰 모드",
-        value=False,
-        help="무거운 것을 아예 싣지 않습니다 — 공시 분석 본문(수십 KB)과 "
-             "넓은 지표표를 생략합니다. 요약·시세·매크로는 그대로입니다.",
-    )
+    전에는 전부 사이드바에 있었는데, 왼쪽을 접었다 폈다 해야 해서 번거롭고
+    휴대폰에서는 화면을 가립니다. 한 줄에 묶고, 자주 안 쓰는 것은 버튼을
+    눌러 펼치는 패널에 넣습니다. 매일 쓰는 건 '지금 갱신' 하나뿐입니다.
+    """
+    c1, c2, c3, c4 = st.columns([3, 2, 2, 2])
 
-    show_notes = st.sidebar.toggle(
-        "설명 문구 표시",
-        value=True,
-        help="각 지표를 '왜 그렇게 보는가' 하는 설명을 숨깁니다. "
-             "대시보드에 익숙해지면 끄십시오 — 숫자만 남아 훨씬 빨리 읽힙니다. "
-             "설명은 사라지는 게 아니라 접히는 것이고, 다시 켜면 그대로 나옵니다.",
-    )
+    with c1:
+        seg = getattr(st, "segmented_control", None)
+        opts_theme = ["🌙 나이트", "☀️ 데이"]
+        default = opts_theme[0 if config.DEFAULT_THEME == "dark" else 1]
+        if seg is not None:
+            try:
+                theme_label = seg("테마", opts_theme, default=default,
+                                  key="ui_theme", label_visibility="collapsed")
+            except Exception:  # noqa: BLE001
+                theme_label = st.radio("테마", opts_theme, horizontal=True,
+                                       key="ui_theme_r",
+                                       label_visibility="collapsed")
+        else:
+            theme_label = st.radio("테마", opts_theme, horizontal=True,
+                                   key="ui_theme_r",
+                                   label_visibility="collapsed")
+        mode = "dark" if (theme_label or opts_theme[0]).startswith("🌙") \
+            else "light"
 
-    use_demo = st.sidebar.toggle(
-        "데모 모드 (오프라인)",
-        value=False,
-        help="네트워크 없이 레이아웃만 확인합니다. 표시되는 숫자는 실제 시세가 아닙니다.",
-    )
+    with c2:
+        with _pane("표시 설정", "색상 · 휴대폰 · 설명 문구"):
+            convention_label = st.radio(
+                "등락 색상",
+                ["상승 적색 (한국)", "상승 녹색 (미국)"],
+                index=0 if config.COLOR_CONVENTION == "kr" else 1,
+                help="한국·일본 증시는 상승을 적색으로, 미국 증시는 녹색으로 "
+                     "표시합니다.",
+            )
+            convention = "kr" if convention_label.startswith("상승 적색") else "us"
+            phone = st.toggle(
+                "휴대폰 모드", value=False,
+                help="무거운 것을 아예 싣지 않습니다 — 공시 분석 본문(수십 KB)과 "
+                     "넓은 지표표를 생략합니다. 요약·시세·매크로는 그대로입니다.",
+            )
+            show_notes = st.toggle(
+                "설명 문구 표시", value=True,
+                help="각 지표를 '왜 그렇게 보는가' 하는 설명을 숨깁니다. "
+                     "익숙해지면 끄십시오 — 숫자만 남아 훨씬 빨리 읽힙니다.",
+            )
 
-    auto = st.sidebar.toggle("자동 갱신", value=config.AUTO_REFRESH_SEC > 0)
-    interval = config.AUTO_REFRESH_SEC
-    if auto:
-        interval = st.sidebar.slider("갱신 주기 (초)", 10, 300, config.AUTO_REFRESH_SEC, step=10)
+    with c3:
+        with _pane("데이터", "갱신 · 환율 · 데모"):
+            use_demo = st.toggle(
+                "데모 모드 (오프라인)", value=False,
+                help="네트워크 없이 레이아웃만 확인합니다. 표시되는 숫자는 "
+                     "실제 시세가 아닙니다.",
+            )
+            auto = st.toggle("자동 갱신", value=config.AUTO_REFRESH_SEC > 0)
+            interval = config.AUTO_REFRESH_SEC
+            if auto:
+                interval = st.slider("갱신 주기 (초)", 10, 300,
+                                     config.AUTO_REFRESH_SEC, step=10)
+            fx_manual = st.number_input(
+                "환율 수동 지정 (USD/KRW)", min_value=0.0,
+                value=float(config.FX_OVERRIDE or 0.0), step=1.0,
+                help="0 이면 실시간 환율(KRW=X)을 사용합니다.",
+            )
 
-    if st.sidebar.button("지금 갱신", use_container_width=True):
+    with c4:
+        with _pane("진단 · 실행", "데이터가 맞는지 확인 · 분석 실행 설정"):
+            render_diag_panel()
+            st.divider()
+            st.caption(
+                "공시 분석 탭의 '분석 실행' 은 Claude Code 를 "
+                "헤드리스(`claude -p`)로 띄워 실제 스킬을 돌립니다. "
+                "실행마다 토큰 비용이 발생합니다."
+            )
+            st.session_state["max_turns"] = st.slider(
+                "최대 턴 수", 10, 80, runner.DEFAULT_MAX_TURNS, step=5,
+                help="에이전트 루프 상한. 낮추면 비용이 줄지만 분석이 중간에 "
+                     "끊길 수 있습니다.",
+            )
+            st.session_state["permission_mode"] = st.selectbox(
+                "권한 모드",
+                ["dontAsk", "acceptEdits", "bypassPermissions"],
+                index=0,
+                help=(
+                    "무인 실행이므로 승인 대기 없이 돌아야 합니다. "
+                    "allowedTools 로 도구를 "
+                    f"({runner.DEFAULT_ALLOWED_TOOLS}) 로 제한해 두었습니다. "
+                    "bypassPermissions 는 가장 넓은 권한이므로 권장하지 "
+                    "않습니다."
+                ),
+            )
+            st.caption("**스킬 슬래시 명령** — 플러그인으로 설치했다면 접두어가 "
+                       "붙습니다. 터미널에서 `claude` 실행 후 `/` 를 입력하면 "
+                       "정확한 이름이 보입니다.")
+            cmds: dict[str, str] = {}
+            for kind, label, _desc in analysis_store.KINDS:
+                cmds[kind] = st.text_input(
+                    label, value=runner.SKILL_COMMANDS[kind],
+                    key=f"skillcmd_{kind}",
+                )
+            st.session_state["skill_commands"] = cmds
+
+    if st.button("지금 갱신", use_container_width=False):
         load_all.clear()
         load_fundamentals.clear()
         st.rerun()
-
-    fx_manual = st.sidebar.number_input(
-        "환율 수동 지정 (USD/KRW)",
-        min_value=0.0,
-        value=float(config.FX_OVERRIDE or 0.0),
-        step=1.0,
-        help="0 이면 실시간 환율(KRW=X)을 사용합니다.",
-    )
-
-    # ── 진단 ──────────────────────────────────────────────────────────────────
-    # 탭이 아니라 사이드바에 둡니다. 데이터가 맞는지 확인하는 **도구**이고,
-    # 매일 보는 화면이 아닙니다. 탭 5개는 '무엇을 하려는 화면인가' 로만 채웁니다.
-    with st.sidebar.expander("진단 — 데이터가 맞는지 확인"):
-        render_diag_panel()
-
-    # ── 분석 실행 설정 ────────────────────────────────────────────────────────
-    with st.sidebar.expander("분석 실행 설정"):
-        st.caption(
-            "공시 분석 탭의 '분석 실행' 은 Claude Code 를 헤드리스(`claude -p`)로 "
-            "띄워 실제 스킬을 돌립니다. 실행마다 토큰 비용이 발생합니다."
-        )
-
-        st.session_state["max_turns"] = st.slider(
-            "최대 턴 수", 10, 80, runner.DEFAULT_MAX_TURNS, step=5,
-            help="에이전트 루프 상한. 낮추면 비용이 줄지만 분석이 중간에 끊길 수 있습니다.",
-        )
-
-        st.session_state["permission_mode"] = st.selectbox(
-            "권한 모드",
-            ["dontAsk", "acceptEdits", "bypassPermissions"],
-            index=0,
-            help=(
-                "무인 실행이므로 승인 대기 없이 돌아야 합니다. "
-                "allowedTools 로 도구를 "
-                f"({runner.DEFAULT_ALLOWED_TOOLS}) 로 제한해 두었습니다. "
-                "bypassPermissions 는 가장 넓은 권한이므로 권장하지 않습니다."
-            ),
-        )
-
-        st.caption("**스킬 슬래시 명령** — 플러그인으로 설치했다면 접두어가 붙습니다. "
-                   "터미널에서 `claude` 실행 후 `/` 를 입력하면 정확한 이름이 보입니다.")
-        cmds: dict[str, str] = {}
-        for kind, label, _desc in analysis_store.KINDS:
-            cmds[kind] = st.text_input(
-                label,
-                value=runner.SKILL_COMMANDS[kind],
-                key=f"skillcmd_{kind}",
-            )
-        st.session_state["skill_commands"] = cmds
-
-    st.sidebar.divider()
-    st.sidebar.caption(
-        "정보 제공 목적이며 투자 판단의 근거가 아닙니다. "
-        "시세는 지연될 수 있고, 사용하는 데이터 소스는 어느 것도 공식 API 가 아닙니다."
-    )
 
     return {
         "mode": mode,
@@ -2195,14 +2277,14 @@ def render_body(opts: dict) -> None:
     if opts["demo"]:
         st.warning(
             "**데모 모드입니다.** 화면의 모든 숫자는 레이아웃 확인용 가짜 값이며 "
-            "실제 시세가 아닙니다. 사이드바에서 데모 모드를 끄십시오.",
+            "실제 시세가 아닙니다. 화면 위쪽 표시 패널에서 데모 모드를 끄십시오.",
             icon="⚠️",
         )
 
     if fx.usdkrw is None and not opts["demo"]:
         st.info(
             "USD/KRW 환율을 가져오지 못해 원화 환산과 괴리율이 표시되지 않습니다. "
-            "사이드바에서 환율을 수동 지정할 수 있습니다.",
+            "화면 위쪽 표시 패널에서 환율을 수동 지정할 수 있습니다.",
             icon="ℹ️",
         )
 
@@ -2260,16 +2342,29 @@ def render_body(opts: dict) -> None:
             if section is not None:
                 render_section(section, data, fx)
 
+    # 고지 문구 — 전에는 사이드바 맨 아래 있었는데 사이드바를 없앴습니다.
+    # 본문 끝이 제자리입니다: 읽고 난 뒤에 보여야 합니다.
+    st.markdown(
+        ui.render_footnote(
+            "정보 제공 목적이며 투자 판단의 근거가 아닙니다. 시세는 지연될 수 "
+            "있고, 사용하는 데이터 소스는 어느 것도 공식 API 가 아닙니다."
+        ),
+        unsafe_allow_html=True,
+    )
+
 
 def main() -> None:
     st.set_page_config(
         page_title="주식 대시보드",
         page_icon="📈",
         layout="wide",
-        initial_sidebar_state="expanded",
+        # 사이드바를 더 쓰지 않습니다 — 설정은 controls() 가 페이지 안에
+        # 그립니다. 접었다 폈다 하는 동작이 번거롭고 휴대폰에서는 화면을
+        # 가렸습니다.
+        initial_sidebar_state="collapsed",
     )
 
-    opts = sidebar()
+    opts = controls()
     st.markdown(build_css(opts["mode"], opts["convention"]), unsafe_allow_html=True)
     if not opts.get("notes", True):
         # Streamlit 의 본문 컨테이너에 클래스를 걸 수 없어서, 설명 문구를

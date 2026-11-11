@@ -60,18 +60,6 @@ ANALYSIS_DIR = "analysis"
 #: briefing_store 가 파일명에서 날짜를 읽으므로 meta 파일이 없습니다.
 BRIEFING_DIR = "briefings"
 
-#: 이미 돌아가고 있는 외부 대시보드. 뉴스·일정·섹터 온도·수출 레이더는
-#: 그쪽이 더 잘 하고 있어서 여기서 다시 만들지 않고 링크로 보냅니다.
-#: (라벨, URL, 설명)
-EXTERNAL_DASHBOARDS: tuple[tuple[str, str, str], ...] = (
-    ("모닝 브리프 · 미국",
-     "https://panzeeeeee.github.io/researchdashboard/index.html",
-     "주요뉴스 · 섹터 온도(S&P 500) · 크레딧 · 일정 · 실적 레이더"),
-    ("모닝 브리프 · 한국",
-     "https://panzeeeeee.github.io/researchdashboard/kr.html",
-     "DART 공시 · 정책 뉴스 · 금통위 일정 · 수출입 레이더 · 업종 추이"),
-)
-
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 변화 감지 (SEC EDGAR + 뉴스)
@@ -900,7 +888,7 @@ TABS_RETIRED: dict[str, str] = {
     "analysis": "공시 분석 → 내 종목 탭",
     "screen": "발굴 · 미국 → 종목 발굴 탭",
     "screen_kr": "발굴 · 국내 → 종목 발굴 탭",
-    "diag": "진단 → 사이드바",
+    "diag": "진단 → 화면 위쪽 패널",
 }
 
 #: 섹션(= 종목 묶음)으로 존재하면서 탭에서 내려간 것만. 되돌리려면 이 목록에서

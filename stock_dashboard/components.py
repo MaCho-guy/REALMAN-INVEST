@@ -1761,9 +1761,9 @@ def render_demo_banner(*, preview: bool = False) -> str:
     where = "이 프리뷰는" if preview else "데모 모드입니다 —"
     extra = (
         "실제 데이터로 보시려면 압축을 풀고 <code>streamlit run app.py</code> "
-        "를 실행한 뒤 사이드바에서 데모 모드를 끄십시오."
+        "를 실행한 뒤 화면 위쪽 <b>표시</b> 패널에서 데모 모드를 끄십시오."
         if preview else
-        "사이드바에서 데모 모드를 끄면 실제 데이터를 받아옵니다."
+        "화면 위쪽 표시 패널에서 데모 모드를 끄면 실제 데이터를 받아옵니다."
     )
     return (
         '<div class="dash-demo-banner">'
@@ -1946,29 +1946,6 @@ def render_prelim_radar(filings, *, errors=None) -> str:
         )
     return f'<div class="dash-prelim">{rows}{err_block}</div>'
 
-
-def render_external_dashboard(links) -> str:
-    """다른 곳에서 이미 잘 돌고 있는 대시보드로 보냅니다.
-
-    뉴스·일정·섹터 온도·수출 레이더를 여기서 다시 만들면 중복입니다.
-    links: ((라벨, URL, 설명), ...)
-    """
-    items = ""
-    for label, url, note in links:
-        if not str(url).startswith(("http://", "https://")):
-            continue
-        items += (
-            '<div class="dash-ext-row">'
-            f'<a class="dash-inline-link dash-ext-link" href="{_esc(url)}" '
-            f'target="_blank" rel="noopener noreferrer">{_esc(label)}</a>'
-            f'<span class="dash-ext-note">{_esc(note)}</span>'
-            "</div>"
-        )
-    if not items:
-        return ""
-    return f'<div class="dash-ext">{items}</div>'
-
-
 def render_kr_exports(res, *, error: str = "") -> str:
     """한국 반도체 수출 — 메모리 사이클의 선행 지표.
 
@@ -1982,7 +1959,7 @@ def render_kr_exports(res, *, error: str = "") -> str:
             '<div class="dash-exp dash-exp-fail">'
             '<span class="dash-exp-label">한국 반도체 수출</span>'
             f'<span class="dash-exp-why">받아오지 못했습니다 — {_esc(why[:160])}</span>'
-            '<span class="dash-exp-why">사이드바 진단의 '
+            '<span class="dash-exp-why">화면 위쪽 <b>진단</b> 패널의 '
             '<b>반도체 수출 확인</b> 버튼으로 원인을 볼 수 있습니다. '
             '이 경로는 아직 검증되지 않았습니다.</span>'
             "</div>"
@@ -2026,3 +2003,35 @@ def render_kr_exports(res, *, error: str = "") -> str:
         "</div>"
         f"{stale}{warn}</div>"
     )
+
+
+def render_brief(lines, headline_text: str, as_of_text: str) -> str:
+    """증시 브리핑. 카드가 아니라 **읽는 글**로 보이게 합니다.
+
+    외부 사이트로 보내는 링크가 아니라, 이 대시보드가 가진 숫자를 문장으로
+    엮은 것입니다. 카드는 조회용이고 이건 통독용입니다.
+    """
+    if not lines:
+        body = ('<div class="dash-brief-line">'
+                f'<span class="dash-brief-text">{_esc(headline_text)}</span>'
+                "</div>")
+    else:
+        body = ""
+        for ln in lines:
+            cls = ("hot" if ln.severity >= 3
+                   else ("warm" if ln.severity >= 2 else ""))
+            body += (
+                f'<div class="dash-brief-line {cls}">'
+                f'<span class="dash-brief-topic">{_esc(ln.topic)}</span>'
+                f'<span class="dash-brief-text">{_safe_inline(ln.text)}</span>'
+                "</div>"
+            )
+    return (
+        '<div class="dash-brief">'
+        '<div class="dash-brief-top">'
+        f'<span class="dash-brief-head">{_esc(headline_text)}</span>'
+        f'<span class="dash-brief-asof">{_esc(as_of_text)}</span>'
+        "</div>"
+        f"{body}</div>"
+    )
+

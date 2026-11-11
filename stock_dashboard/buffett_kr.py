@@ -142,6 +142,35 @@ KR_RULES: tuple[KrAccount, ...] = (
          "영업활동으로 인한 현금흐름", "영업활동 현금흐름"),
         ("CF",),
     ),
+    # ── ROIC · 이자보상배율용 ───────────────────────────────────────────────
+    # 이걸 넣지 않으면 **국내 종목만** 새 기준 3개가 전부 '판정 불가' 가 되어
+    # 점수가 불리해집니다. 전부 미검증입니다.
+    KrAccount(
+        "operating_income", "영업이익",
+        ("dart_OperatingIncomeLoss",
+         "ifrs-full_ProfitLossFromOperatingActivities"),
+        ("영업이익", "영업이익(손실)", "영업손익"),
+        ("IS", "CIS"),
+    ),
+    KrAccount(
+        "interest_expense", "이자비용",
+        ("ifrs-full_FinanceCosts", "ifrs-full_InterestExpense"),
+        ("이자비용", "금융원가", "금융비용", "이자비용(금융원가)"),
+        ("IS", "CIS"),
+    ),
+    KrAccount(
+        "tax_expense", "법인세비용",
+        ("ifrs-full_IncomeTaxExpenseContinuingOperations",),
+        ("법인세비용", "법인세비용(수익)", "법인세수익(비용)"),
+        ("IS", "CIS"),
+    ),
+    KrAccount(
+        "pretax_income", "법인세비용차감전순이익",
+        ("ifrs-full_ProfitLossBeforeTax",),
+        ("법인세비용차감전순이익", "법인세차감전순이익",
+         "법인세비용차감전순이익(손실)", "법인세차감전계속사업이익"),
+        ("IS", "CIS"),
+    ),
 )
 
 KR_RULES_BY_KEY = {r.key: r for r in KR_RULES}

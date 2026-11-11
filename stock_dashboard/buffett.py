@@ -92,13 +92,34 @@ TAGS: dict[str, tuple[str, ...]] = {
         "DebtCurrent",
         "ShortTermBorrowings",
     ),
+    # ── ROIC · 이자보상배율용 ───────────────────────────────────────────────
+    # **아직 실제 응답으로 검증하지 않았습니다.** 회사마다 쓰는 태그가 달라
+    # 후보를 여러 개 두고 먼저 맞는 것을 씁니다. 못 찾으면 그 기준만
+    # '판정 불가' 가 되고 나머지 기준은 그대로 동작합니다.
+    "operating_income": (
+        "OperatingIncomeLoss",
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+    ),
+    "interest_expense": (
+        "InterestExpense",
+        "InterestExpenseDebt",
+        "InterestAndDebtExpense",
+        "InterestExpenseNonoperating",
+    ),
+    "tax_expense": ("IncomeTaxExpenseBenefit",),
+    "pretax_income": (
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments",
+    ),
 }
 
 #: companyfacts 에서 보관할 태그 전체 (응답이 커서 추려냅니다)
 KEEP_TAGS: set[str] = {tag for cands in TAGS.values() for tag in cands}
 
 FLOW_KEYS = ("net_income", "revenue", "gross_profit", "cost_of_revenue",
-             "dep_amort", "capex", "operating_cash_flow")
+             "dep_amort", "capex", "operating_cash_flow",
+             "operating_income", "interest_expense", "tax_expense",
+             "pretax_income")
 STOCK_KEYS = ("equity", "assets", "liabilities", "long_term_debt",
               "retained_earnings", "cash", "short_term_investments",
               "long_term_investments", "short_term_debt")
@@ -132,6 +153,11 @@ class YearRow:
     short_term_investments: float | None = None
     long_term_investments: float | None = None
     short_term_debt: float | None = None
+
+    operating_income: float | None = None
+    interest_expense: float | None = None
+    tax_expense: float | None = None
+    pretax_income: float | None = None
 
     # ── 파생 지표 ────────────────────────────────────────────────────────────
     @property
@@ -218,6 +244,86 @@ class YearRow:
         parts = [v for v in (self.cash, self.short_term_investments,
                              self.long_term_investments) if v is not None]
         return sum(parts) if parts else None
+
+    @property
+    def effective_tax_rate(self) -> float | None:
+        """실효세율. 법정세율(21%)을 쓰지 않는 이유: 회사마다 실제로 내는
+        세율이 크게 다릅니다. 적자 해에는 음수가 나오므로 0~50% 밖은
+        버립니다 — 이상한 세율로 ROIC 를 왜곡시키느니 판정을 포기합니다.
+        """
+        if self.tax_expense is None or not self.pretax_income:
+            return None
+        if self.pretax_income <= 0:
+            return None
+        rate = self.tax_expense / self.pretax_income
+        return rate if 0.0 <= rate <= 0.5 else None
+
+    @property
+    def invested_capital(self) -> float | None:
+        """투하자본 = 차입금 + 자본 − 현금·투자자산.
+
+        현금을 빼는 이유: 쌓아둔 현금은 사업에 투입된 자본이 아닙니다.
+        현금이 많은 회사의 ROIC 를 낮게 계산하면 '자본 효율이 나쁘다' 고
+        잘못 읽습니다.
+        """
+        debt = self.total_debt or 0.0
+        eq = self.equity
+        if eq is None:
+            return None
+        cash = self.cash_and_investments or 0.0
+        ic = debt + eq - cash
+        return ic if ic > 0 else None
+
+    @property
+    def roic(self) -> float | None:
+        """투하자본이익률(%) = 영업이익 × (1 − 실효세율) ÷ 투하자본.
+
+        ROE 와 무엇이 다른가: ROE 는 분모가 **자본**이라 빚을 많이 쓰거나
+        자사주를 많이 사면 자동으로 올라갑니다. 사업이 좋아진 게 아닌데
+        숫자가 좋아집니다. ROIC 는 분모에 **빚까지** 넣으므로 그 길이
+        막힙니다.
+        """
+        ebit = self.operating_income
+        ic = self.invested_capital
+        if ebit is None or ic is None:
+            return None
+        rate = self.effective_tax_rate
+        nopat = ebit * (1.0 - rate) if rate is not None else ebit
+        return nopat / ic * 100.0
+
+    @property
+    def interest_coverage(self) -> float | None:
+        """이자보상배율 = 영업이익 ÷ 이자비용.
+
+        D/E 와 무엇이 다른가: D/E 는 **얼마나 빌렸나**를 보고 이것은
+        **갚을 수 있나**를 봅니다. 리츠·유틸리티는 구조적으로 빚이 많아
+        D/E 로는 전부 탈락하지만, 현금흐름이 안정적이면 이자는 충분히
+        냅니다. 업종 차이를 덜 타는 기준입니다.
+        """
+        ebit = self.operating_income
+        exp = self.interest_expense
+        if ebit is None or exp is None:
+            return None
+        exp = abs(exp)
+        if exp <= 0:
+            # 이자비용이 0 이면 배수가 무한대입니다. 숫자로 적을 수 없어
+            # 따로 큰 값을 돌려주지 않고 None 으로 둡니다 — '무차입' 은
+            # 부채 기준이 이미 잡아냅니다.
+            return None
+        return ebit / exp
+
+    @property
+    def fcf_conversion(self) -> float | None:
+        """FCF 전환율(%) = 자유현금흐름 ÷ 순이익.
+
+        이익이 **현금이 되는가**를 봅니다. 장부 이익은 늘어나는데 현금이
+        따라오지 않으면 매출채권·재고가 쌓이고 있다는 뜻일 수 있습니다.
+        순이익이 0 이하면 비율이 의미를 잃어 None 입니다.
+        """
+        fcf = self.free_cash_flow
+        if fcf is None or not self.net_income or self.net_income <= 0:
+            return None
+        return fcf / self.net_income * 100.0
 
     @property
     def net_debt(self) -> float | None:
@@ -319,6 +425,52 @@ CRITERIA: tuple[Criterion, ...] = (
     ),
 )
 
+#: 기존 6개 기준이 **스스로 인정한 한계**를 메우는 기준들입니다.
+#: 각 기준의 caveat 에 적힌 문제를 그대로 가져와 대응시켰습니다.
+EXTRA_CRITERIA: tuple[Criterion, ...] = (
+    Criterion(
+        "roic", "투하자본이익률(ROIC)이 높은가", "mine",
+        "버핏이 ROIC 라는 지표명을 쓴 적은 없습니다. 다만 '자본을 얼마나 "
+        "잘 굴리는가' 는 주주서한에서 반복되는 주제이고, ROE 의 레버리지 "
+        "왜곡을 피하려면 분모를 바꿔야 합니다. 기준선 12% 는 제 재량입니다.",
+        "영업이익 × (1 − 실효세율) ÷ (차입금 + 자본 − 현금·투자자산). "
+        "실효세율은 법정세율이 아니라 **실제 낸 세금**으로 계산합니다. "
+        "현금을 투하자본에서 빼는 이유는, 쌓아둔 현금이 사업에 투입된 "
+        "자본이 아니기 때문입니다.",
+        "<b>ROE 기준의 한계를 메우려는 것입니다.</b> ROE 는 빚을 많이 쓰거나 "
+        "자사주를 사면 사업이 그대로여도 올라갑니다. ROIC 는 그 길이 "
+        "막힙니다. 다만 영업이익·법인세 태그를 새로 읽어야 해서 **아직 "
+        "실제 응답으로 검증되지 않았습니다** — 못 읽으면 판정 불가가 됩니다. "
+        "금융업은 '투하자본' 개념이 달라 이 기준이 맞지 않습니다.",
+    ),
+    Criterion(
+        "interest_cover", "이자를 충분히 내고 있는가", "practice",
+        "이자보상배율은 신용 분석에서 널리 쓰는 지표입니다. 버핏의 특정 "
+        "발언에 대응하지는 않고, 기준선 5배도 제 재량입니다.",
+        "영업이익 ÷ 이자비용. 이자비용이 0 이면 배수가 무한대라 판정하지 "
+        "않습니다 — 무차입은 부채 기준이 이미 잡아냅니다.",
+        "<b>부채 기준의 한계를 메우려는 것입니다.</b> D/E 는 '얼마나 "
+        "빌렸나' 를 보는데, 리츠·유틸리티는 구조적으로 빚이 많아 전부 "
+        "탈락합니다. 이자보상배율은 '갚을 수 있나' 를 보므로 업종 차이를 "
+        "덜 탑니다. 다만 이자비용 태그가 **미검증**이고, 회사가 이자수익과 "
+        "상계해 순액으로 공시하면 배수가 과장될 수 있습니다.",
+    ),
+    Criterion(
+        "fcf_conversion", "이익이 현금으로 들어오는가", "mine",
+        "제 기준입니다. 버핏이 '현금이 중요하다' 고 한 것과 방향은 같지만 "
+        "전환율이라는 숫자 기준을 제시한 적은 없습니다. 기준선 70% 도 "
+        "제 재량입니다.",
+        "자유현금흐름 ÷ 순이익. 10년 중 몇 해가 기준을 넘는지 셉니다. "
+        "순이익이 0 이하인 해는 비율이 의미를 잃어 제외합니다.",
+        "장부 이익은 느는데 현금이 안 따라오면 매출채권·재고가 쌓이고 "
+        "있다는 뜻일 수 있습니다. 다만 <b>성장 투자가 큰 기업은 설비투자 "
+        "때문에 낮게 나옵니다</b> — 주주이익 기준과 같은 한계이고, 낮다고 "
+        "나쁜 기업이라는 뜻은 아닙니다.",
+    ),
+)
+
+CRITERIA = CRITERIA + EXTRA_CRITERIA
+
 CRITERIA_BY_KEY = {c.key: c for c in CRITERIA}
 
 PROVENANCE_LABEL = {
@@ -368,6 +520,13 @@ class Thresholds:
     bad_years_allowed: int = 1
     earnings_drop_pct: float = 30.0
     min_years: int = 5               # 이보다 적으면 판정하지 않습니다
+
+    # ── 보강 기준 (전부 제 재량입니다) ──────────────────────────────────────
+    roic_min: float = 12.0           # %
+    roic_years_required: int = 6     # 10년 중 몇 해
+    interest_cover_min: float = 5.0  # 배
+    fcf_conversion_min: float = 70.0     # %
+    fcf_conversion_years_required: int = 6
 
 
 @dataclass
@@ -560,8 +719,58 @@ def check_earnings_consistency(screen: Screen, th: Thresholds) -> Check:
     )
 
 
+def check_roic(screen: Screen, th: Thresholds) -> Check:
+    crit = CRITERIA_BY_KEY["roic"]
+    series = screen.series("roic")
+    if len(series) < th.min_years:
+        return Check(crit, "unknown",
+                     detail=f"ROIC 산출 가능 연도 {len(series)}개 "
+                            "(영업이익·법인세 태그를 못 읽었을 수 있습니다)")
+    hits = sum(1 for _y, v in series if v >= th.roic_min)
+    med = statistics.median(v for _y, v in series)
+    return Check(
+        crit, "pass" if hits >= th.roic_years_required else "fail",
+        value=med, value_label=f"{med:,.1f}%",
+        detail=f"{len(series)}년 중 {hits}해가 {th.roic_min:g}% 이상 "
+               f"(기준 {th.roic_years_required}해) · 중간값 {med:,.1f}%",
+    )
+
+
+def check_interest_cover(screen: Screen, th: Thresholds) -> Check:
+    crit = CRITERIA_BY_KEY["interest_cover"]
+    latest = screen.latest
+    cover = latest.interest_coverage if latest is not None else None
+    if cover is None:
+        return Check(crit, "unknown",
+                     detail="영업이익 또는 이자비용 미공시 (무차입이면 "
+                            "부채 기준에서 이미 통과합니다)")
+    return Check(
+        crit, "pass" if cover >= th.interest_cover_min else "fail",
+        value=cover, value_label=f"{cover:,.1f}배",
+        detail=f"영업이익이 이자비용의 {cover:,.1f}배 "
+               f"(기준 {th.interest_cover_min:g}배 이상)",
+    )
+
+
+def check_fcf_conversion(screen: Screen, th: Thresholds) -> Check:
+    crit = CRITERIA_BY_KEY["fcf_conversion"]
+    series = screen.series("fcf_conversion")
+    if len(series) < th.min_years:
+        return Check(crit, "unknown",
+                     detail=f"전환율 산출 가능 연도 {len(series)}개")
+    hits = sum(1 for _y, v in series if v >= th.fcf_conversion_min)
+    med = statistics.median(v for _y, v in series)
+    return Check(
+        crit, "pass" if hits >= th.fcf_conversion_years_required else "fail",
+        value=med, value_label=f"{med:,.0f}%",
+        detail=f"{len(series)}년 중 {hits}해가 {th.fcf_conversion_min:g}% 이상 "
+               f"(기준 {th.fcf_conversion_years_required}해) · 중간값 {med:,.0f}%",
+    )
+
+
 CHECKS = (check_roe, check_owner_earnings, check_capex_light,
-          check_low_debt, check_stable_margin, check_earnings_consistency)
+          check_low_debt, check_stable_margin, check_earnings_consistency,
+          check_roic, check_interest_cover, check_fcf_conversion)
 
 
 def run_checks(screen: Screen, th: Thresholds | None = None) -> Screen:

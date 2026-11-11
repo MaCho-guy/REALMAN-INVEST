@@ -61,10 +61,23 @@ def check_of(screen: Screen, key: str):
 
 
 def good_year(**over) -> dict:
-    """모든 기준을 통과하는 한 해."""
+    """모든 기준을 통과하는 한 해.
+
+    보강 기준 3개(ROIC·이자보상·FCF전환)가 들어오면서 영업이익·이자비용·
+    법인세도 채웁니다. 안 채우면 '판정 불가' 가 되어 전부 통과하는
+    픽스처가 아니게 됩니다.
+      ROIC      = 260 x (1-0.22) / (200 + 800 - 280) = 28.2%  > 12%
+      이자보상  = 260 / 9 = 28.9배                            > 5배
+      FCF 전환  = (영업현금 315 - 설비 60) / 200 = 127%       > 70%
+    """
     base = dict(net_income=200 * M, revenue=1_000 * M, gross_profit=600 * M,
                 dep_amort=100 * M, capex=60 * M, equity=800 * M,
-                long_term_debt=200 * M)
+                long_term_debt=200 * M,
+                operating_income=260 * M, interest_expense=9 * M,
+                pretax_income=251 * M, tax_expense=55 * M,
+                operating_cash_flow=315 * M,
+                cash=280 * M, short_term_investments=0.0,
+                short_term_debt=0.0, long_term_investments=0.0)
     base.update(over)
     return base
 
@@ -251,14 +264,17 @@ check("정상 기업엔 경고 없음",
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-print("\n=== 기준 6종 — 통과 ===")
+print(f"\n=== 기준 {len(buffett.CRITERIA)}종 — 통과 ===")
 all_pass = screen_of([good_year()] * 10)
-check("6개 전부 통과", all_pass.passed_count == 6, all_pass.score_label)
+check("전부 통과", all_pass.passed_count == len(buffett.CRITERIA),
+      all_pass.score_label)
 check("판정 불가 0", all_pass.unknown_count == 0)
-check("점수 라벨", all_pass.score_label == "6 / 6", all_pass.score_label)
+_N = len(buffett.CRITERIA)
+check("점수 라벨", all_pass.score_label == f"{_N} / {_N}",
+      all_pass.score_label)
 
 
-print("\n=== 기준 6종 — 탈락 ===")
+print(f"\n=== 기준 {len(buffett.CRITERIA)}종 — 탈락 ===")
 low_roe = screen_of([good_year(net_income=40 * M)] * 10)
 check("ROE 낮으면 탈락", verdict(low_roe, "roe") == "fail")
 
@@ -302,8 +318,9 @@ check("탈락 연도를 적어줌",
 
 print("\n=== 기준 6종 — 판정 불가 ===")
 thin = screen_of([dict(net_income=100 * M, revenue=500 * M, equity=400 * M)] * 2)
-check("연도가 적으면 전부 판정 불가", thin.unknown_count == 6,
-      f"불가 {thin.unknown_count}")
+check("연도가 적으면 전부 판정 불가",
+      thin.unknown_count == len(buffett.CRITERIA),
+      f"불가 {thin.unknown_count} / {len(buffett.CRITERIA)}")
 check("판정 불가는 통과가 아님", thin.passed_count == 0)
 check("판정 불가는 탈락도 아님",
       all(not c.known for c in thin.checks))
@@ -352,7 +369,15 @@ check("실패는 ok=False", not broken.ok)
 
 # ──────────────────────────────────────────────────────────────────────────────
 print("\n=== 출처 표기 ===")
-check("기준 6개", len(buffett.CRITERIA) == 6, str(len(buffett.CRITERIA)))
+# 기준 수를 못박지 않습니다 — 늘릴 때마다 테스트가 깨집니다.
+# 중요한 건 **CHECKS 와 개수가 맞는가** 입니다.
+check("기준이 하나 이상", len(buffett.CRITERIA) >= 6,
+      str(len(buffett.CRITERIA)))
+check("CHECKS 와 수가 같다",
+      len(buffett.CHECKS) == len(buffett.CRITERIA),
+      f"{len(buffett.CHECKS)} vs {len(buffett.CRITERIA)} — 다르면 점수 분모가 어긋납니다")
+check("키가 중복되지 않는다",
+      len(buffett.CRITERIA_BY_KEY) == len(buffett.CRITERIA))
 check("출처 종류는 세 가지",
       {c.provenance for c in buffett.CRITERIA} <= {"verbatim", "practice", "mine"},
       str({c.provenance for c in buffett.CRITERIA}))
@@ -382,7 +407,7 @@ check("리츠 한계를 명시",
 # ──────────────────────────────────────────────────────────────────────────────
 print("\n=== 프롬프트 ===")
 p = buffett.prompt_for(all_pass)
-check("점수 포함", "6 / 6" in p)
+check("점수 포함", f"{len(buffett.CRITERIA)} / {len(buffett.CRITERIA)}" in p)
 check("해자를 묻는다", "해자" in p)
 check("ROE 가 자본구조 때문인지 묻는다", "자사주" in p)
 check("이해 가능한 사업인지 묻는다", "이해할 수 있는" in p)
@@ -429,7 +454,8 @@ import components as ui  # noqa: E402
 
 html_out = ui.render_screen(all_pass, show_source=True,
                             prompt=buffett.prompt_for(all_pass))
-check("카드 렌더링", "dash-screen" in html_out and "6 / 6" in html_out)
+check("카드 렌더링", "dash-screen" in html_out
+      and f"{len(buffett.CRITERIA)} / {len(buffett.CRITERIA)}" in html_out)
 check("통과 표시", 'class="dash-check pass"' in html_out)
 check("출처 표시", "출처" in html_out and "한계" in html_out)
 check("프롬프트 접힘", "<details>" in html_out)
@@ -484,10 +510,140 @@ check("O 는 부채에서 탈락", verdict(screens_map["O"], "low_debt") == "fai
 check("O 는 마진 판정 불가 (거짓 통과 아님)",
       verdict(screens_map["O"], "stable_margin") == "unknown")
 check("ZZZZ 는 전부 판정 불가",
-      screens_map["ZZZZ"].unknown_count == 6)
+      screens_map["ZZZZ"].unknown_count == len(buffett.CRITERIA),
+      f'{screens_map["ZZZZ"].unknown_count} / {len(buffett.CRITERIA)}')
 check("데모 전부 10년 또는 2년",
       {s.year_count for s in screens_map.values()} == {10, 2},
       str({s.year_count for s in screens_map.values()}))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+print("\n=== 보강 기준 3개 ===")
+# 기존 6개 기준이 **스스로 인정한 한계**를 메우려고 넣은 것들입니다.
+#   ROE 는 레버리지·자사주로 부풀려진다        -> ROIC
+#   D/E 는 리츠·유틸리티를 전부 떨어뜨린다      -> 이자보상배율
+#   이익이 현금이 되는지는 아무도 안 본다       -> FCF 전환율
+
+M = 1_000_000.0
+
+
+def _row(**kw):
+    r = buffett.YearRow(year=kw.pop("year", 2025), end="2025-12-31")
+    for k, v in kw.items():
+        setattr(r, k, v)
+    return r
+
+
+print("\n-- 실효세율 --")
+r = _row(tax_expense=200.0, pretax_income=1000.0)
+check("실효세율 계산", abs(r.effective_tax_rate - 0.20) < 1e-9,
+      str(r.effective_tax_rate))
+check("적자면 None", _row(tax_expense=50.0,
+                        pretax_income=-100.0).effective_tax_rate is None,
+      "적자 해의 세율로 ROIC 를 왜곡시키지 않습니다")
+check("0~50% 밖은 버린다",
+      _row(tax_expense=900.0, pretax_income=1000.0).effective_tax_rate is None,
+      "90% 같은 값은 일회성 항목일 가능성이 큽니다")
+check("세금 없으면 None",
+      _row(pretax_income=1000.0).effective_tax_rate is None)
+
+print("\n-- 투하자본 --")
+r = _row(equity=3000.0, long_term_debt=2000.0, short_term_debt=0.0,
+         cash=500.0)
+check("차입 + 자본 - 현금", r.invested_capital == 4500.0,
+      str(r.invested_capital))
+check("현금이 많으면 작아진다",
+      _row(equity=3000.0, long_term_debt=0.0, cash=2900.0).invested_capital
+      == 100.0,
+      "쌓아둔 현금은 사업에 투입된 자본이 아닙니다")
+check("0 이하면 None",
+      _row(equity=100.0, long_term_debt=0.0, cash=500.0).invested_capital
+      is None)
+check("자본이 없으면 None", _row(long_term_debt=100.0).invested_capital is None)
+
+print("\n-- ROIC vs ROE --")
+# 같은 사업인데 빚만 늘린 회사: ROE 는 오르고 ROIC 는 그대로여야 합니다
+base = _row(net_income=700.0, operating_income=1000.0,
+            tax_expense=200.0, pretax_income=900.0,
+            equity=3000.0, long_term_debt=0.0, cash=0.0)
+levered = _row(net_income=700.0, operating_income=1000.0,
+               tax_expense=200.0, pretax_income=900.0,
+               equity=1000.0, long_term_debt=2000.0, cash=0.0)
+check("빚을 늘리면 ROE 가 오른다", levered.roe > base.roe * 2,
+      f"{base.roe:.1f}% -> {levered.roe:.1f}%")
+check("ROIC 는 그대로", abs(levered.roic - base.roic) < 1e-6,
+      f"{base.roic:.2f}% vs {levered.roic:.2f}% — 분모에 빚이 들어가 "
+      "레버리지로 부풀릴 수 없습니다")
+check("영업이익이 없으면 None", _row(equity=1000.0).roic is None)
+check("세율을 못 구하면 세전으로 계산",
+      abs(_row(operating_income=1000.0, equity=1000.0,
+               long_term_debt=0.0, cash=0.0).roic - 100.0) < 1e-6,
+      "세율 불명이라고 판정을 포기하지 않습니다")
+
+print("\n-- 이자보상배율 --")
+check("영업이익 / 이자비용",
+      _row(operating_income=1000.0, interest_expense=100.0
+           ).interest_coverage == 10.0)
+check("이자비용이 음수로 와도 절대값",
+      _row(operating_income=1000.0, interest_expense=-100.0
+           ).interest_coverage == 10.0,
+      "현금흐름표에서 음수로 오는 경우가 있습니다")
+check("이자비용 0 이면 None",
+      _row(operating_income=1000.0, interest_expense=0.0
+           ).interest_coverage is None,
+      "무한대는 숫자로 못 적습니다 — 무차입은 부채 기준이 잡습니다")
+check("영업적자면 음수", _row(operating_income=-500.0,
+                          interest_expense=100.0).interest_coverage == -5.0)
+
+print("\n-- FCF 전환율 --")
+check("FCF / 순이익",
+      _row(net_income=700.0, operating_cash_flow=900.0,
+           capex=200.0).fcf_conversion == 100.0)
+check("순이익이 0 이하면 None",
+      _row(net_income=-100.0, operating_cash_flow=900.0,
+           capex=200.0).fcf_conversion is None,
+      "적자 해의 비율은 의미가 없습니다")
+check("설비투자가 크면 낮아진다",
+      _row(net_income=700.0, operating_cash_flow=900.0,
+           capex=800.0).fcf_conversion < 20.0,
+      "투자기 기업이 낮게 나오는 것은 한계이고 caveat 에 적었습니다")
+
+print("\n-- 기준 정의 --")
+_new = {"roic", "interest_cover", "fcf_conversion"}
+check("기준이 9개", len(buffett.CRITERIA) == 9, str(len(buffett.CRITERIA)))
+check("CHECKS 와 CRITERIA 수가 같다",
+      len(buffett.CHECKS) == len(buffett.CRITERIA),
+      "다르면 점수의 분모가 어긋납니다")
+check("새 기준 키가 전부 있다",
+      _new <= set(buffett.CRITERIA_BY_KEY), str(_new - set(buffett.CRITERIA_BY_KEY)))
+for _k in sorted(_new):
+    _c = buffett.CRITERIA_BY_KEY[_k]
+    check(f"{_k}: 근거가 적혀 있다", len(_c.source) > 40)
+    check(f"{_k}: 한계가 적혀 있다", len(_c.caveat) > 60)
+    check(f"{_k}: 출처 표기가 정직하다",
+          _c.provenance in ("mine", "practice"),
+          "버핏이 이 숫자 기준을 말한 적은 없습니다")
+check("ROIC 한계에 ROE 와의 관계가 적혀 있다",
+      "ROE" in buffett.CRITERIA_BY_KEY["roic"].caveat)
+check("이자보상 한계에 리츠·유틸리티가 적혀 있다",
+      "리츠" in buffett.CRITERIA_BY_KEY["interest_cover"].caveat)
+check("미검증 사실이 적혀 있다",
+      "검증" in buffett.CRITERIA_BY_KEY["roic"].caveat)
+
+print("\n-- 태그 등록 --")
+for _k in ("operating_income", "interest_expense", "tax_expense",
+           "pretax_income"):
+    check(f"us-gaap 태그 {_k}", _k in buffett.TAGS and bool(buffett.TAGS[_k]))
+    check(f"흐름 계정으로 등록 {_k}", _k in buffett.FLOW_KEYS,
+          "저량으로 읽으면 연도 축이 어긋납니다")
+
+import buffett_kr as _bkr  # noqa: E402
+
+_kr_keys = {r.key for r in _bkr.KR_RULES}
+for _k in ("operating_income", "interest_expense", "tax_expense",
+           "pretax_income"):
+    check(f"K-IFRS 계정 {_k}", _k in _kr_keys,
+          "없으면 국내 종목만 판정 불가가 늘어 불리해집니다")
 
 
 print("\n" + "=" * 56)

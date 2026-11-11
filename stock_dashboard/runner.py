@@ -450,7 +450,7 @@ def poll_job(base_dir: str, key: str, kind: str,
             f"스킬 슬래시 명령 이름이 맞는지 확인하십시오 — 터미널에서 `claude` 실행 후 "
             f"`/` 를 입력하면 목록이 보입니다. 플러그인으로 설치했다면 "
             f"'/anthropic-skills:...' 처럼 접두어가 붙습니다. "
-            f"사이드바 '분석 실행 설정'에서 고칠 수 있습니다."
+            f"화면 위쪽 '분석 실행 설정'에서 고칠 수 있습니다."
         )
     else:
         job.status = "done"
@@ -524,7 +524,7 @@ def _explain_failure(parsed: dict) -> str:
 
     if "max turns" in low or reason == "max_turns":
         return (
-            "최대 턴 수에 걸려 중단됐습니다. 사이드바 '분석 실행 설정'에서 "
+            "최대 턴 수에 걸려 중단됐습니다. 화면 위쪽 '분석 실행 설정'에서 "
             "턴 수를 올리고 다시 실행하십시오. 비용도 함께 올라갑니다."
         )
 

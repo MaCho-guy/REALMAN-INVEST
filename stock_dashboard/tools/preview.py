@@ -67,6 +67,7 @@ EXTRA_CSS = """
   .pv-fold > summary::before { content: "▸ "; color: var(--dash-ink-muted); }
   .pv-fold[open] > summary::before { content: "▾ "; }
   .pv-panel[hidden] { display: none; }
+  .pv-fold-body { padding: 2px 0 10px; }
 
   /* 테마 전환 */
   .pv-toggle {
@@ -467,15 +468,50 @@ def _screen_body(triples, criteria, min_pass: int, caps=None) -> str:
         f"{min_pass}개 이상 통과",
         "각 카드의 질문을 Claude 에 붙여넣으면 정독이 시작됩니다",
         len(shortlist)))
-    for screen, result, verdict_obj in shortlist:
-        parts.append(ui.render_screen(screen, show_source=True))
-        parts.append(ui.render_dcf_cells(result))
-        parts.append(ui.render_price_block(
-            vl.build(screen, result, caps.get(screen.ticker), th),
-            show_source=True, metrics_meta=vl.METRICS))
-        parts.append(ui.render_verdict(
-            verdict_obj, prompt=vd.prompt_for(verdict_obj, screen)))
+    # 종목마다 접습니다 — **실제 앱이 st.expander 로 그리는 모양**과 맞춰야
+    # 합니다. 전에는 미리보기만 평평하게 펼쳐 놔서, 앱은 접이식인데
+    # 미리보기를 보고 '너무 길다' 고 판단하게 됐습니다.
+    import html as _html
+
+    for idx, (screen, result, verdict_obj) in enumerate(shortlist):
+        price = vl.build(screen, result, caps.get(screen.ticker), th)
+        label = _html.escape(_valuation_label(screen, result, price))
+        inner = "".join([
+            ui.render_screen(screen, show_source=True),
+            ui.render_dcf_cells(result),
+            ui.render_price_block(price, show_source=True,
+                                  metrics_meta=vl.METRICS),
+            ui.render_verdict(verdict_obj,
+                              prompt=vd.prompt_for(verdict_obj, screen)),
+        ])
+        # 첫 종목만 펼쳐 둡니다 — 전부 접혀 있으면 빈 화면처럼 보이고,
+        # 전부 펼치면 접는 의미가 없습니다.
+        open_attr = " open" if idx == 0 else ""
+        parts.append(
+            f'<details class="pv-fold"{open_attr}>'
+            f'<summary>{label}</summary>'
+            f'<div class="pv-fold-body">{inner}</div>'
+            "</details>"
+        )
     return "".join(parts)
+
+
+def _valuation_label(screen, result, price) -> str:
+    """접힌 카드 제목. app._valuation_label 과 같은 형식으로 적습니다 —
+    두 화면이 다르면 미리보기를 믿을 수 없게 됩니다."""
+    import buffett as bf_mod
+
+    parts = [f"질 {screen.passed_count}/{len(bf_mod.CRITERIA)}"]
+    if price is not None and price.ok:
+        parts.append(f"가격 {price.passed_count}/{len(price.checks)}")
+    else:
+        parts.append("가격 판정 불가")
+    if result is not None and getattr(result, "ok", False) \
+            and result.implied_growth is not None:
+        parts.append(f"요구 성장률 연 {result.implied_growth * 100:.1f}%")
+    name = (screen.name or "").strip()
+    head = f"{screen.ticker} {name}" if name else screen.ticker
+    return f"{head}  ·  " + "  ·  ".join(parts)
 
 
 def _attach(screens, caps, currency: str):
@@ -846,20 +882,11 @@ def _macro_panel(section, data, fx, use_demo: bool) -> str:
     """매크로 — 시장가격(실시간) + 경제지표(지연)."""
     import macro as macro_mod
 
-    parts = [
-        ui.render_section_head(
-            "증시 브리핑", "다른 대화에서 쓴 글을 날짜별로 읽어옵니다", 1),
-        ui.render_external_dashboard(config.EXTERNAL_DASHBOARDS),
-        ui.render_briefing_head(demo_mod.demo_briefing()),
-        # 정적 미리보기라 본문은 st.markdown 대신 안내로 대체합니다.
-        ui.render_footnote(
-            "실제 앱에서는 이 자리에 <b>브리핑 본문</b>이 마크다운으로 "
-            "렌더됩니다. <code>briefings/2026-11-10.md</code> 같은 "
-            "날짜 파일명으로 저장하면 읽어옵니다."),
-    ]
-    if section is not None:
-        parts.append(_section_panel(section, data, fx))
+    import brief as brief_mod
 
+    # 브리핑은 매크로 판정이 있어야 쓸 수 있으므로 지표를 **먼저 한 번만**
+    # 읽습니다. 아래에서 다시 읽지 않습니다 — 두 번 읽으면 브리핑과 카드가
+    # 서로 다른 시점의 숫자를 보여줄 수 있습니다.
     if use_demo:
         series_map, errors = demo_mod.demo_macro_series()
     else:
@@ -872,6 +899,38 @@ def _macro_panel(section, data, fx, use_demo: bool) -> str:
             errors = {sid: str(exc) for sid in config.macro_series_ids()}
 
     readings = macro_mod.build_readings(config.macro_series(), series_map, errors)
+    triggers = macro_mod.evaluate_all(readings)
+    brief_lines = brief_mod.compose(
+        readings=readings, triggers=triggers,
+        fg=demo_mod.demo_feargreed() if use_demo else None,
+        vix_state=demo_mod.demo_vix() if use_demo else None,
+        exports=demo_mod.demo_kr_exports() if use_demo else None,
+        trends=demo_mod.demo_inventory_trends() if use_demo else None,
+    )
+
+    parts = [
+        ui.render_section_head(
+            "증시 브리핑", "지금 화면의 숫자를 문장으로 — 오늘 달라진 것",
+            len(brief_lines)),
+        ui.render_brief(brief_lines, brief_mod.headline(brief_lines),
+                        brief_mod.as_of()),
+        ui.render_footnote(
+            "<b>새로 받아오는 데이터가 없습니다.</b> 아래 카드에 이미 있는 "
+            "값을 문장으로 엮은 것이라, 브리핑 때문에 느려지지 않습니다. "
+            "받지 못한 값은 그 줄을 통째로 건너뜁니다 — 빈칸을 '보합' 같은 "
+            "말로 메우지 않습니다."),
+        ui.render_section_head(
+            "직접 쓴 브리핑", "briefings/ 폴더의 글을 날짜별로 읽어옵니다", 1),
+        ui.render_briefing_head(demo_mod.demo_briefing()),
+        # 정적 미리보기라 본문은 st.markdown 대신 안내로 대체합니다.
+        ui.render_footnote(
+            "실제 앱에서는 이 자리에 <b>브리핑 본문</b>이 마크다운으로 "
+            "렌더됩니다. <code>briefings/2026-11-10.md</code> 같은 "
+            "날짜 파일명으로 저장하면 읽어옵니다."),
+    ]
+    if section is not None:
+        parts.append(_section_panel(section, data, fx))
+
     triggers = macro_mod.evaluate_all(readings)
     hit_keys = {t.reading.spec.key for t in triggers}
 

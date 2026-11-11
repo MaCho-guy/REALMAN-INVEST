@@ -73,7 +73,7 @@ class Summary:
         if n == 0:
             unknown = sum(1 for r in self.rows if r.level == "unknown")
             if unknown == len(self.rows):
-                return "데이터를 받지 못했습니다 — 사이드바 진단에서 확인하십시오."
+                return "데이터를 받지 못했습니다 — 화면 위쪽 진단 패널에서 확인하십시오."
             return "지금 확인할 것이 없습니다."
         alerts = [r for r in self.rows if r.level == "alert"]
         if alerts:

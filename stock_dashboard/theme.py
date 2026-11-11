@@ -485,7 +485,22 @@ def build_rules() -> str:
   .dash-srclist li {{ margin-bottom: 3px; }}
 
   /* 테이블 */
-  .dash-table-wrap {{ overflow-x: auto; }}
+  /* 표는 **자기 안에서** 위아래로 스크롤합니다. 30행짜리 표가 페이지를
+     통째로 늘리면, 아래에 있는 카드까지 가려면 한참 내려야 합니다.
+     머리글은 붙여 둬서 스크롤 중에도 어느 열인지 보입니다. */
+  .dash-table-wrap {{
+    overflow-x: auto; overflow-y: auto;
+    max-height: 62vh;
+    border: 1px solid var(--dash-border); border-radius: var(--r-inner);
+  }}
+  .dash-table-wrap table.dash-table thead th {{
+    position: sticky; top: 0; z-index: 2;
+    background: var(--dash-raised);
+    /* sticky 요소에는 테두리가 같이 붙지 않아 그림자로 선을 만듭니다 */
+    box-shadow: inset 0 -1px 0 var(--dash-divider);
+  }}
+  /* 행이 적으면 max-height 에 닿지 않아 스크롤바가 생기지 않습니다 —
+     별도 클래스가 필요 없습니다. */
   .dash-th-sym {{
     font-size: var(--fs-1); font-weight: 500; color: var(--dash-ink-muted);
   }}
@@ -648,7 +663,10 @@ def build_rules() -> str:
     .dash-section-sub {{ flex-basis: 100%; order: 2; }}
     .dash-grid {{ --cols: 2 !important; gap: 7px; }}
     /* 표는 가로 스크롤로 — 9개 컬럼을 390px 에 밀어넣으면 못 읽습니다 */
-    .dash-table-wrap {{ overflow-x: auto; -webkit-overflow-scrolling: touch; }}
+    .dash-table-wrap {{
+      overflow-x: auto; overflow-y: auto; max-height: 52vh;
+      -webkit-overflow-scrolling: touch;
+    }}
     table.dash-table {{ font-size: var(--fs-3); }}
     table.dash-table th, table.dash-table td {{
       padding: 5px 7px; white-space: nowrap;
@@ -903,6 +921,46 @@ def build_rules() -> str:
     margin-top: 6px;
   }}
 
+  /* ── 브리핑 (생성) ────────────────────────────────────────────────── */
+  .dash-brief {{
+    border: 1px solid var(--dash-border); border-radius: var(--r-card);
+    background: var(--dash-surface); padding: var(--sp-3) 16px var(--sp-2);
+    margin: var(--sp-1) 0 var(--sp-4);
+  }}
+  .dash-brief-top {{
+    display: flex; align-items: baseline; gap: var(--sp-3);
+    flex-wrap: wrap; padding-bottom: var(--sp-2);
+    border-bottom: 1px solid var(--dash-divider); margin-bottom: var(--sp-2);
+  }}
+  .dash-brief-head {{
+    font-size: var(--fs-5); font-weight: 700; color: var(--dash-ink);
+  }}
+  .dash-brief-asof {{
+    margin-left: auto; font-size: var(--fs-1); color: var(--dash-ink-muted);
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+  }}
+  .dash-brief-line {{
+    display: grid; grid-template-columns: 56px 1fr; gap: var(--sp-3);
+    align-items: baseline; padding: 5px 0;
+  }}
+  .dash-brief-topic {{
+    font-size: var(--fs-1); font-weight: 650; color: var(--dash-ink-muted);
+    text-align: right;
+  }}
+  .dash-brief-text {{
+    font-size: var(--fs-4); line-height: 1.6; color: var(--dash-ink-2);
+  }}
+  .dash-brief-line.warm .dash-brief-text {{ color: var(--dash-ink); }}
+  .dash-brief-line.hot .dash-brief-topic {{ color: var(--dash-up); }}
+  .dash-brief-line.hot .dash-brief-text {{
+    color: var(--dash-ink); font-weight: 550;
+  }}
+  @media (max-width: 640px) {{
+    .dash-brief-line {{ grid-template-columns: 1fr; gap: 1px; }}
+    .dash-brief-topic {{ text-align: left; }}
+    .dash-brief-asof {{ margin-left: 0; }}
+  }}
+
   /* ── 증시 브리핑 ──────────────────────────────────────────────────── */
   .dash-bf {{
     border: 1px solid var(--dash-border); border-radius: var(--r-card);
@@ -965,6 +1023,21 @@ def build_rules() -> str:
   .dash-prelim-link {{ font-size: var(--fs-2); white-space: nowrap; }}
   .dash-prelim-empty {{
     font-size: var(--fs-3); color: var(--dash-ink-muted); line-height: 1.6;
+  }}
+
+  /* ── 사이드바 숨김 ────────────────────────────────────────────────── */
+  /* 설정은 controls() 가 페이지 안에 그립니다. 사이드바를 비워 두면
+     Streamlit 이 왼쪽에 펼침 화살표만 남기는데, 눌러도 빈 패널이 나와
+     고장난 것처럼 보입니다. 통째로 없앱니다. */
+  section[data-testid="stSidebar"] {{ display: none !important; }}
+  button[data-testid="stSidebarCollapsedControl"],
+  div[data-testid="stSidebarCollapsedControl"],
+  button[data-testid="baseButton-headerNoPadding"] {{
+    display: none !important;
+  }}
+  /* 사이드바가 빠진 만큼 본문이 왼쪽 끝에 붙지 않게 여백을 둡니다 */
+  section[data-testid="stMain"] .block-container {{
+    padding-top: var(--sp-4);
   }}
 
   /* ── 한국 반도체 수출 ─────────────────────────────────────────────── */

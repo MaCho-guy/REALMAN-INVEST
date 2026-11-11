@@ -454,7 +454,12 @@ kr_screen = buffett_kr.screen_company(
     [(2022, old_accounts), (2025, accounts)], years=10)
 check("스크린 생성", kr_screen.year_count == 6, f"{kr_screen.year_count}년")
 check("종목명 유지", kr_screen.name == "삼성전자")
-check("기준 6개 판정", len(kr_screen.checks) == 6)
+# 기준 수를 못박지 않습니다 — 늘릴 때마다 깨집니다.
+import buffett as _bf_mod  # noqa: E402
+
+check("모든 기준이 판정된다",
+      len(kr_screen.checks) == len(_bf_mod.CRITERIA),
+      f"{len(kr_screen.checks)} / {len(_bf_mod.CRITERIA)}")
 check("못 찾은 계정 보고", "유형자산의 취득" in kr_screen.missing_tags,
       str(kr_screen.missing_tags))
 

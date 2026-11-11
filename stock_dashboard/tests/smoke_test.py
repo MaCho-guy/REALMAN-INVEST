@@ -388,7 +388,7 @@ _labels = dict(config.tab_labels())
 # 진단은 사이드바로, 국내 발굴은 '종목 발굴' 탭 안의 시장 전환으로 들어갔습니다.
 check_true("괴리율은 탭에 없음", "adr" not in _labels, str(list(_labels)))
 check_true("국내 본주 별도 탭 없음", "local" not in _labels, str(list(_labels)))
-check_true("진단은 탭이 아니라 사이드바", "diag" not in _labels,
+check_true("진단은 탭이 아니라 설정 패널", "diag" not in _labels,
            str(list(_labels)))
 check_true("국내 발굴은 발굴 탭 안으로",
            "screen_kr" not in _labels and "discover" in _labels,
@@ -749,7 +749,7 @@ check_true("목적 5개는 그대로",
 print("\n=== 휴대폰 모드 ===")
 # 소스 검사 — 토글이 실제로 배선됐는지. 지난번 '조용히 적용 안 됨' 전례 때문에
 # 배선 자체를 확인합니다.
-check_true("사이드바에 토글", '"휴대폰 모드"' in _app_src)
+check_true("휴대폰 모드 토글이 있다", '"휴대폰 모드"' in _app_src)
 check_true("옵션으로 반환", '"phone": phone' in _app_src)
 check_true("내 종목에 전달",
            'render_holdings_tab(data, fx, opts["demo"], opts["phone"])'
@@ -1104,18 +1104,38 @@ print("\n=== 외부 대시보드 · 크레딧 · 잠정실적 연결 ===")
 import config as _cfg3  # noqa: E402
 import cycle as _cyc3  # noqa: E402
 
-# 외부 대시보드 — 중복 구축 대신 링크로 보냅니다
-check_true("외부 대시보드 목록이 있다",
-           bool(getattr(_cfg3, "EXTERNAL_DASHBOARDS", ())))
-check_true("링크가 전부 https",
-           all(u.startswith("https://")
-               for _l, u, _n in _cfg3.EXTERNAL_DASHBOARDS))
-check_true("매크로 탭이 외부 링크를 그린다",
-           "render_external_dashboard(config.EXTERNAL_DASHBOARDS)" in _app_src)
-check_true("렌더러가 http(s) 아닌 주소를 걸러낸다",
-           ui_mod.render_external_dashboard(
-               (("나쁜 링크", "javascript:alert(1)", "설명"),)) == "",
-           "스킴 검사가 없으면 href 에 그대로 들어갑니다")
+# 브리핑은 **이 화면 안에서** 끝나야 합니다. 한동안 다른 대시보드로
+# 보내는 링크만 뒀는데, 읽으러 나가면 돌아오지 않습니다.
+check_true("외부 대시보드로 내보내지 않는다",
+           "EXTERNAL_DASHBOARDS" not in _app_src
+           and "render_external_dashboard" not in _comp_src,
+           "브리핑이 링크면 이 대시보드를 여는 의미가 없습니다")
+check_true("브리핑을 직접 조립한다",
+           "brief.compose(" in _app_src and "ui.render_brief(" in _app_src)
+
+import brief as _br  # noqa: E402
+
+_bl = _br.compose(triggers=None, fg=None, vix_state=None,
+                  exports=None, trends=None, readings=None)
+check_true("재료가 하나도 없어도 죽지 않는다", _bl == [], str(_bl))
+check_true("빈 브리핑에도 제목 문장이 있다",
+           bool(_br.headline([])) and "조용한" in _br.headline([]))
+
+# 한 영역이 브리핑을 독식하면 폭이 사라집니다
+class _T:
+    def __init__(self, sev, title):
+        self.severity, self.title, self.detail = sev, title, "상세"
+
+
+_many = [_T(2, f"지표{i}") for i in range(9)]
+_lines = _br.compose(triggers=_many)
+check_true("한 영역은 최대 MAX_PER_TOPIC + 묶음 1줄",
+           len(_lines) == _br.MAX_PER_TOPIC + 1,
+           f"{len(_lines)}줄 — 매크로가 9줄을 다 차지하면 심리·수출이 밀립니다")
+check_true("남은 건수를 묶어서 알린다",
+           any("더 있습니다" in ln.text for ln in _lines))
+check_true("브리핑은 MAX_LINES 를 넘지 않는다",
+           len(_br.compose(triggers=_many)) <= _br.MAX_LINES)
 
 # 크레딧 스프레드 — FRED, 이미 쓰는 경로
 _ids = {s.series_id for s in _cfg3.MACRO_SERIES}
@@ -1246,3 +1266,52 @@ check_true("임계값 도달이 경제지표 헤더보다 먼저",
 check_true("경제지표 헤더 다음에 바로 그룹이 온다",
            _macro_body.index("경제지표 (FRED)")
            < _macro_body.index("render_macro_group"))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+print("\n=== 표 세로 스크롤 ===")
+# 30행짜리 표가 페이지를 통째로 늘리면 아래 카드까지 한참 내려야 합니다.
+# 표가 **자기 안에서** 스크롤하고 머리글은 붙어 있어야 합니다.
+for _mode in ("dark", "light"):
+    _css3 = _th2.build_css(_mode, "kr")
+    check_true(f"{_mode}: 표에 최대 높이", "max-height: 62vh" in _css3)
+    check_true(f"{_mode}: 세로 스크롤", "overflow-y: auto" in _css3)
+    check_true(f"{_mode}: 머리글 고정", "position: sticky; top: 0" in _css3)
+    check_true(f"{_mode}: 휴대폰은 더 낮게", "max-height: 52vh" in _css3)
+
+print("\n=== 발굴 기준 보강 ===")
+import buffett as _bf4  # noqa: E402
+import buffett_kr as _bkr4  # noqa: E402
+
+check_true("기준이 9개로 늘었다", len(_bf4.CRITERIA) == 9,
+           str(len(_bf4.CRITERIA)))
+check_true("CHECKS 와 수가 맞는다",
+           len(_bf4.CHECKS) == len(_bf4.CRITERIA),
+           "다르면 점수 분모가 어긋납니다")
+check_true("기준 키가 중복되지 않는다",
+           len(_bf4.CRITERIA_BY_KEY) == len(_bf4.CRITERIA))
+
+_added = {"roic", "interest_cover", "fcf_conversion"}
+check_true("보강 기준 3개가 있다", _added <= set(_bf4.CRITERIA_BY_KEY))
+check_true("보강 기준은 버핏 원문이 아니다",
+           all(_bf4.CRITERIA_BY_KEY[k].provenance != "verbatim"
+               for k in _added),
+           "버핏은 ROIC·이자보상·전환율의 숫자 기준을 말한 적이 없습니다")
+check_true("보강 기준마다 한계가 길게 적혀 있다",
+           all(len(_bf4.CRITERIA_BY_KEY[k].caveat) > 60 for k in _added))
+
+_kr_keys4 = {r.key for r in _bkr4.KR_RULES}
+check_true("국내도 같은 계정을 읽는다",
+           {"operating_income", "interest_expense", "tax_expense",
+            "pretax_income"} <= _kr_keys4,
+           "없으면 국내 종목만 판정 불가가 늘어 점수가 불리해집니다")
+
+# 슬라이더 기본값이 기준 수에 따라가는지 — 6개 시절 숫자가 박혀 있으면
+# 기준을 늘릴수록 조건이 느슨해집니다.
+check_true("슬라이더 기본값이 기준 수에 비례한다",
+           "len(buffett.CRITERIA) * 2 / 3" in _app_src
+           and "len(buffett.CRITERIA) / 2" in _app_src,
+           "고정값이면 기준이 늘 때마다 느슨해집니다")
+for _bad in ('len(buffett.CRITERIA), 4,', 'len(buffett.CRITERIA), 3,'):
+    check_true(f"고정 기본값이 남아 있지 않다: {_bad[-3:].strip()}",
+               _bad not in _app_src)

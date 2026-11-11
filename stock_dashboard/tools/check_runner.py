@@ -91,7 +91,7 @@ def check_env() -> bool:
     print()
     print(f"  {YELLOW}플러그인으로 설치했다면 접두어가 붙습니다{RESET}")
     print("    예) /anthropic-skills:company-decoder-korean")
-    print("  다르면 앱 사이드바의 '분석 실행 설정' 에서 고칠 수 있습니다.")
+    print("  다르면 앱 상단 '분석 실행 설정' 에서 고칠 수 있습니다.")
 
     return True
 

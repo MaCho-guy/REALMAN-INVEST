@@ -483,6 +483,15 @@ def demo_screens() -> tuple[dict, dict]:
             d.setdefault("cash", abs(ni) * 1.4)
             d.setdefault("short_term_investments", abs(ni) * 0.5)
             d.setdefault("short_term_debt", (d.get("long_term_debt") or 0.0) * 0.08)
+            # ROIC·이자보상배율 경로도 데모에서 돌아가야 합니다. 안 넣으면
+            # 미리보기에 '판정 불가' 두 줄이 고정으로 떠서, 기능이 안 들어간
+            # 것처럼 보입니다. 실효세율 22%, 영업이익률은 순이익의 1.3배
+            # 수준으로 잡습니다(세금·이자를 더한 대략의 모양).
+            d.setdefault("pretax_income", ni * 1.28)
+            d.setdefault("tax_expense", ni * 1.28 * 0.22)
+            ltd = d.get("long_term_debt") or 0.0
+            d.setdefault("interest_expense", ltd * 0.045)
+            d.setdefault("operating_income", ni * 1.28 + ltd * 0.045)
             out.append(buffett.YearRow(
                 year=year, end=f"{year}-12-31", **d))
         return out

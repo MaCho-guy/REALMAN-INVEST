@@ -3384,7 +3384,7 @@ def _side_chip(row) -> str:
             f'<i>{count}</i></span>')
 
 
-def render_chart_table(rows, limit: int = 30, held=(), semi=()) -> str:
+def render_chart_table(rows, limit: int = 30, held=(), semi=(), new=()) -> str:
     """종목 × 조건. 칸마다 **상태 이름**과 값을 적습니다. held 에 든 종목
     (보유·관심)은 이름 앞에 ★ 를 붙입니다.
 
@@ -3411,7 +3411,8 @@ def render_chart_table(rows, limit: int = 30, held=(), semi=()) -> str:
         ma = "—" if r.disparity is None else f"이격 {r.disparity:.1f}"
         bb = "—" if r.bb_pctb is None else f"{r.bb_pctb:.2f}"
         star = '<i class="ct-star" title="내 종목">★</i>' if r.ticker in held else ""
-        tag = ("<span class='ct-semi'>반도체</span>" if r.ticker in semi else "")
+        tag = (("<span class='ct-semi ct-new'>새로</span>" if r.ticker in new else "")
+               + ("<span class='ct-semi'>반도체</span>" if r.ticker in semi else ""))
         body.append(
             f"<tr><td class='ht-rank'>{i}</td>"
             f"<td class='ht-name'>{star}<b>{_esc(r.name)}</b><span>{_esc(r.ticker)}</span>{tag}</td>"

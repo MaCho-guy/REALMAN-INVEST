@@ -899,3 +899,51 @@ def row_from_dict(d: dict) -> ChartRow | None:
         return ChartRow(**known)
     except (TypeError, ValueError):
         return None
+
+
+# ── 오늘 볼 종목 (2026-11-13) ────────────────────────────────────────────────
+#
+# 사용자: "종목이 너무 많아서 다 보는 건 불가능". 실측(11/13 01:40): '과매도 쪽'
+# 은 한국 348 중 173 · 미국 512 중 129 — 근거가 '과매도 탈출'(이미 기준선을
+# 벗어나 반등 중)인 종목이 많아서입니다. 첫 화면은 그보다 좁은 '과매도 진입'
+# (최근 3봉 안에 기준선 아래로)만, 그것도 품질 통과 종목만 보입니다.
+
+ENTRY = "과매도 진입"
+
+
+def is_os_entry(row: ChartRow) -> bool:
+    """과매도 진입 — CCI 나 스토캐스틱이 최근 3봉 안에 기준선 아래로 들어갔고,
+    종목의 쪽이 과매도(과매수 쪽 지표가 섞이지 않음)."""
+    return (row.ok and row.side == "os"
+            and any(row.states.get(k) == ENTRY for k in SIDED))
+
+
+def new_flag(row: ChartRow, prev: dict | None) -> bool:
+    """'새로' — 지난 수집 때는 진입이 아니었는데 이번에 진입.
+
+    지난 수집과 **마지막 봉이 같으면**(예: 15:50 수집 뒤 다음 날 06:30 의 한국 —
+    새 봉이 없음) 지난 판정을 그대로 이어받습니다. 그러지 않으면 아침마다
+    '새로' 가 전부 사라집니다. 지난 줄이 없으면(새 후보) 진입이면 새로입니다.
+    prev: 지난 파일의 같은 종목 줄 (dict) 또는 None.
+    """
+    if not is_os_entry(row):
+        return False
+    if not prev:
+        return True
+    if prev.get("last_bar") and prev.get("last_bar") == row.last_bar:
+        return bool(prev.get("new"))
+    old = row_from_dict(prev)
+    return not (old is not None and is_os_entry(old))
+
+
+def today_picks(rows: list[ChartRow], quality: set, exclude: set = (), semi: set = (),
+                new: set = ()) -> list[ChartRow]:
+    """오늘 볼 종목 — 품질 통과 ∩ 과매도 진입, exclude(보유·관심) 제외.
+
+    순서: 새로 → 반도체 → 과매도 쪽 지표 수 → CCI 깊은 순.
+    """
+    out = [r for r in rows if r.ticker in quality and r.ticker not in exclude
+           and is_os_entry(r)]
+    out.sort(key=lambda r: (r.ticker not in new, r.ticker not in semi,
+                            -r.side_votes[0], r.cci if r.cci is not None else 0.0))
+    return out

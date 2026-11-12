@@ -234,33 +234,99 @@ app.load_chart_rows = type("F", (), {"__call__": lambda self, m, u: live,
                                      "age": lambda self, *a: 0})()
 orig_bars = app.load_chart_bars
 app.load_chart_bars = lambda m, t, u: ({}, "테스트")
+file_rows = [chart_signals.row_from_dict(d) for d in p2["rows"]]
+entries = [r.ticker for r in file_rows if r is not None and chart_signals.is_os_entry(r)]
+quality = entries[:14] + [r.ticker for r in file_rows if r and r.ok][:40]
+p2_new = json.loads(json.dumps(p2))
+for d in p2_new["rows"]:
+    if d["ticker"] in entries[:3]:
+        d["new"] = 1
+funnel_kr = {"rows": [{"t": t} for t in quality]}
+files = {"chart_kr": p2_new, "funnel_kr": funnel_kr}
+app.load_universe = lambda key, use_demo: files.get(key, {})
 try:
+    check("시험 데이터에 과매도 진입 종목이 있음", len(entries) >= 14, str(len(entries)))
     t = time.time()
     app.render_chart_tab(False, market="kr")
     sec = time.time() - t
     html = "\n".join(shown)
     check("탭 그리기 에러 없음 · 1초 이내", sec < 1.0, f"{sec:.2f}초")
-    table = next((h for h in shown if "dash-ctable" in h), "")
-    first = table.split("<tbody>")[1].split("</tr>")[0] if "<tbody>" in table else ""
-    check("표 첫 줄이 반도체", "ct-semi" in first, first[:120])
-    check("표는 30종목까지", table.count("<tr>") <= 31)
-    check("못 받은 이유 칸 · 수집 안내", "수집기 기준" in html)
+    tables = [h for h in shown if "dash-ctable" in h]
+    check("첫 화면은 오늘 볼 종목 표 하나 (전체 목록은 꺼져 있음)", len(tables) == 1,
+          str(len(tables)))
+    first_tab = tables[0] if tables else ""
+    n_rows = first_tab.count("<tr>") - 1
+    check("오늘 볼 종목 10개 이하", 0 < n_rows <= 10, str(n_rows))
+    first = first_tab.split("<tbody>")[1].split("</tr>")[0] if "<tbody>" in first_tab else ""
+    check("'새로' 가 맨 위", "ct-new" in first, first[:160])
+    check("★ 표시 없음 (내 종목은 내 종목 탭)", "ct-star" not in html)
+    check("안내 — 수집 시각 · 품질 통과 수 · 진입 수",
+          "수집기 기준" in html and f"품질 통과 {len(set(quality))}종목" in html, "")
+    check("나머지 안내 (10개 넘을 때)", "종목은 아래 " in html and "전체 목록" in html)
+    answers["chart_all_kr"] = True
+    shown.clear()
+    app.render_chart_tab(False, market="kr")
+    tables = [h for h in shown if "dash-ctable" in h]
+    check("전체 목록 켜면 표 둘", len(tables) == 2)
+    full = tables[1] if len(tables) > 1 else ""
+    first = full.split("<tbody>")[1].split("</tr>")[0] if "<tbody>" in full else ""
+    check("전체 목록 첫 줄이 반도체", "ct-semi" in first, first[:120])
+    check("전체 목록 표는 30종목까지", full.count("<tr>") <= 31)
     answers["chart_semi_kr"] = True
     shown.clear()
     app.render_chart_tab(False, market="kr")
-    table = next((h for h in shown if "dash-ctable" in h), "")
-    check("반도체만 → 반도체 2종목", table.count("ct-semi") == 2, str(table.count("ct-semi")))
+    full = [h for h in shown if "dash-ctable" in h][-1]
+    check("반도체만 → 반도체 2종목", full.count("ct-semi'>반도체") == 2,
+          str(full.count("ct-semi'>반도체")))
     answers["chart_semi_kr"] = False
-    app.load_universe = lambda key, use_demo: {}
+    files = {"chart_kr": p2_new}
     shown.clear()
     app.render_chart_tab(False, market="kr")
     html = "\n".join(shown)
-    check("파일 없을 때도 그려짐 (지금 목록)", "아직 없어" in html and "ct-semi" not in html)
+    check("품질 파일 없으면 안내 + 전체 목록은 그대로", "품질 판정 파일" in html
+          and len([h for h in shown if "dash-ctable" in h]) == 1)
+    files = {}
+    answers["chart_all_kr"] = False
+    shown.clear()
+    app.render_chart_tab(False, market="kr")
+    html = "\n".join(shown)
+    check("파일 없을 때도 그려짐", "읽지 못해 오늘 볼 종목" in html)
+    answers["chart_all_kr"] = True
+    shown.clear()
+    app.render_chart_tab(False, market="kr")
+    html = "\n".join(shown)
+    check("파일 없을 때 전체 목록 = 지금 목록", "아직 없어" in html and "ct-semi" not in html)
+    answers["chart_all_kr"] = False
 finally:
     for k, v in orig.items():
         if v is not None:
             setattr(st, k, v)
     app.load_chart_rows, app.load_chart_bars, app.load_universe = orig_rows, orig_bars, orig_load
+
+print("4b. 오늘 볼 종목 · '새로' 규칙")
+e_row = next(r for r in file_rows if r is not None and chart_signals.is_os_entry(r))
+n_row = next(r for r in file_rows if r is not None and r.ok and not chart_signals.is_os_entry(r))
+pe = chart_signals.row_to_dict(e_row)
+pn = chart_signals.row_to_dict(n_row)
+check("지난 수집에 없던 종목이 진입 → 새로", chart_signals.new_flag(e_row, None))
+check("지난 수집에도 진입(다른 봉) → 새로 아님",
+      not chart_signals.new_flag(e_row, {**pe, "last_bar": "2026-11-11"}))
+check("지난 수집엔 진입 아님(다른 봉) → 새로",
+      chart_signals.new_flag(e_row, {**pn, "ticker": e_row.ticker, "last_bar": "2026-11-11"}))
+check("같은 봉이면 지난 표시를 이어받음 (아침 수집)",
+      chart_signals.new_flag(e_row, {**pe, "new": 1})
+      and not chart_signals.new_flag(e_row, {**pe}))
+check("진입이 아니면 새로 아님", not chart_signals.new_flag(n_row, None))
+pk = chart_signals.today_picks(file_rows[:0] + [r for r in file_rows if r],
+                               {e_row.ticker, n_row.ticker}, exclude=set())
+check("품질 ∩ 진입만", [r.ticker for r in pk] == [e_row.ticker])
+check("내 종목은 뺌", chart_signals.today_picks([e_row], {e_row.ticker}, {e_row.ticker}) == [])
+res4 = collect.build_chart_kr(app, tmp, ohlc_fn=ohlc_fn,
+                              semi_fn=lambda: ({"000660", "005930"}, {"name": "반도체"}))
+check("수집기 — 지난 파일이 있으면 새로 셈", res4.get("had_prev") and "entry" in res4, str(res4))
+src_app = open("app.py", encoding="utf-8").read()
+check("내 종목 탭에 차트 조건 (옮겨 옴)", "차트 조건 — 내 종목" in src_app)
+check("차트 조건 탭의 '내 종목만' 스위치 제거", '"내 종목만"' not in src_app)
 
 print("5. 같은 일봉을 두 번 받지 않음 (수집기 메모)")
 from sources import naver  # noqa: E402

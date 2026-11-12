@@ -728,6 +728,7 @@ def build_chart(app, out_dir: str, market: str, *, ohlc_fn=None, semi_fn=None,
         {c: str(e)[:160] for c, e in oerr.items()})
     mk = {c: m.get("market", "") if market == "kr" else m.get("sector", "")
           for c, m in zip(codes, members)}
+    prev_rows = {d.get("ticker"): d for d in (prev.get("rows") or []) if isinstance(d, dict)}
     out_rows = []
     for r in rows:
         d = chart_signals.row_to_dict(r)
@@ -735,6 +736,9 @@ def build_chart(app, out_dir: str, market: str, *, ohlc_fn=None, semi_fn=None,
             d["m"] = mk[r.ticker]
         if r.ticker in semi:
             d["s"] = 1
+        # '새로' — 지난 파일이 있을 때만 셉니다 (첫 파일에서는 전부 새로가 되므로)
+        if prev_rows and chart_signals.new_flag(r, prev_rows.get(r.ticker)):
+            d["new"] = 1
         out_rows.append(d)
     in_list = sorted(c for c in semi if c in set(codes))
     size_b = _write_out(out_dir, name, universe.dump({
@@ -744,6 +748,8 @@ def build_chart(app, out_dir: str, market: str, *, ohlc_fn=None, semi_fn=None,
     }))
     return {"n": len(members), "bars": len(ohlc), "ok": sum(1 for r in rows if r.ok),
             "os": sum(1 for r in rows if r.ok and r.side == "os"),
+            "entry": sum(1 for r in rows if chart_signals.is_os_entry(r)),
+            "new": sum(1 for d in out_rows if d.get("new")), "had_prev": bool(prev_rows),
             "semi": len(in_list), "semi_src": semi_info.get("src", ""), "semi_err": semi_err,
             "semi_name": semi_info.get("name", ""),
             "sec": time.time() - t0, "sec_bars": t_bars, "sec_semi": t_semi, "bytes": size_b}
@@ -796,7 +802,9 @@ def _build_universe(app, out_dir: str, markets=("us", "kr")) -> dict:
         src = {"naver": "네이버 업종", "web": "위키백과 GICS 세부 업종",
                "prev": "지난 분류 재사용", "": "분류 없음"}.get(c["semi_src"], c["semi_src"])
         print(f"  {label} 차트 조건: 후보 {c['n']} → 일봉 {c['bars']} · 계산 {c['ok']} · "
-              f"과매도 쪽 {c['os']} · 반도체 {c['semi']} ({src} '{c['semi_name']}'"
+              f"과매도 쪽 {c['os']} · 과매도 진입 {c['entry']} (새로 "
+              f"{c['new'] if c['had_prev'] else '— 지난 파일 없음'}) · "
+              f"반도체 {c['semi']} ({src} '{c['semi_name']}'"
               + (f" · 실패 이유: {c['semi_err']}" if c["semi_err"] else "") + ") · "
               f"{c['sec']:.0f}초 (일봉 {c['sec_bars']:.0f}초 · 업종 {c['sec_semi']:.0f}초) · "
               f"{c['bytes'] / 1024:.0f} KB")

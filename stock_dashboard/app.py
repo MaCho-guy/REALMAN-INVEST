@@ -1522,6 +1522,20 @@ def render_holdings_tab(data: dict[str, dict[str, Quote]], fx,
         st.markdown(ui.render_footnote(
             "차트 상태는 일봉을 받는 중이라 이번 화면에서는 뺐습니다 — 다시 "
             "열면 붙습니다."), unsafe_allow_html=True)
+    else:
+        # 차트 조건 — 내 종목만 (11/13 '찾기 › 차트 조건' 에서 옮겨 옴: "보유종목 탭이랑은 나눠줘")
+        mine = [chart_rows[i.symbol] for i in shown if i.symbol in chart_rows]
+        mine = [r for r in mine if r.ok] + [r for r in mine if not r.ok]
+        if mine:
+            n_os = sum(1 for r in mine if r.ok and r.side == "os")
+            n_entry = sum(1 for r in mine if chart_signals.is_os_entry(r))
+            with st.expander(f"차트 조건 — 내 종목 {len(mine)} · 과매도 쪽 {n_os} · "
+                             f"과매도 진입 {n_entry}", expanded=False):
+                st.markdown(ui.render_chart_table(mine, limit=len(mine)),
+                            unsafe_allow_html=True)
+                st.markdown(ui.render_footnote(
+                    "기준은 '찾기 › 차트 조건' 과 같습니다 (일봉, 장중 5분마다 다시 계산)."),
+                    unsafe_allow_html=True)
 
     render_signals_tab(data, use_demo, market=market)
 
@@ -2279,7 +2293,7 @@ def _chart_link(ticker: str, market: str) -> tuple[str, str]:
     return f"https://finance.yahoo.com/quote/{_up.quote(ticker)}/chart", "야후 파이낸스"
 
 
-def _render_kchart_block(chosen, held, market: str, use_demo: bool) -> None:
+def _render_kchart_block(chosen, held, market: str, use_demo: bool, slot: str = "") -> None:
     """표 아래의 차트 한 장 — 종목과 기간을 고릅니다.
 
     표의 판정과 **같은 함수**로 계산한 선을 그립니다 (chart_signals.chart_series).
@@ -2300,12 +2314,12 @@ def _render_kchart_block(chosen, held, market: str, use_demo: bool) -> None:
     with c1:
         pick = st.selectbox(
             "차트 볼 종목", order, index=order.index(first),
-            key=f"kchart_pick_{market}",
+            key=f"kchart_pick_{market}{slot}",
             format_func=lambda t: (("★ " if t in held else "") + f"{by[t].name} · {t}"
                                    if t in by else t))
     with c2:
         bars = st.radio("기간 (봉)", list(chart_signals.CHART_BARS), index=1,
-                        horizontal=True, key=f"kchart_bars_{market}")
+                        horizontal=True, key=f"kchart_bars_{market}{slot}")
     if pick not in by:
         pick = first
     if bars not in chart_signals.CHART_BARS:
@@ -2380,26 +2394,125 @@ def _merge_chart_file(rows: list, use_demo: bool, market: str = "kr"
     return rows + extra, semis, {r.ticker for r in extra}, note
 
 
+def _chart_quality_set(market: str, use_demo: bool) -> tuple[set | None, str]:
+    """품질 통과 종목 (차트 조건 표기 — 한국 코드 · 미국 야후 심볼). (묶음, 기준 시각 글).
+
+    깔때기 파일(funnel_{market}.json)의 줄 = 품질 통과 종목입니다. 못 읽으면 None.
+    """
+    try:
+        f = load_universe(f"funnel_{market}", use_demo) or {}
+    except Exception:  # noqa: BLE001
+        return None, ""
+    rows = f.get("rows") if isinstance(f.get("rows"), list) else None
+    if not rows:
+        return None, ""
+    got = {str(r.get("t", "")).replace(".", "-") for r in rows if isinstance(r, dict)}
+    return got, ""
+
+
+def _render_today_picks(market: str, use_demo: bool, held: set) -> None:
+    """오늘 볼 종목 — 품질 통과 ∩ 과매도 진입, 내 종목 제외. 수집기 파일 기준.
+
+    2026-11-13 사용자: "종목이 너무 많아서 다 보는 건 불가능" → 추천안(첫 화면을
+    교집합으로 + 지난 수집 대비 '새로' 표시) 선택, "보유종목 탭이랑은 나눠줘".
+    """
+    st.markdown(ui.render_section_head(
+        "오늘 볼 종목", "품질 통과 ∩ 과매도 진입 · 내 종목은 '내 종목' 탭에서", None),
+        unsafe_allow_html=True)
+    if use_demo:
+        st.markdown(ui.render_notice("데모 화면에는 수집기 파일이 없어 비워 둡니다."),
+                    unsafe_allow_html=True)
+        return
+    try:
+        payload = load_universe(f"chart_{market}", use_demo) or {}
+    except Exception as exc:  # noqa: BLE001
+        payload = {}
+        why = type(exc).__name__
+    else:
+        why = "아직 없음"
+    items = payload.get("rows") if isinstance(payload.get("rows"), list) else []
+    if not items:
+        st.markdown(ui.render_notice(
+            f"전수 파일(chart_{market}.json)을 읽지 못해 오늘 볼 종목을 고르지 못했습니다 "
+            f"({why}). 아래 '전체 목록' 은 볼 수 있습니다."), unsafe_allow_html=True)
+        return
+    quality, _ = _chart_quality_set(market, use_demo)
+    if quality is None:
+        st.markdown(ui.render_notice(
+            f"품질 판정 파일(funnel_{market}.json)을 읽지 못해 오늘 볼 종목을 고르지 "
+            "못했습니다. 아래 '전체 목록' 은 볼 수 있습니다."), unsafe_allow_html=True)
+        return
+    rows = [r for r in (chart_signals.row_from_dict(d) for d in items) if r is not None]
+    semis = {str(d.get("ticker")) for d in items if isinstance(d, dict) and d.get("s")}
+    new = {str(d.get("ticker")) for d in items if isinstance(d, dict) and d.get("new")}
+    every = chart_signals.today_picks(rows, quality, set(), semis, new)
+    picks = [r for r in every if r.ticker not in held]
+    mine = len(every) - len(picks)
+    made = payload.get("made")
+    when = (dt.datetime.fromtimestamp(float(made), KST).strftime("%m/%d %H:%M")
+            if made else "시각 모름")
+    n_new = sum(1 for r in picks if r.ticker in new)
+    feed = "네이버 일봉" if market == "kr" else "야후 일봉"
+    st.markdown(ui.render_notice(
+        f"<b>{when} 수집기 기준</b> · {feed} · 품질 통과 {len(quality)}종목 중 과매도 진입 "
+        f"<b>{len(picks)}종목</b>" + (f" (새로 <b>{n_new}</b>)" if picks else "")
+        + (f" · 내 종목 {mine}개는 '내 종목' 탭에서" if mine else "")),
+        unsafe_allow_html=True)
+    if not picks:
+        st.markdown(ui.render_footnote(
+            "오늘은 품질 통과 종목 가운데 과매도에 막 들어간 종목이 없습니다. 그것도 "
+            "답입니다 — 넓게 보려면 아래 '전체 목록' 을 켜십시오."), unsafe_allow_html=True)
+        return
+    shown = picks[:TODAY_PICKS_MAX]
+    st.markdown(ui.render_chart_table(shown, semi=semis, new=new), unsafe_allow_html=True)
+    if len(picks) > len(shown):
+        st.markdown(ui.render_footnote(
+            f"앞 {len(shown)}종목만 보입니다 (새로 → 반도체 → 과매도 지표 수 → CCI 순). "
+            f"나머지 {len(picks) - len(shown)}종목은 아래 '전체 목록' 에서 볼 수 있습니다."),
+            unsafe_allow_html=True)
+    st.markdown(ui.render_footnote(
+        "<b>과매도 진입</b> = CCI 나 스토캐스틱이 최근 3봉 안에 과매도 기준선 아래로 "
+        "들어갔고 과매수 쪽 지표가 섞이지 않은 종목. <b>새로</b> = 지난 수집 때는 진입이 "
+        "아니었던 종목 (새 봉이 없는 수집은 지난 표시를 이어받음). <b>품질 통과</b> = "
+        "'종목 발굴' 의 1단계. 읽어볼 순서이지 매수 신호가 아닙니다."),
+        unsafe_allow_html=True)
+    _render_kchart_block(shown, set(), market, use_demo, slot="_today")
+
+
+#: '오늘 볼 종목' 에 보이는 최대 수 (성공 기준: 첫 화면 10종목 이하)
+TODAY_PICKS_MAX = 10
+
+
 def render_chart_tab(use_demo: bool, *, market: str = "kr") -> None:
     """차트 조건 — 일목 양운 · CCI · MACD · 스토캐스틱 슬로우 · −DI (일봉).
 
+    2026-11-13 구성: 첫 화면은 **오늘 볼 종목**(품질 통과 ∩ 과매도 진입, 내 종목
+    제외) 10종목 이하. 수백 종목의 전체 목록과 조건 고르기는 '전체 목록' 스위치를
+    켜야 그립니다. 보유 · 관심 종목의 차트 상태는 '내 종목' 탭으로 옮겼습니다.
+
     지표마다 **지금 상태**(과매도 진입 · 구간 · 탈출 시도 · 탈출, 과매수
-    근접 …)를 이름으로 보여주고, 한 점수로 합치지 않습니다. 사용자가
-    '모두 해당해야 하는 조건' 과 '쪽'(과매도 / 과매수)을 고릅니다.
+    근접 …)를 이름으로 보여주고, 한 점수로 합치지 않습니다.
     """
     conds = chart_signals.CONDITIONS
+    held = {i.symbol for i in config.SECTION_WATCHLIST.instruments
+            if config.in_market(i, market)}
+    st.markdown(
+        ui.render_section_head(
+            f"차트 조건 · {config.MARKETS.get(market, '')}",
+            "일봉 기준 — 일목 · 이동평균 · CCI · MACD · 스토캐스틱 · 볼린저 · −DI", None),
+        unsafe_allow_html=True,
+    )
+    _render_today_picks(market, use_demo, held)
+
     live_rows = load_chart_rows(market, use_demo)
     rows, semis, from_file, file_note = live_rows, set(), set(), ""
     if market in ("kr", "us"):
         rows, semis, from_file, file_note = _merge_chart_file(list(live_rows), use_demo, market)
     ok_rows = [r for r in rows if r.ok]
-    st.markdown(
-        ui.render_section_head(
-            f"차트 조건 · {config.MARKETS.get(market, '')}",
-            "일봉 기준 — 일목 · 이동평균 · CCI · MACD · 스토캐스틱 · 볼린저 · −DI",
-            len(ok_rows)),
-        unsafe_allow_html=True,
-    )
+    show_all = st.toggle(f"전체 목록 보기 · 조건으로 고르기 ({len(ok_rows)}종목)", value=False,
+                         key=f"chart_all_{market}")
+    if not show_all:
+        return
     st.markdown(
         ui.render_footnote(
             "<b>읽어볼 목록이지 매매 신호가 아닙니다.</b> 지표는 지난 가격을 "
@@ -2452,10 +2565,7 @@ def render_chart_tab(use_demo: bool, *, market: str = "kr") -> None:
     if side not in side_names:
         side = ""
 
-    # 내 종목(보유·관심)은 표에 ★ 로 표시하고, 그것만 보는 스위치를 둡니다.
-    held = {i.symbol for i in config.SECTION_WATCHLIST.instruments
-            if config.in_market(i, market)}
-    only_held = st.toggle("내 종목만", value=False, key=f"chart_held_{market}")
+    # 내 종목(보유·관심)만 보는 스위치와 ★ 표시는 '내 종목' 탭으로 옮겼습니다 (11/13).
     only_semi = (st.toggle(f"반도체만 ({len(semis)})", value=False,
                            key=f"chart_semi_{market}") if semis else False)
 
@@ -2500,8 +2610,6 @@ def render_chart_tab(use_demo: bool, *, market: str = "kr") -> None:
             unsafe_allow_html=True)
 
     chosen = chart_signals.select(rows, required, side)
-    if only_held:
-        chosen = [r for r in chosen if r.ticker in held]
     if only_semi:
         chosen = [r for r in chosen if r.ticker in semis]
     elif semis:
@@ -2511,8 +2619,6 @@ def render_chart_tab(use_demo: bool, *, market: str = "kr") -> None:
              if required else "조건을 고르지 않음 — 해당 수 많은 순")
     if side:
         label += f" · {side_names[side]}"
-    if only_held:
-        label += " · 내 종목만"
     if only_semi:
         label += " · 반도체만"
     elif semis:
@@ -2532,9 +2638,8 @@ def render_chart_tab(use_demo: bool, *, market: str = "kr") -> None:
             "'국내 데이터 출처 확인' 으로 연결을 확인하십시오."),
             unsafe_allow_html=True)
     else:
-        st.markdown(ui.render_chart_table(chosen, held=held, semi=semis),
-                    unsafe_allow_html=True)
-        _render_kchart_block(chosen, held, market, use_demo)
+        st.markdown(ui.render_chart_table(chosen, semi=semis), unsafe_allow_html=True)
+        _render_kchart_block(chosen, set(), market, use_demo)
         for idx, row in enumerate(chosen[:12]):
             with st.expander(f"{row.name} · {row.ticker} · {row.met}/{len(keys)}",
                              expanded=False):

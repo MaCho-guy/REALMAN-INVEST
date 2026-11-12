@@ -1567,6 +1567,7 @@ def build_rules() -> str:
                          color: var(--dash-ink-muted); }}
   .dash-ctable td.ht-name span {{ display: inline; }}
   .dash-ctable td.ht-name span.ct-semi {{ font-weight: 600; color: var(--dash-ink); font-size: 0.85em; }}
+  .dash-ctable td.ht-name span.ct-new {{ text-decoration: underline; }}
   .dash-ctable .ct-mark {{ display: inline-block; width: 1.1em;
                           color: var(--dash-ink-muted); font-weight: 400; }}
   .dash-ctable td.ct-yes {{

@@ -156,9 +156,94 @@ def build_css(convention: str, stack: bool = True) -> str:
     stack=True 면 좁은 화면에서 표를 카드로 세웁니다 (기본). False 면 표를
     그대로 두고 옆으로 밀어 봅니다.
     """
+    import config  # noqa: PLC0415
+
+    compact = getattr(config, "DENSITY", "compact") == "compact"
     return ("<style>" + build_vars(convention) + build_rules()
             + build_native_rules()
+            + (build_density_rules() if compact else "")
+            # 표 → 카드 규칙은 맨 뒤여야 합니다 (표마다 준 폭·여백을 덮습니다)
             + (build_stack_rules() if stack else "") + "</style>")
+
+
+def build_density_rules() -> str:
+    """촘촘한 배치 — 글자 크기는 그대로 두고 **사이 간격만** 줄입니다.
+
+    2026-11-12 "여백을 크게 써서 내용이 덜 들어간 느낌". 실제 화면을 재 보니
+    빈 곳의 대부분은 부품 안쪽이 아니라 **부품 사이**였습니다:
+      · 스트림릿이 블록마다 넣는 세로 간격 1rem (한 화면에 블록이 20개면 320px)
+      · 섹션 제목 위 32px, 설명 글 아래 20px
+      · 넓은 화면의 좌우 여백 5rem
+    글자를 줄이면 휴대폰에서 읽기 어려워지므로(2026-11-11 에 키운 값) 건드리지
+    않습니다. config.DENSITY = "roomy" 로 두면 이 묶음 전체가 빠집니다.
+    공통 규칙 뒤 · 표→카드 규칙 앞에 붙어서 앞의 규칙을 덮습니다.
+    """
+    return f"""
+  :root {{ --sp-4: 13px; --sp-5: 20px; }}
+
+  /* 스트림릿 블록 사이 */
+  section[data-testid="stMain"] div[data-testid="stVerticalBlock"] {{ gap: 0.5rem; }}
+  section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] {{ gap: 0.6rem; }}
+  section[data-testid="stMain"] .block-container,
+  div[data-testid="stMainBlockContainer"] {{
+    padding-bottom: 2.5rem !important; max-width: 1560px;
+  }}
+  @media (min-width: 900px) {{
+    section[data-testid="stMain"] .block-container,
+    div[data-testid="stMainBlockContainer"] {{
+      padding-left: 1.6rem !important; padding-right: 1.6rem !important;
+    }}
+  }}
+
+  /* 접는 카드 — 제목 줄을 낮추고 안쪽 여백을 줄입니다 */
+  [data-testid="stExpander"] summary {{
+    padding-top: 5px !important; padding-bottom: 5px !important; min-height: 0 !important;
+  }}
+  [data-testid="stExpander"] [data-testid="stExpanderDetails"] {{
+    padding: 6px 12px 10px !important;
+  }}
+  /* 위젯 이름과 위젯 사이 */
+  [data-testid="stWidgetLabel"] {{ margin-bottom: 0 !important; min-height: 0 !important; }}
+  [data-testid="stSlider"] {{ padding-bottom: 0 !important; }}
+  [data-testid="stCaptionContainer"] {{ margin-bottom: -4px; }}
+  hr {{ margin: 0.6rem 0 !important; }}
+
+  /* 우리 부품 — 사이 간격 */
+  .dash-section-head {{ margin: var(--sp-4) 0 var(--sp-2); padding-bottom: 5px; }}
+  .dash-footnote {{ line-height: 1.5; margin: 2px 0 var(--sp-2); }}
+  .dash-scr-head {{ margin: var(--sp-4) 0 6px; padding-bottom: 5px; }}
+  .dash-grid {{ gap: 8px; margin: 4px 0 10px; }}
+  .dash-card {{ padding: 10px 12px 10px 12px; }}
+  .dash-screen {{ padding: 10px 12px 8px; margin-bottom: 6px; }}
+  .dash-signal {{ padding: 10px 13px; margin-bottom: 7px; }}
+  .dash-exp {{ padding: 9px 12px; margin: 3px 0 7px; }}
+  .dash-cycle {{ padding: 12px 14px 10px; margin-bottom: 10px; }}
+  .dash-macro-group {{ margin-top: 14px; }}
+  .dash-rp {{ gap: 6px; }}
+  .dash-rp .rp-card {{ padding: 8px 11px; }}
+  .dash-times {{ margin-bottom: 6px; }}
+  table.dash-table th, table.dash-table td {{ padding: 5px 9px; }}
+  .dash-kv th, .dash-kv td {{ padding-top: 4px; padding-bottom: 4px; }}
+
+  /* 시장 전환 버튼 — 다른 위젯보다 크되, 줄 하나를 다 먹지는 않게 */
+  div[data-testid="stElementContainer"]:has(.dash-marketmark)
+    + div[data-testid="stElementContainer"] button {{
+    padding: 4px 18px !important; min-height: 34px;
+  }}
+  div[data-testid="stElementContainer"]:has(.dash-marketmark)
+    + div[data-testid="stElementContainer"] {{ margin-bottom: 0; }}
+  /* 표식만 든 빈 칸은 자리를 차지하지 않게 */
+  div[data-testid="stElementContainer"]:has(.dash-marketmark):not(:has(button)) {{
+    display: none !important;
+  }}
+
+  @media (max-width: 640px) {{
+    section[data-testid="stMain"] div[data-testid="stVerticalBlock"] {{ gap: 0.45rem; }}
+    .dash-section-head {{ margin-top: 14px; }}
+    .dash-footnote {{ line-height: 1.45; }}
+    .dash-card {{ padding: 9px 11px; }}
+  }}
+"""
 
 
 def build_rules() -> str:
@@ -1580,6 +1665,33 @@ def build_rules() -> str:
     background: var(--dash-raised); border-radius: var(--r-pill); padding: 2px 9px;
     white-space: nowrap; }}
   .dash-digest .dg-chip b {{ color: var(--dash-accent); font-weight: 700; }}
+  /* 기준표 — 이름 · 통과 조건(숫자) · 출처 */
+  .dash-criteria {{ background: var(--dash-surface); border: 1px solid var(--dash-border);
+    border-radius: var(--r-card); padding: 10px 13px; margin: 4px 0 10px; }}
+  .dash-criteria .cr-title {{ font-size: var(--fs-4); font-weight: 700; color: var(--dash-ink); }}
+  .dash-criteria .cr-intro {{ font-size: var(--fs-3); color: var(--dash-ink-2);
+    line-height: 1.5; margin: 3px 0 7px; max-width: 92ch; }}
+  .dash-criteria table.cr-table {{ width: 100%; border-collapse: collapse;
+    font-size: var(--fs-3); font-variant-numeric: tabular-nums; }}
+  .dash-criteria .cr-table th {{ text-align: left; font-size: var(--fs-1); font-weight: 650;
+    color: var(--dash-ink-muted); padding: 2px 8px 3px 0;
+    border-bottom: 1px solid var(--dash-border); }}
+  .dash-criteria .cr-table td {{ padding: 4px 8px 4px 0; vertical-align: top;
+    border-bottom: 1px solid var(--dash-divider); line-height: 1.45; }}
+  .dash-criteria .cr-table tr:last-child td {{ border-bottom: 0; }}
+  .dash-criteria .cr-n {{ color: var(--dash-ink-muted); width: 1.4em; }}
+  .dash-criteria .cr-name {{ white-space: nowrap; color: var(--dash-ink); width: 1%; }}
+  .dash-criteria .cr-q {{ display: block; font-size: var(--fs-1); font-weight: 400;
+    color: var(--dash-ink-muted); white-space: normal; min-width: 9em; }}
+  .dash-criteria .cr-rule {{ color: var(--dash-ink); }}
+  .dash-criteria .cr-src {{ display: inline-block; margin-left: 6px; font-size: var(--fs-1);
+    color: var(--dash-ink-muted); border: 1px solid var(--dash-border);
+    border-radius: var(--r-chip); padding: 0 5px; white-space: nowrap; }}
+  .dash-criteria .cr-foot {{ font-size: var(--fs-2); color: var(--dash-ink-muted);
+    line-height: 1.5; margin-top: 7px; max-width: 100ch; }}
+  .dash-terms {{ font-size: var(--fs-2); color: var(--dash-ink-2); line-height: 1.5;
+    display: grid; gap: 2px; margin: 2px 0 6px; }}
+  .dash-terms b {{ display: inline-block; min-width: 7.5em; color: var(--dash-ink); }}
   .dash-rp {{ display: grid; gap: 8px; margin: 4px 0 12px; }}
   .dash-rp .rp-card {{ background: var(--dash-surface); border: 1px solid var(--dash-border);
     border-radius: var(--r-card); padding: 10px 13px; }}

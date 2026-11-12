@@ -1483,6 +1483,34 @@ def render_discover_tab(use_demo: bool, *, market: str = "all") -> None:
         _discover_us(use_demo)
 
 
+def _criteria_block(th, *, market: str, quality_min: int | None = None) -> str:
+    """버핏식 품질 기준의 정의 + 기준표 (HTML).
+
+    2026-11-12 "버핏식 품질 기준이 뭔지 정의돼 있지 않다". 통과선은 판정에
+    쓰는 Thresholds 에서 읽어 적습니다 — 화면의 숫자와 판정이 어긋나지 않게.
+    """
+    rows = buffett.criteria_rules(th)
+    counts = buffett.provenance_counts()
+    src = ("출처 표시 — <b>버핏 원문</b> " f"{counts.get('verbatim', 0)}개"
+           "(1986년 주주서한의 주주이익 정의) · <b>인용 관행</b> "
+           f"{counts.get('practice', 0)}개(버핏 사례에 흔히 붙는 기준선) · "
+           f"<b>제 기준</b> {counts.get('mine', 0)}개(원칙을 숫자로 옮기며 제가 정한 선). ")
+    data = ("숫자는 SEC EDGAR 의 회사 제출 재무(XBRL), 최근 10개 회계연도입니다. "
+            if market != "kr" else
+            "숫자는 DART 사업보고서, 최근 10개 회계연도입니다. 기준선은 미국보다 "
+            "낮춘 값입니다 (한국 상장사의 ROE 분포가 낮아 그대로 쓰면 거의 전부 "
+            "탈락합니다 — 제가 정한 선입니다). ")
+    cut = (f"아래 목록의 '통과' 는 <b>{len(rows)}개 중 {quality_min}개 이상</b> 통과입니다 "
+           "(슬라이더로 바꿉니다). " if quality_min else "")
+    return ui.render_criteria_table(
+        rows, title=f"버핏식 품질 기준 {len(rows)}개 — 정의와 통과 조건",
+        intro=buffett.DEFINITION,
+        foot=(cut + src + data
+              + "숫자가 5년치 미만이면 '판정 불가' 이고 미달로 세지 않습니다. "
+              "<b>해자 · 경영진 · 내가 이해하는 사업인가</b>는 숫자로 걸러지지 "
+              "않습니다 — 이 목록은 '살 종목' 이 아니라 '공시를 읽어볼 종목' 입니다."))
+
+
 # ── 미국 — 버핏식 품질 기준만 ────────────────────────────────────────────
 
 def _discover_us(use_demo: bool) -> None:
@@ -1501,16 +1529,6 @@ def _discover_us(use_demo: bool) -> None:
             f"버핏식 품질 기준 {len(buffett.CRITERIA)}개 — 읽을 목록을 줄입니다"),
         unsafe_allow_html=True,
     )
-    st.markdown(
-        ui.render_footnote(
-            "<b>52주 위치 축을 뺐습니다.</b> 신고가는 '최근 많이 오른 주식' "
-            "이지 '좋은 주식' 이 아닙니다 — 품질 기준을 통과한 목록을 주가 "
-            "흐름으로 한 번 더 자를 근거가 장기 보유 판단에는 없습니다. "
-            "가격은 <b>밸류에이션 탭</b>에서 공시 숫자(FCF·순부채)와 "
-            "견줍니다."),
-        unsafe_allow_html=True,
-    )
-
     col1, col2 = st.columns([1, 1])
     with col1:
         quality_min = st.slider(
@@ -1520,6 +1538,10 @@ def _discover_us(use_demo: bool) -> None:
     with col2:
         show_source = st.toggle("기준 출처·한계 표시", value=False,
                                 key="disc_src")
+
+    st.markdown(_criteria_block(config.screen_thresholds(), market="us",
+                                quality_min=quality_min),
+                unsafe_allow_html=True)
 
     got = _soft_main(load_screens, use_demo, what="미국 10년치 재무 심사")
     if got is None:
@@ -1549,10 +1571,18 @@ def _discover_us(use_demo: bool) -> None:
         ui.render_section_head("통과 종목", "통과 수 많은 순", len(passed)),
         unsafe_allow_html=True,
     )
+    # 한눈표 — 어느 종목이 어느 기준에서 걸렸는지. 펼치지 않고 비교합니다.
+    st.markdown(ui.render_screen_table(passed, buffett.CRITERIA),
+                unsafe_allow_html=True)
+    st.markdown(ui.render_footnote(
+        "○ 통과 · ✗ 미달 · ? 판정 불가. 종목별 숫자는 아래에서 펼칩니다. "
+        "<b>52주 위치(신고가)는 기준에 넣지 않았습니다</b> — 최근 많이 오른 것과 "
+        "사업의 질은 다른 질문이고, 가격은 밸류에이션 탭에서 공시 숫자와 견줍니다."),
+        unsafe_allow_html=True)
     for idx, screen in enumerate(passed[:30]):
         label = (f"{screen.ticker} · {screen.passed_count}"
                  f"/{len(buffett.CRITERIA)} 통과")
-        with st.expander(label, expanded=(idx == 0)):
+        with st.expander(label, expanded=False):
             st.markdown(ui.render_screen(screen, show_source=show_source),
                         unsafe_allow_html=True)
 
@@ -1588,6 +1618,16 @@ def _discover_kr(use_demo: bool) -> None:
             "변동성 수축만으로는 그걸 구분하지 못합니다."),
         unsafe_allow_html=True,
     )
+
+    with st.expander("여섯 스크리너의 기준 — 숫자와 말뜻", expanded=False):
+        st.markdown(
+            ui.render_criteria_table(
+                [{"short": t, "rule": r} for _k, t, r, _c in kr_screen.KR_SCREENS],
+                intro="스크리너마다 <b>다른 질문</b>을 합니다. 한 점수로 합치지 않고, "
+                      "한 번에 하나씩 골라 봅니다. 기준선은 전부 제가 정한 값입니다 "
+                      "(<code>kr_screen.py</code> 맨 위)."),
+            unsafe_allow_html=True)
+        st.markdown(ui.render_terms(kr_screen.KR_TERMS), unsafe_allow_html=True)
 
     profiles, vol_errors = load_kr_vol_profiles(use_demo)
     value_rows = load_kr_value_rows(use_demo)
@@ -3537,6 +3577,15 @@ def render_valuation_tab(data: dict[str, dict[str, Quote]], fx,
 
     # 보유 종목을 먼저 — 판단이 이미 필요한 것들입니다
     triples.sort(key=lambda t: (t[0].ticker not in held, -t[0].passed_count))
+
+    # '사업의 질' 축이 무엇인지 — 기준표를 같은 화면에서 펼쳐 볼 수 있게
+    with st.expander(f"'사업의 질' 은 무엇으로 재나 — 버핏식 품질 기준 "
+                     f"{len(buffett.CRITERIA)}개", expanded=False):
+        st.markdown(
+            _criteria_block(buffett_kr.kr_thresholds() if kr_only
+                            else config.screen_thresholds(),
+                            market="kr" if kr_only else "us"),
+            unsafe_allow_html=True)
 
     verdicts = [t[2] for t in triples]
     st.markdown(

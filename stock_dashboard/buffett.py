@@ -795,6 +795,62 @@ def check_fcf_conversion(screen: Screen, th: Thresholds) -> Check:
     )
 
 
+#: 표 머리에 쓸 짧은 이름 (기준 이름은 질문 꼴이라 깁니다).
+SHORT_NAMES = {
+    "roe": "ROE", "owner_earnings": "주주이익", "capex_light": "설비투자",
+    "low_debt": "부채", "stable_margin": "마진 안정", "earnings_consistency": "이익 꾸준",
+    "roic": "ROIC", "interest_cover": "이자보상", "fcf_conversion": "현금 전환",
+}
+
+DEFINITION = (
+    "워런 버핏의 주주서한에 반복해 나오는 원칙 — <b>자본을 잘 굴리고, 빚이 "
+    "적고, 이익이 꾸준하고, 그 이익이 실제 현금으로 들어오는 사업</b> — 을 "
+    "최근 10개 회계연도의 공시 숫자로 옮긴 질문 묶음입니다. 질문마다 통과 / "
+    "미달 / 판정 불가(숫자가 5년치 미만)로 가르고, 통과한 개수를 셉니다. "
+    "<b>사업의 질만 보고 가격은 보지 않습니다</b> (가격은 밸류에이션 탭)."
+)
+
+
+def criteria_rules(th: Thresholds | None = None) -> list[dict]:
+    """기준마다 **통과 조건을 숫자로** — 화면의 기준표에 씁니다.
+
+    2026-11-12 "버핏식 품질 기준이 뭔지 정의돼 있지 않다". 기준 이름(질문)만
+    있고 몇 %·몇 해가 통과선인지는 종목을 펼쳐야 보였습니다. 판정 함수
+    (check_*)가 쓰는 Thresholds 를 그대로 읽어 적으므로, 기준선을 바꾸면
+    표도 같이 바뀝니다. [{key, short, name, rule, provenance, label}]
+    """
+    th = th or Thresholds()
+    rules = {
+        "roe": f"ROE(순이익 ÷ 자본) ≥ {th.roe_min:g}% 인 해가 10년 중 "
+               f"{th.roe_years_required}해 이상",
+        "owner_earnings": "주주이익(순이익 + 감가상각 − 설비투자) > 0 인 해가 "
+                          f"{th.owner_earnings_years_required}해 이상",
+        "capex_light": "설비투자가 감가상각보다 큰 해가 "
+                       f"{th.capex_heavy_years_allowed}해 이하",
+        "low_debt": f"최근 연도 장기부채 ÷ 자본 ≤ {th.debt_to_equity_max:g} "
+                    f"<b>또는</b> 장기부채 ÷ 순이익 ≤ {th.debt_years_max:g}년",
+        "stable_margin": f"매출총이익률의 10년 표준편차 ≤ {th.margin_stdev_max:g}%p",
+        "earnings_consistency": f"적자이거나 순이익이 전년보다 {th.earnings_drop_pct:g}% "
+                                f"이상 준 해가 {th.bad_years_allowed}회 이하",
+        "roic": f"ROIC(세후 영업이익 ÷ 투하자본) ≥ {th.roic_min:g}% 인 해가 "
+                f"{th.roic_years_required}해 이상",
+        "interest_cover": f"최근 연도 영업이익 ÷ 이자비용 ≥ {th.interest_cover_min:g}배",
+        "fcf_conversion": f"FCF(영업현금흐름 − 설비투자) ÷ 순이익 ≥ {th.fcf_conversion_min:g}% 인 해가 "
+                          f"{th.fcf_conversion_years_required}해 이상",
+    }
+    return [{"key": c.key, "short": SHORT_NAMES.get(c.key, c.name), "name": c.name,
+             "rule": rules.get(c.key, c.description), "provenance": c.provenance,
+             "label": PROVENANCE_LABEL.get(c.provenance, "")}
+            for c in CRITERIA]
+
+
+def provenance_counts() -> dict[str, int]:
+    out: dict[str, int] = {}
+    for c in CRITERIA:
+        out[c.provenance] = out.get(c.provenance, 0) + 1
+    return out
+
+
 CHECKS = (check_roe, check_owner_earnings, check_capex_light,
           check_low_debt, check_stable_margin, check_earnings_consistency,
           check_roic, check_interest_cover, check_fcf_conversion)

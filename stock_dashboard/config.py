@@ -182,6 +182,10 @@ SEED_URL = os.environ.get(
     "SEED_URL",
     "https://raw.githubusercontent.com/MaCho-guy/REALMAN-INVEST/data/seed.pkl.gz")
 
+#: 화면 배치의 촘촘함. "compact"(기본) 는 부품 사이 간격을 줄입니다 — 글자
+#: 크기는 그대로. "roomy" 로 두면 2026-11-12 이전 간격으로 돌아갑니다.
+DENSITY = os.environ.get("DASH_DENSITY", "compact")
+
 #: 리포트 AI 요약 — 수집기가 Claude API 로 만들어 data 브랜치에 올리는 파일.
 SUMMARY_URL = os.environ.get(
     "SUMMARY_URL",
@@ -189,7 +193,7 @@ SUMMARY_URL = os.environ.get(
 #: 요약에 쓸 모델. 가장 싼 것으로 시작합니다 — 품질이 아쉬우면 여기만 바꿉니다.
 SUMMARY_MODEL = os.environ.get("SUMMARY_MODEL", "claude-haiku-5-5")
 #: 묶음(반도체 산업 · 삼성전자 · SK하이닉스)마다 최근 몇 건까지 요약 대상으로 보나.
-SUMMARY_PER_LIST = 10
+SUMMARY_PER_LIST = 20
 #: 수집기가 한 번 돌 때 새로 요약하는 최대 건수 (비용 상한).
 SUMMARY_MAX_NEW = 12
 #: 리포트마다 앞의 몇 쪽까지 읽히나. 2026-11-12 실제 실행에서 쪽당 약 2,500
@@ -1123,7 +1127,7 @@ RESEARCH_PAGES = 3
 #: 반도체 리포트 화면 — 산업분석을 몇 쪽 훑나 (쪽당 30건, 그중 반도체만 남김),
 #: 미리보기·의견을 채울 건수(목록마다), 종목 리포트 쪽수(쪽당 20건).
 SEMI_RESEARCH_PAGES = 6
-SEMI_DETAIL_LIMIT = 10
+SEMI_DETAIL_LIMIT = 20          # 2026-11-12: 10 → 20 (AI 요약 범위를 넓히며)
 SEMI_STOCK_PAGES = 1
 
 

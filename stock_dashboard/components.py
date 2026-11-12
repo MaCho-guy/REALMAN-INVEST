@@ -1152,14 +1152,53 @@ def render_screen(screen, *, show_source: bool = False,
     )
 
 
+def render_criteria_table(rows, *, title: str = "", intro: str = "",
+                          foot: str = "") -> str:
+    """기준표 — 이름 · 통과 조건(숫자) · 출처. rows: [{short|title, name, rule, label}]
+
+    기준이 화면에 숫자로 적혀 있지 않으면 '통과' 가 무슨 뜻인지 알 수
+    없습니다. 조건은 판정 코드가 쓰는 값에서 만들어 넘깁니다.
+    """
+    if not rows:
+        return ""
+    body = []
+    for i, r in enumerate(rows, 1):
+        label = r.get("label") or ""
+        chip = f'<span class="cr-src">{_esc(label)}</span>' if label else ""
+        name = r.get("name") or ""
+        sub = f'<span class="cr-q">{_esc(name)}</span>' if name else ""
+        body.append(
+            f'<tr><td class="cr-n">{i}</td>'
+            f'<td class="cr-name"><b>{_esc(r.get("short") or r.get("title") or "")}</b>{sub}</td>'
+            f'<td class="cr-rule">{_safe_inline(r.get("rule") or "")}{chip}</td></tr>')
+    head = (f'<div class="cr-title">{_esc(title)}</div>' if title else "")
+    intro_html = f'<div class="cr-intro">{_safe_inline(intro)}</div>' if intro else ""
+    foot_html = f'<div class="cr-foot">{_safe_inline(foot)}</div>' if foot else ""
+    return (f'<div class="dash-criteria">{head}{intro_html}'
+            '<table class="cr-table"><thead><tr><th></th><th>기준</th>'
+            "<th>통과 조건</th></tr></thead><tbody>"
+            + "".join(body) + f"</tbody></table>{foot_html}</div>")
+
+
+def render_terms(terms) -> str:
+    """낱말 풀이 한 묶음 — [(낱말, 뜻)]."""
+    if not terms:
+        return ""
+    return ('<div class="dash-terms">' + "".join(
+        f'<div><b>{_esc(k)}</b>{_esc(v)}</div>' for k, v in terms) + "</div>")
+
+
 def render_screen_table(screens, criteria) -> str:
     """전체 요약 표 — 어느 기업이 어느 기준에서 걸렸나 한눈에."""
     if not screens:
         return ""
     # 기준 이름이 길어서 열마다 폭이 들쭉날쭉했고, 표시(○·×)가 제목과
     # 어긋나 보였습니다. 제목과 표시를 모두 가운데로 맞춥니다.
-    header = "".join(f"<th class='mk'>{_esc(c.name.replace(' 꾸준히', '').replace('가', ''))}</th>"
-                     for c in criteria)
+    import buffett as _bf  # noqa: PLC0415
+
+    header = "".join(
+        f"<th class='mk' title='{_esc(c.name)}'>{_esc(_bf.SHORT_NAMES.get(c.key, c.name))}</th>"
+        for c in criteria)
     rows = []
     for s in screens:
         if not s.ok:
@@ -1168,8 +1207,9 @@ def render_screen_table(screens, criteria) -> str:
         for check in s.checks:
             cls = {"pass": "mk", "fail": "mk na", "unknown": "mk na"}[check.verdict]
             cells.append(f'<td class="{cls}">{_MARK[check.verdict]}</td>')
+        nm = getattr(s, "name", "") or ""
         rows.append(
-            f"<tr><td>{_esc(s.ticker)}</td>"
+            f"<tr><td title='{_esc(nm)}'>{_esc(s.ticker)}</td>"
             f'<td class="">{_esc(s.score_label)}</td>'
             + "".join(cells) + "</tr>"
         )

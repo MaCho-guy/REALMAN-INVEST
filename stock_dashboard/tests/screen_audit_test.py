@@ -633,6 +633,65 @@ check("화면 3분의 1 을 차지하던 노란 경고가 없다", "분석 실�
 check("한 줄 안내 + 접어 둔 설치 방법",
       "이 서버에서는 분석을 새로 실행할 수 없습니다" in src and "PC 에서 직접 실행하려면" in src)
 
+print("\n=== 기준 정의 · 촘촘한 배치 (2026-11-12 요청) ===")
+import buffett_kr  # noqa: E402
+import kr_screen  # noqa: E402
+import theme  # noqa: E402
+
+us_rules = buffett.criteria_rules(config.screen_thresholds())
+check("기준마다 통과 조건이 있음", len(us_rules) == len(buffett.CRITERIA)
+      and all(r["rule"] and r["short"] and r["label"] for r in us_rules))
+th = config.screen_thresholds()
+by = {r["key"]: r["rule"] for r in us_rules}
+check("통과선이 판정에 쓰는 값과 같음 (ROE · 부채 · ROIC)",
+      f"{th.roe_min:g}%" in by["roe"] and f"{th.roe_years_required}해" in by["roe"]
+      and f"{th.debt_to_equity_max:g}" in by["low_debt"] and f"{th.debt_years_max:g}년" in by["low_debt"]
+      and f"{th.roic_min:g}%" in by["roic"] and f"{th.fcf_conversion_min:g}%" in by["fcf_conversion"])
+kr_by = {r["key"]: r["rule"] for r in buffett.criteria_rules(buffett_kr.kr_thresholds())}
+check("한국은 한국 기준선으로 적힘", "10%" in kr_by["roe"] and "15%" not in kr_by["roe"]
+      and "0.6" in kr_by["low_debt"])
+moved = buffett.Thresholds(roe_min=20.0, roe_years_required=9)
+check("기준선을 바꾸면 표도 바뀜", "20%" in buffett.criteria_rules(moved)[0]["rule"]
+      and "9해" in buffett.criteria_rules(moved)[0]["rule"])
+check("모든 판정 함수에 기준 설명이 있음",
+      {c.key for c in buffett.CRITERIA} == set(by) == set(buffett.SHORT_NAMES))
+check("출처 개수의 합이 기준 수", sum(buffett.provenance_counts().values()) == len(buffett.CRITERIA))
+html = ui.render_criteria_table(us_rules, title="버핏식 품질 기준", intro=buffett.DEFINITION, foot="끝")
+check("기준표 — 이름 · 조건 · 출처 칩", html.count("<tr>") == len(us_rules) + 1
+      and "cr-src" in html and "ROE(순이익 ÷ 자본) ≥ 15%" in html and "<b>또는</b>" in html)
+check("기준표가 비면 아무것도 그리지 않음", ui.render_criteria_table([]) == "")
+evil = ui.render_criteria_table([{"short": "<script>x</script>", "rule": "a"}])
+check("이름은 HTML 로 해석하지 않음", "<script>" not in evil)
+check("정의 문장 — 가격은 보지 않는다고 적음", "가격은 보지 않습니다" in buffett.DEFINITION)
+check("발굴(미국) — 정의 · 기준표 · 한눈표",
+      "_criteria_block(config.screen_thresholds(), market=\"us\"" in src
+      and "ui.render_screen_table(passed, buffett.CRITERIA)" in src)
+check("밸류에이션 — '사업의 질' 기준표를 펼쳐 볼 수 있음",
+      "'사업의 질' 은 무엇으로 재나" in src and "buffett_kr.kr_thresholds() if kr_only" in src)
+check("발굴(한국) — 여섯 스크리너 기준표와 말뜻",
+      "여섯 스크리너의 기준 — 숫자와 말뜻" in src and "kr_screen.KR_TERMS" in src
+      and len(kr_screen.KR_TERMS) >= 4)
+terms = ui.render_terms(kr_screen.KR_TERMS)
+check("말뜻 — 변동성 · 거래대금 창이 숫자로",
+      f"{kr_screen.SHORT_WINDOW}거래일" in terms and f"{kr_screen.LONG_WINDOW}거래일" in terms
+      and f"{kr_screen.TURNOVER_WINDOW}거래일" in terms)
+tbl = ui.render_screen_table([], buffett.CRITERIA)
+check("한눈표 머리는 짧은 이름", tbl == "" and all(len(v) <= 6 for v in buffett.SHORT_NAMES.values()))
+
+css = theme.build_css("kr")
+check("촘촘한 배치가 기본", config.DENSITY == "compact"
+      and 'div[data-testid="stVerticalBlock"] {{ gap: 0.5rem; }}'.replace("{{", "{").replace("}}", "}") in css)
+check("글자 크기는 건드리지 않음", "--fs-" not in theme.build_density_rules())
+check("기준표 스타일", ".dash-criteria" in css and ".dash-terms" in css)
+old_density = config.DENSITY
+config.DENSITY = "roomy"
+roomy = theme.build_css("kr")
+config.DENSITY = old_density
+check("roomy 로 두면 간격 묶음이 빠짐", len(roomy) < len(css) and "gap: 0.5rem" not in roomy
+      and ".dash-criteria" in roomy)
+check("중괄호 짝이 맞음", css.count("{") == css.count("}"))
+check("요약 범위 20건 · 상세도 20건", config.SUMMARY_PER_LIST == 20 and config.SEMI_DETAIL_LIMIT >= 20)
+
 print("\n" + "=" * 54)
 if FAILURES:
     print(f"실패 {len(FAILURES)}건: {FAILURES}")

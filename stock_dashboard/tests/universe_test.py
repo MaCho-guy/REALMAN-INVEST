@@ -888,6 +888,28 @@ check("과거 성장률 상한 15% — 과거 30% 여도 요구가 15% 를 넘�
 check("밸류에이션 탭이 주식보상비용을 뺀 FCF 를 쓴다 (깔때기와 같은 입력)",
       'funnel.dcf_inputs(screen)' in app_src and 'financial=screen.ticker in fin' in app_src)
 
+print("\n=== 규칙 변경의 영향 — 사분면이 바뀐 종목 ===")
+v_moved = _vd.build(_all9, _run_dcf(_edge_cap), legacy_dcf=_run_dcf(_edge_cap))
+v_same = _vd.build(_all9, _run_dcf(2.0e9), legacy_dcf=_run_dcf(2.0e9))
+v_fin2 = _vd.build(_all9, _run_dcf(2.0e9), financial=True, legacy_dcf=_run_dcf(2.0e9))
+for _v, _t in ((v_moved, "EDGE"), (v_same, "SAME"), (v_fin2, "BANK")):
+    _v.ticker = _t
+check("예전 규칙의 위치를 같이 계산한다 — 경계 종목은 ① → ②",
+      (v_moved.prev_quadrant, v_moved.quadrant) == (1, 2)
+      and (v_same.prev_quadrant, v_same.quadrant) == (1, 1)
+      and (v_fin2.prev_quadrant, v_fin2.quadrant) == (1, 0) and v_light.prev_quadrant == -1)
+_line = ui.render_rule_change([v_moved, v_same, v_fin2])
+check("바뀐 종목만 한 줄로 — 설명 문구를 꺼도 보이는 줄",
+      'class="dash-legend"' in _line and "3종목 중 2종목" in _line and "<b>EDGE</b> ① → ②" in _line
+      and "<b>BANK</b> ① → 판정 안 함" in _line and "SAME" not in _line, _line[:200])
+check("바뀐 종목이 없으면 없다고 적고, 계산해 둔 것이 없으면 아무것도 그리지 않는다",
+      "위치가 바뀐 종목이 없습니다" in ui.render_rule_change([v_same])
+      and ui.render_rule_change([v_light]) == "")
+check("사분면 지도 아래에 붙는다 · 머리글이 새 규칙을 말한다",
+      "가격 규칙 변경(11/12)의 영향" in ui.render_quadrant_map([v_moved, v_same])
+      and "<th>가격 부담 낮음</th><th>경계 · 높음</th>" in ui.render_quadrant_map([v_same])
+      and "할인율 8~12% 전 구간" in ui.render_quadrant_map([v_same]))
+
 print("\n=== 후보 한 줄 — 셈이 맞아야 한다 ===")
 _p = {"members": [{"ticker": f"A{i}", "index": True} for i in range(515)] + [{"ticker": "W", "index": False}],
       "rules": {"S&P 500 구성 종목": {"n": 503}, "나스닥100 에만 있는 종목": {"n": 15}}}

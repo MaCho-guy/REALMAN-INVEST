@@ -1396,14 +1396,43 @@ def render_quadrant_map(verdicts) -> str:
     return (
         '<div class="dash-table-wrap"><table class="dash-table">'
         "<thead><tr><th></th>"
-        "<th>요구 ≤ 과거 실제</th><th>요구 &gt; 과거 실제</th></tr></thead>"
+        # 머리글은 짧게 (폰에서 3칸 표) — 규칙 설명은 아래 한 줄에 있습니다
+        "<th>가격 부담 낮음</th><th>경계 · 높음</th></tr></thead>"
         "<tbody>"
         f"<tr><td>기준 많이 통과</td>{cell(1)}{cell(2)}</tr>"
         f"<tr><td>기준 적게 통과</td>{cell(3)}{cell(4)}</tr>"
-        f'<tr><td>역DCF 불가</td><td colspan="2">'
+        f'<tr><td>판정 안 함 (역DCF 불가 · 금융업)</td><td colspan="2">'
         f'{", ".join(_esc(n) for n in buckets[0]) or "—"}</td></tr>'
         "</tbody></table></div>"
+        + render_rule_change(verdicts)
     )
+
+
+_QUAD_MARK = {0: "판정 안 함", 1: "①", 2: "②", 3: "③", 4: "④"}
+
+
+def render_rule_change(verdicts, *, limit: int = 15) -> str:
+    """가격 규칙을 바꾼 뒤(2026-11-12) 사분면이 달라진 종목 한 줄.
+
+    예전 규칙의 위치를 계산해 둔 종목(prev_quadrant ≥ 0)만 봅니다. 하나도
+    계산돼 있지 않으면 아무것도 그리지 않습니다.
+    """
+    known = [v for v in verdicts if getattr(v, "prev_quadrant", -1) >= 0]
+    if not known:
+        return ""
+    moved = [v for v in known if v.prev_quadrant != v.quadrant]
+    if not moved:
+        body = "위치가 바뀐 종목이 없습니다"
+    else:
+        body = " · ".join(
+            f"<b>{_esc(v.ticker)}</b> {_QUAD_MARK[v.prev_quadrant]} → {_QUAD_MARK[v.quadrant]}"
+            for v in moved[:limit])
+        if len(moved) > limit:
+            body += f" 외 {len(moved) - limit}종목"
+    return render_legend(
+        f"<b>가격 규칙 변경(11/12)의 영향</b> — {len(known)}종목 중 {len(moved)}종목: {body}. "
+        "바뀐 규칙: 할인율 8~12% 전 구간 · 과거 성장률은 앞 · 뒤 3년 평균(연 15% 까지) · "
+        "주식보상비용 차감 · 금융업 판정 안 함")
 
 
 # ──────────────────────────────────────────────────────────────────────────────

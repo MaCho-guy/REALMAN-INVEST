@@ -1163,6 +1163,9 @@ def _attach_dcf(screens: list, use_demo: bool, *, currency: str = "USD",
         inputs = rdcf.inputs_from_screen(
             screen, caps.get(screen.ticker), currency=currency,
             market_cap_source=cap_source or ("데모 데이터" if use_demo else "yfinance"))
+        # 예전 규칙이었다면의 결과 — 규칙을 바꾼 영향을 화면에 보이는 데만 씁니다
+        legacy = rdcf.run(rdcf.inputs_from_screen(
+            screen, caps.get(screen.ticker), currency=currency))
         # 종목 발굴 깔때기와 같은 FCF — 주식보상비용을 뺀 값 (계정이 있는 회사만)
         adj = funnel.dcf_inputs(screen)
         if adj and adj.get("sbc"):
@@ -1170,7 +1173,8 @@ def _attach_dcf(screens: list, use_demo: bool, *, currency: str = "USD",
             inputs.sources["FCF"] += " − 주식보상비용"
         result = rdcf.run(inputs)
         out.append((screen, result,
-                    vd.build(screen, result, financial=screen.ticker in fin)))
+                    vd.build(screen, result, financial=screen.ticker in fin,
+                             legacy_dcf=legacy)))
     return out
 
 

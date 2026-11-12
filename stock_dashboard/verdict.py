@@ -50,6 +50,9 @@ class Verdict:
     #: 가격 축의 판정 — 'light' 낮음 · 'edge' 경계 · 'heavy' 높음 · 'na' 판정 안 함.
     #: 종목 발굴 깔때기와 **같은 규칙**(funnel.price_state)입니다.
     price_state: str = "na"
+    #: 2026-11-12 이전 규칙(할인율 10% 하나 · 과거 성장률은 시작 · 끝 두 해 · 주식보상비용
+    #: 미차감)이었다면의 사분면. -1 = 계산하지 않음. 규칙을 바꾼 영향을 화면에 보이려고 둡니다.
+    prev_quadrant: int = -1
 
     #: 통과·탈락한 기준 이름
     passed_names: list[str] = field(default_factory=list)
@@ -143,8 +146,19 @@ NEXT_CHECKS = {
 }
 
 
+def legacy_quadrant(passed: int, threshold: int, dcf) -> int:
+    """예전 규칙의 사분면 — 할인율 10% 에서 요구 성장률 ≤ 과거(시작 · 끝 두 해)면 낮음."""
+    gap = dcf.gap if dcf is not None and dcf.ok else None
+    if gap is None:
+        return 0
+    if passed >= threshold:
+        return 1 if gap <= 0 else 2
+    return 3 if gap <= 0 else 4
+
+
 def build(screen, dcf: rdcf.Result | None, *,
-          quality_threshold: int | None = None, financial: bool = False) -> Verdict:
+          quality_threshold: int | None = None, financial: bool = False,
+          legacy_dcf: rdcf.Result | None = None) -> Verdict:
     """스크리닝 결과 + 역DCF 를 하나의 판단 재료로 묶습니다.
 
     quality_threshold: 사업 축의 기준선. 기본은 전체의 3분의 2.
@@ -199,6 +213,9 @@ def build(screen, dcf: rdcf.Result | None, *,
         v.quadrant = 3
     else:
         v.quadrant = 4
+
+    if legacy_dcf is not None:
+        v.prev_quadrant = legacy_quadrant(v.passed, threshold, legacy_dcf)
 
     v.next_checks = list(NEXT_CHECKS[v.quadrant])
     if v.failed_names and v.quadrant in (1, 2):

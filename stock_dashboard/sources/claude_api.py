@@ -25,8 +25,12 @@ API_URL = "https://api.anthropic.com/v1/messages"
 API_VERSION = "2023-06-01"
 ENV_KEY = "ANTHROPIC_API_KEY"
 TIMEOUT = (10, 120)
-#: 이보다 큰 PDF 는 보내지 않습니다 (쪽수가 많아 비용이 튑니다).
-MAX_PDF_BYTES = 8 * 1024 * 1024
+#: **자른 뒤** 이보다 크면 쪽수를 더 줄입니다. 요청 한 건의 크기 한도(문서에
+#: 32 MB 로 적힌 곳이 있음)를 base64 로 불어난 뒤에도 넘지 않게 잡은 값입니다.
+#: 비용은 크기가 아니라 쪽수를 따라가므로, 큰 파일도 쪽수만 묶으면 됩니다.
+MAX_PDF_BYTES = 20 * 1024 * 1024
+#: 크기 때문에 줄이더라도 이보다 적게는 보내지 않습니다 (그러면 실패로 둡니다).
+MIN_PAGES = 4
 
 
 class ClaudeError(RuntimeError):
@@ -74,6 +78,25 @@ def trim_pdf(pdf: bytes, max_pages: int) -> tuple[bytes, int, int]:
     except Exception as exc:  # noqa: BLE001
         raise ClaudeError(f"PDF 를 읽지 못했습니다: {type(exc).__name__}") from None
     return buf.getvalue(), total, max_pages
+
+
+def fit_pdf(pdf: bytes, max_pages: int, max_bytes: int = 0) -> tuple[bytes, int, int]:
+    """앞 max_pages 쪽으로 자르고, 그래도 max_bytes 보다 크면 쪽수를 반씩 줄입니다.
+
+    2026-11-12 "지금 안 된 것들도 허용하고 요약". 그림이 많은 리포트는 9 MB 를
+    넘어 통째로 건너뛰었습니다. 이제 받아서 앞쪽만 잘라 보냅니다.
+    (자른 PDF, 전체 쪽수, 보낸 쪽수) — MIN_PAGES 쪽으로도 안 맞으면 ClaudeError.
+    """
+    max_bytes = max_bytes or MAX_PDF_BYTES
+    pages = max_pages
+    while True:
+        cut, total, sent = trim_pdf(pdf, pages)
+        if len(cut) <= max_bytes:
+            return cut, total, sent
+        if sent <= MIN_PAGES:
+            raise ClaudeError(
+                f"앞 {sent}쪽만으로도 너무 큽니다 ({len(cut) / 1e6:.1f} MB).")
+        pages = max(MIN_PAGES, sent // 2)
 
 
 def build_request(pdf: bytes, prompt: str, model: str, max_tokens: int,
@@ -139,9 +162,7 @@ def summarize_pdf(pdf: bytes, prompt: str, *, model: str, max_tokens: int = 3000
         raise ClaudeError(f"{ENV_KEY} 가 없습니다.")
     if not pdf or not pdf.startswith(b"%PDF"):
         raise ClaudeError("PDF 가 아닙니다.")
-    if len(pdf) > MAX_PDF_BYTES:
-        raise ClaudeError(f"PDF 가 너무 큽니다 ({len(pdf) / 1e6:.1f} MB).")
-    pdf, total, sent = trim_pdf(pdf, max_pages)
+    pdf, total, sent = fit_pdf(pdf, max_pages)
     body = build_request(pdf, prompt, model, max_tokens)
     headers = {"x-api-key": key, "anthropic-version": API_VERSION,
                "content-type": "application/json"}

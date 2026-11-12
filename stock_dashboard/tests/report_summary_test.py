@@ -92,8 +92,7 @@ check("주소 · 머리글", seen["url"] == "https://api.anthropic.com/v1/messag
       and seen["headers"]["anthropic-version"] == "2023-06-01")
 check("글과 사용량을 돌려줌", got == SUMMARY and usage["input_tokens"] == 7000
       and usage["output_tokens"] == 300)
-for label, bad in (("PDF 가 아니면 거절", b"<html>"), ("빈 파일 거절", b""),
-                   ("너무 큰 PDF 거절", b"%PDF" + b"0" * (claude_api.MAX_PDF_BYTES + 1))):
+for label, bad in (("PDF 가 아니면 거절", b"<html>"), ("빈 파일 거절", b"")):
     seen.clear()
     try:
         claude_api.summarize_pdf(bad, "p", model="m", post=fake_post)
@@ -151,6 +150,48 @@ got, usage = claude_api.summarize_pdf(big, "p", model="m", max_pages=10, post=fa
 sent_pdf = base64.standard_b64decode(seen["body"]["messages"][0]["content"][0]["source"]["data"])
 check("보내는 PDF 가 실제로 잘려 있음", len(PdfReader(io.BytesIO(sent_pdf)).pages) == 10
       and usage["pages_total"] == 45 and usage["pages_sent"] == 10)
+
+
+print("\n=== 큰 PDF 도 받아서 앞쪽만 (2026-11-12 요청) ===")
+
+
+def make_heavy_pdf(pages: int, per_page: int) -> bytes:
+    """쪽마다 per_page 바이트짜리 덩어리가 붙은 PDF (그림 많은 리포트 흉내)."""
+    import os as _os
+    from pypdf import PdfWriter
+    from pypdf.generic import DecodedStreamObject, NameObject
+    w = PdfWriter()
+    for _ in range(pages):
+        page = w.add_blank_page(width=200, height=200)
+        blob = DecodedStreamObject()
+        blob.set_data(_os.urandom(per_page))
+        page[NameObject("/Blob")] = w._add_object(blob)
+    buf = io.BytesIO()
+    w.write(buf)
+    return buf.getvalue()
+
+
+heavy = make_heavy_pdf(40, 60_000)                     # 약 2.4 MB · 40쪽
+cut, total, sent = claude_api.fit_pdf(heavy, 30, max_bytes=10_000_000)
+check("한도 안이면 앞 30쪽 그대로", (total, sent) == (40, 30) and len(cut) < len(heavy))
+cut, total, sent = claude_api.fit_pdf(heavy, 30, max_bytes=1_000_000)
+check("자른 것이 한도를 넘으면 쪽수를 반씩 줄임", total == 40 and sent == 15
+      and len(cut) <= 1_000_000 and len(PdfReader(io.BytesIO(cut)).pages) == 15,
+      f"{sent}쪽 · {len(cut):,}B")
+try:
+    claude_api.fit_pdf(heavy, 30, max_bytes=100_000)
+    check("몇 쪽만으로도 너무 크면 실패 (조용히 넘기지 않음)", False)
+except claude_api.ClaudeError as exc:
+    check("몇 쪽만으로도 너무 크면 실패 (조용히 넘기지 않음)", "너무 큽니다" in str(exc), str(exc))
+seen.clear()
+big_file = make_heavy_pdf(12, 1_000_000)               # 12 MB — 예전에는 받지도 않던 크기
+got, usage = claude_api.summarize_pdf(big_file, "p", model="m", post=fake_post)
+check("9 MB 넘는 PDF 도 요약에 보냄", got == SUMMARY and usage["pages_sent"] == 12
+      and len(big_file) > 9 * 1024 * 1024)
+check("받는 크기 상한이 보내는 상한보다 큼",
+      config.SUMMARY_MAX_DOWNLOAD > claude_api.MAX_PDF_BYTES >= 16 * 1024 * 1024)
+check("수집기가 큰 파일을 받도록 한도를 넘김",
+      "limit=config.SUMMARY_MAX_DOWNLOAD" in pathlib.Path("tools/collect.py").read_text(encoding="utf-8"))
 
 
 def post_thinking_only(url, json, headers, timeout):  # noqa: A002

@@ -273,7 +273,9 @@ def summarize_reports(app, out_dir: str, *, fetch=None, summarize=None,
         lists[name] = (data.get("stocks") or {}).get(code) or []
     todo = rsum.targets(lists, existing, config.SUMMARY_PER_LIST, config.SUMMARY_MAX_NEW)
     print(f"  요약할 새 리포트 {len(todo)}건 (이미 있는 요약 {len(existing)}건)")
-    fetch = fetch or fetch_bytes
+    # 큰 PDF 도 받습니다 — 보내기 전에 앞쪽만 자르므로 비용은 쪽수가 정합니다
+    fetch = fetch or (lambda url: fetch_bytes(url, limit=config.SUMMARY_MAX_DOWNLOAD,
+                                              timeout=60.0))
     summarize = summarize or claude_api.summarize_pdf
     spent = 0
     streak = 0          # 연달아 실패한 횟수 — 같은 문제로 돈만 나가는 것을 막습니다

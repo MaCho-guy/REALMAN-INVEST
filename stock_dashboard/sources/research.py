@@ -54,6 +54,16 @@ class Report:
     date: str = ""            # YYYY-MM-DD
     url: str = ""             # 상세 페이지
     pdf: str = ""             # 원문 PDF
+    # ── 2026-11-12 추가 — 반도체 리포트 화면용 (실제 응답으로 확인한 칸) ────────
+    research_id: str = ""     # 네이버 리서치 번호 (상세를 부를 때 씀)
+    item_code: str = ""       # 종목 리포트의 종목코드
+    item_name: str = ""
+    #: 본문 **앞부분만** (네이버 목록이 주는 미리보기 길이). 전문은 싣지 않습니다.
+    preview: str = ""
+    opinion: str = ""         # 증권사 투자의견 (종목 리포트 상세)
+    goal_price: float | None = None
+    prev_goal_price: float | None = None
+    price_then: float | None = None      # 작성일 주가
 
     @property
     def link(self) -> str:
@@ -403,7 +413,8 @@ def reports_from_json(payload, kind: str) -> list[Report]:
             kind=kind, title=title,
             broker=_pick(d, "broker", "office", "securit", "provider", "firm"),
             category=cat if kind == "industry" else "", date=date,
-            url=_abs(url) if url else "", pdf=_abs(pdf) if pdf else ""))
+            url=_abs(url) if url else "", pdf=_abs(pdf) if pdf else "",
+            research_id=str(d.get("researchId") or "").strip()))
     return out
 
 
@@ -492,6 +503,147 @@ def by_category(reports: list[Report]) -> list[tuple[str, list[Report]]]:
 def date_range(reports: list[Report]) -> tuple[str, str]:
     dates = sorted(r.date for r in reports if r.date)
     return (dates[0], dates[-1]) if dates else ("", "")
+
+
+# ── 종목 리포트 · 상세 (2026-11-12 진단 패널로 실제 응답 확인) ───────────────
+#
+#   목록  {API}/stock/005930?pageSize=20&page=1
+#         → [{itemCode, itemName, researchId, title, brokerName, writeDate,
+#             readCount, previewContent}]
+#   상세  {API}/industry/46967  ·  {API}/company/97570
+#         → {researchContent: {…, attachUrl, content(HTML), opinion, goalPrice,
+#                              prevGoalPrice, priceAtWriteDate}, researchSummaries}
+#   산업 목록의 category·keyword 인자는 무시됩니다 (같은 30줄이 옴) — 업종은
+#   받은 뒤에 거릅니다.
+
+API = "https://m.stock.naver.com/api/research"
+PAGE = "https://m.stock.naver.com/research"
+#: 미리보기 길이 — 네이버 목록의 previewContent 와 같은 수준으로 둡니다.
+PREVIEW_CHARS = 160
+
+
+def clean_text(fragment: str) -> str:
+    """HTML 조각 → 한 줄 글 (태그·&nbsp; 제거, 공백 정리)."""
+    text = _html.unescape(_TAG.sub(" ", fragment or "")).replace("\xa0", " ")
+    return " ".join(text.split())
+
+
+def excerpt(text: str, limit: int = PREVIEW_CHARS) -> str:
+    """앞부분만 — 낱말 중간에서 자르지 않고, 잘랐으면 … 을 붙입니다."""
+    text = clean_text(text)
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    space = cut.rfind(" ")
+    if space >= limit * 0.6:
+        cut = cut[:space]
+    return cut.rstrip(" ,.·") + "…"
+
+
+def _number(value) -> float | None:
+    try:
+        num = float(str(value).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+    return num if num > 0 else None
+
+
+def _api_get(url: str):
+    resp = requests.get(url, headers={**HEADERS, "Accept": "application/json"},
+                        timeout=TIMEOUT)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def stock_reports_from_json(payload, code: str = "") -> list[Report]:
+    """종목 리포트 목록 응답 → Report 들."""
+    rows = payload if isinstance(payload, list) else []
+    if isinstance(payload, dict):
+        for key in ("result", "list", "data"):
+            if isinstance(payload.get(key), list):
+                rows = payload[key]
+                break
+    out: list[Report] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        title = _html.unescape(str(row.get("title") or "")).strip()
+        rid = str(row.get("researchId") or "").strip()
+        if not title or not rid:
+            continue
+        out.append(Report(
+            kind="company", title=title,
+            broker=str(row.get("brokerName") or "").strip(),
+            date=_iso_any(str(row.get("writeDate") or "")),
+            url=f"{PAGE}/company/{rid}", research_id=rid,
+            item_code=str(row.get("itemCode") or code).strip(),
+            item_name=str(row.get("itemName") or "").strip(),
+            preview=excerpt(str(row.get("previewContent") or ""))))
+    return out
+
+
+def fetch_stock(code: str, pages: int = 1, get=None) -> tuple[list[Report], str]:
+    """한 종목의 증권사 리포트 (최신순). (목록, 오류)"""
+    get = get or _api_get
+    out: list[Report] = []
+    seen: set[str] = set()
+    err = ""
+    for page in range(1, max(1, pages) + 1):
+        try:
+            items = stock_reports_from_json(
+                get(f"{API}/stock/{code}?pageSize=20&page={page}"), code)
+        except Exception as exc:  # noqa: BLE001
+            err = f"요청 실패: {type(exc).__name__}"
+            break
+        fresh = [r for r in items if r.research_id not in seen]
+        if not fresh:
+            break
+        seen.update(r.research_id for r in fresh)
+        out += fresh
+    out.sort(key=lambda r: r.date, reverse=True)
+    return out, ("" if out else (err or "리포트가 없습니다"))
+
+
+def apply_detail(report: Report, payload) -> Report:
+    """상세 응답을 리포트에 채웁니다 (미리보기 · PDF · 의견 · 목표가)."""
+    node = payload.get("researchContent") if isinstance(payload, dict) else None
+    if not isinstance(node, dict):
+        return report
+    body = str(node.get("content") or "")
+    if body and not report.preview:
+        report.preview = excerpt(body)
+    pdf = str(node.get("attachUrl") or "")
+    if pdf.startswith(("https://", "http://")):
+        report.pdf = pdf
+    report.opinion = str(node.get("opinion") or "").strip()
+    report.goal_price = _number(node.get("goalPrice"))
+    report.prev_goal_price = _number(node.get("prevGoalPrice"))
+    report.price_then = _number(node.get("priceAtWriteDate"))
+    if not report.category and isinstance(node.get("category"), str):
+        report.category = node["category"].strip()
+    return report
+
+
+def enrich(reports: list[Report], limit: int = 8, get=None) -> int:
+    """앞에서 limit 건의 상세를 받아 채웁니다. 채운 건수를 돌려줍니다.
+
+    실패한 것은 조용히 건너뜁니다 — 목록은 상세 없이도 쓸 수 있습니다.
+    """
+    get = get or _api_get
+    targets = [r for r in reports if r.research_id][:limit]
+    if not targets:
+        return 0
+
+    def one(report: Report) -> bool:
+        kind = "company" if report.kind == "company" else "industry"
+        try:
+            apply_detail(report, get(f"{API}/{kind}/{report.research_id}"))
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
+    with ThreadPoolExecutor(max_workers=min(6, len(targets))) as pool:
+        return sum(1 for ok in pool.map(one, targets) if ok)
 
 
 def summary_prompt(category: str, reports: list[Report], limit: int = 8) -> str:

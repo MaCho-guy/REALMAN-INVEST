@@ -381,6 +381,133 @@ check("앱이 여섯 개를 모두 계산한다",
       all(f'"{k}": kr_screen.' in src for k in ("rs", "rebound", "surge")))
 check("0종목일 때 다른 스크리너를 안내한다", "④ 시장 대비 강한" in src)
 
+print("\n=== 반도체 리포트 — 실제 응답 모양 (2026-11-12 진단 패널로 확인) ===")
+import semi_research as sr  # noqa: E402
+from sources import research as rs  # noqa: E402
+
+IND_LIST = [
+    {"researchCategory": "산업분석", "category": "반도체", "researchId": "46967",
+     "title": "이미 많은 것이 반영된 주가", "brokerName": "유진투자증권",
+     "writeDate": "2026-11-12", "readCount": "92",
+     "endUrl": "https://m.stock.naver.com/research/industry/46967"},
+    {"researchCategory": "산업분석", "category": "은행", "researchId": "46962",
+     "title": "10 월 여수신 동향", "brokerName": "SK증권", "writeDate": "2026-11-12",
+     "readCount": "5", "endUrl": "https://m.stock.naver.com/research/industry/46962"},
+    {"researchCategory": "산업분석", "category": "기타", "researchId": "46960",
+     "title": "[Daily] 인터넷/게임", "brokerName": "IBK투자증권", "writeDate": "2026-11-12",
+     "readCount": "1", "endUrl": "https://m.stock.naver.com/research/industry/46960"},
+]
+ind = rs.reports_from_json(IND_LIST, "industry")
+check("업종은 category 칸에서 (researchCategory 의 '산업분석' 이 아님)",
+      [r.category for r in ind] == ["반도체", "은행", "기타"], str([r.category for r in ind]))
+check("리서치 번호를 같이 든다", ind[0].research_id == "46967")
+check("반도체만 고른다", [r.title for r in ind if sr.is_semi(r)] == ["이미 많은 것이 반영된 주가"])
+check("업종 칸이 비면 제목으로 가린다",
+      sr.is_semi(rs.Report(kind="industry", title="HBM 공급 점검"))
+      and not sr.is_semi(rs.Report(kind="industry", title="조선 수주 동향")))
+check("업종 칸이 있으면 제목의 낱말에 끌려가지 않는다",
+      not sr.is_semi(rs.Report(kind="industry", title="삼성전자 납품 화장품", category="화장품")))
+
+STOCK_LIST = [
+    {"researchCategory": "종목분석", "category": "종목분석", "itemCode": "005930",
+     "itemName": "삼성전자", "researchId": "97570", "title": "STRESS TEST",
+     "brokerName": "iM증권", "writeDate": "2026-11-04", "readCount": "42678",
+     "previewContent": "목표주가 37만원, ‘28년 기준으로는 56만원까지 열림투자의견 Buy, 목표주가 37만원으로 "
+                       "커버리지를 개시한다. ‘27년 BPS에 목표 P/B 2.3배를 적용했다. 이는 과거 고점 배수를 "
+                       "넘는 수준이나 HBM 과 DRAM 가격 강세가 이어지는 구간이라는 점을 반영했다. 그 뒤로 이어지는 "
+                       "문단은 화면에 싣지 않는다. 재고는 낮다."},
+    {"researchCategory": "종목분석", "category": "종목분석", "itemCode": "005930",
+     "itemName": "삼성전자", "researchId": "97400", "title": "환율 부담에도 분기 영업이익 100조원 돌파",
+     "brokerName": "B증권", "writeDate": "2026-10-30", "readCount": "100",
+     "previewContent": "3Q26Review 메모리 업사이클 지속&nbsp;삼성전자의 3Q26 연결기준 매출액은 195.4조원"},
+    {"title": "", "researchId": "1"}, "쓰레기",
+]
+DETAIL = {"researchContent": {
+    "itemCode": "005930", "itemName": "삼성전자", "researchId": "97570", "title": "STRESS TEST",
+    "brokerName": "iM증권", "writeDate": "2026-11-04", "readCount": "42689",
+    "attachUrl": "https://stock.pstatic.net/stock-research/company/61/20261104_company_507672000.pdf",
+    "content": "<p><strong>목표주가 37만원</strong></p><p><br>투자의견 Buy&nbsp;…</p>",
+    "opinion": "Buy", "goalPrice": "370000", "prevGoalPrice": "219500",
+    "priceAtWriteDate": "219500"}, "researchSummaries": []}
+DETAIL2 = {"researchContent": {**DETAIL["researchContent"], "researchId": "97400", "opinion": "매수",
+                               "goalPrice": "400000", "prevGoalPrice": "350000",
+                               "priceAtWriteDate": "230000", "attachUrl": ""}}
+urls = []
+
+
+def fake_get(url):
+    urls.append(url)
+    if "/company/97570" in url:
+        return DETAIL
+    if "/company/97400" in url:
+        return DETAIL2
+    if "/stock/005930" in url and "page=1" in url:
+        return STOCK_LIST
+    return []
+
+
+reps, err = rs.fetch_stock("005930", pages=2, get=fake_get)
+check("종목 리포트 목록 (빈 줄·쓰레기는 건너뜀)", len(reps) == 2 and err == "" and reps[0].item_name == "삼성전자",
+      f"{len(reps)} · {err}")
+check("상세 페이지 주소를 만든다", reps[0].url == "https://m.stock.naver.com/research/company/97570")
+check("다음 쪽이 비면 멈춘다", sum("/stock/005930" in u for u in urls) == 2)
+check("미리보기는 앞부분만 (160자 안, 낱말 중간에서 안 자름)",
+      len(reps[0].preview) <= rs.PREVIEW_CHARS + 1 and reps[0].preview.endswith("…")
+      and "재고는 낮다" not in reps[0].preview, f"{len(reps[0].preview)}자")
+check("&nbsp; 같은 찌꺼기를 지운다", "&nbsp;" not in reps[1].preview and "지속 삼성전자" in reps[1].preview,
+      reps[1].preview)
+filled = rs.enrich(reps, limit=5, get=fake_get)
+check("상세에서 의견 · 목표주가 · PDF 를 채운다",
+      filled == 2 and reps[0].opinion == "Buy" and reps[0].goal_price == 370000.0
+      and reps[0].pdf.endswith(".pdf") and reps[1].pdf == "")
+check("목록의 미리보기를 상세 본문으로 덮지 않는다", reps[0].preview.startswith("목표주가 37만원, ‘28년"))
+check("커버리지 개시는 '상향' 이 아니다 (직전 목표가 칸 = 그날 주가)", sr.goal_change(reps[0]) == "")
+check("직전보다 올렸으면 상향", sr.goal_change(reps[1]) == "상향")
+ops = sr.opinion_summary(reps)
+check("의견은 계열로 묶어 세고, 목표주가는 범위만 (평균 없음)",
+      ops["opinions"] == [("매수 계열", 2)] and ops["low"] == 370000.0 and ops["high"] == 400000.0
+      and ops["up"] == 1 and "mean" not in ops and "avg" not in ops, str(ops))
+broken = rs.fetch_stock("000660", get=lambda u: (_ for _ in ()).throw(RuntimeError("막힘")))
+check("못 받으면 빈 목록과 사유", broken[0] == [] and "실패" in broken[1])
+check("상세가 실패해도 목록은 남는다",
+      rs.enrich([rs.Report(kind="company", title="x", research_id="1")],
+                get=lambda u: (_ for _ in ()).throw(RuntimeError("x"))) == 0)
+
+words = sr.keyword_counts(reps)
+check("자주 나온 말 — 낱말이 나온 리포트 수", dict(words).get("HBM") == 1 and dict(words).get("실적") == 1
+      and dict(words).get("밸류에이션") == 1, str(words))
+check("'ai' 는 낱말로만 센다 (main · rain 에 안 걸림)",
+      sr.keyword_counts([rs.Report(kind="industry", title="Maintain rain gain")]) == []
+      and dict(sr.keyword_counts([rs.Report(kind="industry", title="AI 서버 투자")])).get("AI · 데이터센터") == 1)
+dg = sr.digest(reps, "삼성전자")
+check("묶음 요약 첫 줄", dg[0] == "삼성전자 리포트 2건 · 증권사 2곳 · 10-30 ~ 11-04", dg[0])
+check("리포트가 없으면 요약도 없다", sr.digest([], "x") == [])
+
+cards = ui.render_report_cards(reps, show_stock=True)
+check("카드: 제목은 원문 링크, PDF 는 따로",
+      'href="https://m.stock.naver.com/research/company/97570"' in cards and cards.count("rp-pdf") == 1)
+check("카드: 증권사가 낸 숫자라고 표시", cards.count("증권사 제시") == 2 and "목표주가 370,000원" in cards)
+check("카드: 커버리지 개시는 '직전' 을 적지 않고, 바꾼 경우만 적는다",
+      "직전 219,500원" not in cards and "목표주가 400,000원 (직전 350,000원)" in cards)
+check("카드: 의견을 끄면 숫자가 안 나온다",
+      "목표주가 370,000원" not in ui.render_report_cards(reps, show_opinion=False))
+evil = rs.Report(kind="company", title="<script>alert(1)</script>", broker="x", date="2026-11-01",
+                 url="javascript:alert(1)", preview="<img src=x onerror=1>")
+safe_cards = ui.render_report_cards([evil])
+check("카드: 제목·미리보기의 태그를 그대로 찍지 않고, 이상한 주소는 링크로 만들지 않는다",
+      "<script>" not in safe_cards and "<img" not in safe_cards and "javascript:" not in safe_cards)
+demo = demo_mod.demo_semi_research()
+check("데모 — 세 묶음 모두 값이 있다",
+      len(demo["industry"]) >= 5 and all(len(demo["stocks"][c]) >= 5 for c, _n in sr.STOCKS))
+check("탭이 한국 쪽에만 있다", "semi_research" in config.market_tab_keys("kr")
+      and "semi_research" not in config.market_tab_keys("us"))
+check("탭 이름 · 디스패치 · 미리 받기 · 받은 시각 이름표",
+      dict(config.tab_labels()).get("semi_research") == "반도체 리포트"
+      and 'active == "semi_research"' in src and 'jobs["반도체 리포트"]' in src
+      and '"load_semi_research": "반도체 리포트"' in src)
+check("화면이 전문을 싣지 않는다고 적는다", "전문은 증권사의 저작물이라 싣지 않고" in src)
+check("목표주가의 평균을 내지 않는다고 적는다", "평균을 내어 하나의 숫자로 만들지 않습니다" in src)
+
 print("\n=== 분석 실행 안내 ===")
 check("화면 3분의 1 을 차지하던 노란 경고가 없다", "분석 실행 불가" not in src)
 check("한 줄 안내 + 접어 둔 설치 방법",

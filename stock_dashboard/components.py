@@ -3493,6 +3493,75 @@ def render_research_table(reports, limit: int = 40, *, show_category: bool = Tru
             f"<tbody>{''.join(body)}</tbody></table></div>")
 
 
+def render_digest(lines, words=None) -> str:
+    """묶음 요약 — 첫 줄은 굵게, '자주 나온 말' 은 칩으로."""
+    lines = [ln for ln in (lines or []) if ln and not ln.startswith("자주 나온 말")]
+    if not lines and not words:
+        return ""
+    head = f'<div class="dg-head">{_esc(lines[0])}</div>' if lines else ""
+    rest = "".join(f'<div class="dg-line">{_esc(ln)}</div>' for ln in lines[1:])
+    chips = ""
+    if words:
+        chips = ('<div class="dg-words"><span class="dg-cap">자주 나온 말</span>'
+                 + "".join(f'<span class="dg-chip">{_esc(w)} <b>{n}</b></span>'
+                           for w, n in words)
+                 + "</div>")
+    return f'<div class="dash-digest">{head}{chips}{rest}</div>'
+
+
+def _goal_won(value) -> str:
+    return "" if not value else f"{value:,.0f}원"
+
+
+def render_report_cards(reports, limit: int = 12, *, show_stock: bool = False,
+                        show_opinion: bool = True) -> str:
+    """리포트 한 건 = 카드 한 장. 제목(원문 링크) · 미리보기 · 증권사 의견.
+
+    휴대폰에서 표보다 읽기 쉽게 세로로 쌓습니다. 미리보기는 본문 앞부분만
+    이고, 의견·목표주가는 **증권사가 낸 것**임을 줄마다 적습니다.
+    """
+    reports = list(reports or [])[:limit]
+    if not reports:
+        return ""
+    cards = []
+    for r in reports:
+        link = getattr(r, "link", "") or ""
+        page = getattr(r, "url", "") or ""
+        title = (f'<a class="dash-inline-link" target="_blank" rel="noopener noreferrer" '
+                 f'href="{_esc(page or link)}">{_esc(r.title)}</a>'
+                 if (page or link).startswith(("https://", "http://")) else _esc(r.title))
+        who = " · ".join(x for x in (
+            (r.date[5:] if r.date else ""), r.broker,
+            (getattr(r, "item_name", "") if show_stock else "")) if x)
+        pdf = getattr(r, "pdf", "") or ""
+        pdf_link = (f' <a class="rp-pdf" target="_blank" rel="noopener noreferrer" '
+                    f'href="{_esc(pdf)}">PDF</a>'
+                    if pdf.startswith(("https://", "http://")) else "")
+        preview = getattr(r, "preview", "") or ""
+        body = f'<div class="rp-body">{_esc(preview)}</div>' if preview else ""
+        meta = ""
+        if show_opinion:
+            bits = []
+            op = getattr(r, "opinion", "") or ""
+            if op:
+                bits.append(f"의견 {_esc(op)}")
+            goal = getattr(r, "goal_price", None)
+            if goal:
+                prev = getattr(r, "prev_goal_price", None)
+                then = getattr(r, "price_then", None)
+                moved = ""
+                if prev and not (then and abs(prev - then) < 0.5) and abs(prev - goal) > 0.5:
+                    moved = f" (직전 {_goal_won(prev)})"
+                bits.append(f"목표주가 {_goal_won(goal)}{moved}")
+            if bits:
+                meta = ('<div class="rp-meta"><span class="rp-src">증권사 제시</span>'
+                        + " · ".join(bits) + "</div>")
+        cards.append(
+            f'<div class="rp-card"><div class="rp-who">{_esc(who)}{pdf_link}</div>'
+            f'<div class="rp-title">{title}</div>{body}{meta}</div>')
+    return '<div class="dash-rp">' + "".join(cards) + "</div>"
+
+
 def render_prompt_links(prompt: str, label: str = "Claude 에 요약 요청") -> str:
     """프롬프트가 채워진 채로 Claude 를 여는 링크 (앱 · 웹)."""
     import urllib.parse as _up

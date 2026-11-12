@@ -1172,6 +1172,32 @@ def _daily_briefs(use_demo: bool, market: str) -> str:
     return "".join(parts)
 
 
+def _semi_research_panel(use_demo: bool) -> str:
+    """반도체 리포트 — 앱의 render_semi_research_tab 과 같은 순서 (세 묶음을 이어서)."""
+    import semi_research as sr  # noqa: PLC0415
+
+    if not use_demo:
+        return ui.render_notice("프리뷰의 반도체 리포트는 데모 값으로만 그립니다.")
+    data = demo_mod.demo_semi_research()
+    names = dict(sr.STOCKS)
+    total = len(data["industry"]) + sum(len(v) for v in data["stocks"].values())
+    parts = [
+        ui.render_section_head("반도체 리포트",
+                               "증권사 산업분석(반도체) · 삼성전자 · SK하이닉스", total),
+        ui.render_footnote(
+            "<b>요약은 두 가지입니다.</b> 맨 위 상자는 코드가 센 <b>묶음 요약</b>"
+            "이고, 카드의 글은 리포트 <b>본문 앞부분</b>입니다. 전문은 싣지 않고 "
+            "원문·PDF 로 보냅니다."),
+    ]
+    groups = [("반도체 산업", data["industry"])] + [
+        (names[c], data["stocks"].get(c) or []) for c, _n in sr.STOCKS]
+    for what, picked in groups:
+        parts.append(ui.render_section_head(what, "최근 리포트", len(picked)))
+        parts.append(ui.render_digest(sr.digest(picked, what), sr.keyword_counts(picked)))
+        parts.append(ui.render_report_cards(picked, limit=3))
+    return "".join(parts)
+
+
 def _research_panel(use_demo: bool) -> str:
     """산업 리포트 — 앱의 render_research_tab 과 같은 순서."""
     from sources import research as rs
@@ -1632,6 +1658,8 @@ def build_html(convention: str, use_demo: bool) -> str:
             return _valuation_tab_panel(data, fx, use_demo, market)
         if key == "research":
             return _research_panel(use_demo)
+        if key == "semi_research":
+            return _semi_research_panel(use_demo)
         if key == "supply":
             return _supply_panel(use_demo)
         if key == "earnings":

@@ -1313,6 +1313,42 @@ def demo_research():
     return ind, mk
 
 
+def demo_semi_research():
+    """반도체 리포트 화면의 가짜 데이터 — 제목·미리보기·숫자 전부 지어낸 것."""
+    from sources.research import Report  # noqa: PLC0415
+
+    brokers = ["(데모)A증권", "(데모)B투자증권", "(데모)C증권", "(데모)D증권"]
+    themes = [
+        ("메모리 가격 점검", "(데모) DRAM 고정거래가격이 석 달째 오르는 가운데 서버 수요가 재고를 줄이고 있다는 내용. HBM 비중과 내년 CapEx 전망을 다룬다."),
+        ("HBM 공급 계획 비교", "(데모) 3사의 HBM 증설 일정과 공급 부족 지속 여부를 비교. 수요 쪽 가정이 바뀌면 결론이 달라진다고 적었다."),
+        ("AI 서버 투자와 사이클", "(데모) 데이터센터 설비투자가 둔화될 때 메모리 사이클이 어떻게 꺾였는지 과거 사례를 대입."),
+        ("NAND 감산 효과", "(데모) 낸드 감산 이후 재고 일수와 가격 반등 폭. 중국 업체의 증설이 변수."),
+        ("파운드리 가동률", "(데모) 선단 공정 가동률과 고객사 수주 현황. 환율 영향을 따로 계산."),
+    ]
+    industry = [
+        Report(kind="industry", category="반도체", title=f"(데모) {themes[i % 5][0]} {i + 1}",
+               broker=brokers[i % 4], date=f"2026-11-{12 - i // 2:02d}",
+               url="https://example.com/industry", pdf="https://example.com/i.pdf",
+               research_id=str(46900 + i), preview=themes[i % 5][1])
+        for i in range(9)]
+    stocks = {}
+    for code, name, base in (("005930", "삼성전자", 250_000), ("000660", "SK하이닉스", 2_400_000)):
+        rows = []
+        for i in range(8):
+            goal = base * (1.0 + 0.04 * (i % 4))
+            rows.append(Report(
+                kind="company", title=f"(데모) {name} — {themes[i % 5][0]}",
+                broker=brokers[i % 4], date=f"2026-11-{11 - i:02d}",
+                url="https://example.com/company", pdf="https://example.com/c.pdf",
+                research_id=str(97000 + i), item_code=code, item_name=name,
+                preview=themes[(i + 2) % 5][1],
+                opinion="Buy" if i % 5 else "Hold", goal_price=goal,
+                prev_goal_price=goal * (0.92 if i % 3 == 0 else 1.0),
+                price_then=base * 0.8))
+        stocks[code] = rows
+    return {"industry": industry, "stocks": stocks, "errors": {}, "scanned": 180}
+
+
 def demo_fred_release_dates(today=None):
     """FRED releases/dates 모양의 가짜 응답 — 날짜는 지어낸 것입니다."""
     import datetime as _dt

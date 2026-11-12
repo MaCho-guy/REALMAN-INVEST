@@ -969,6 +969,7 @@ TAB_ORDER: tuple[str, ...] = (
     "chart",        # 차트 조건 — 일목 양운 · CCI · MACD · DMI (일봉)
     "sector_heat",  # 한국 — 섹터 온도 (KODEX 업종 ETF)
     "research",     # 한국 — 증권사 산업분석 리포트 목록 (업종별)
+    "semi_research",  # 한국 — 반도체 리포트 (산업 · 삼성전자 · SK하이닉스) 요약
     "kr_flows",     # 한국 — 섹터 뉴스 · 주요 공시 · 경제지표
     "macro",        # 미국 중심 매크로 — 금리·환율·원자재·VIX·FRED
     "us_flows",     # 미국 — 물가 속도 · 글로벌 유동성
@@ -1033,7 +1034,8 @@ MARKET_TABS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
     "kr": (
         ("오늘", ("summary", "holdings", "earnings")),
         ("찾기", ("discover", "valuation", "chart")),
-        ("한국 시장", ("sector_heat", "supply", "research", "kr_flows")),
+        ("한국 시장", ("sector_heat", "supply", "research", "semi_research",
+                   "kr_flows")),
         ("공통", ("calendar", "macro", "cycle")),
     ),
     "us": (
@@ -1059,6 +1061,7 @@ SPECIAL_TAB_LABELS = {
     "valuation": "밸류에이션",
     "chart": "차트 조건",
     "research": "산업 리포트",
+    "semi_research": "반도체 리포트",
     "calendar": "주요 일정",
     "cycle": "메모리 사이클",
     "supply": "수급",
@@ -1098,6 +1101,11 @@ DAILY_BRIEF = {
 
 #: 산업 리포트를 몇 쪽 받을지 (쪽당 30건 안팎).
 RESEARCH_PAGES = 3
+#: 반도체 리포트 화면 — 산업분석을 몇 쪽 훑나 (쪽당 30건, 그중 반도체만 남김),
+#: 미리보기·의견을 채울 건수(목록마다), 종목 리포트 쪽수(쪽당 20건).
+SEMI_RESEARCH_PAGES = 6
+SEMI_DETAIL_LIMIT = 10
+SEMI_STOCK_PAGES = 1
 
 
 def daily_brief_spec(market: str) -> dict:

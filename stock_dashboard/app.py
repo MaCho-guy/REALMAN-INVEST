@@ -121,6 +121,7 @@ import briefing_store as bfs
 import inflation
 import kr_screen
 import sector_heat
+import semi_research
 import chart_signals
 import daily_brief
 import calendar_events
@@ -563,6 +564,48 @@ def load_research(kind: str, use_demo: bool):
             kind, pages=config.RESEARCH_PAGES if kind == "industry" else 1)
     except Exception as exc:  # noqa: BLE001
         return [], f"{type(exc).__name__}: {exc}"
+
+
+@swr.cached(3 * 3_600, stale=2 * 86_400)
+def load_semi_research(use_demo: bool) -> dict:
+    """반도체 리포트 — 산업분석 중 반도체 + 삼성전자·SK하이닉스 종목 리포트.
+
+    {"industry": [Report], "stocks": {코드: [Report]}, "errors": {이름: 사유},
+     "scanned": 훑은 산업 리포트 수}. 3시간 저장.
+    리포트마다 미리보기·PDF·증권사 의견을 채우려면 상세를 따로 불러야
+    해서(건당 요청 1회) 목록마다 앞 SEMI_DETAIL_LIMIT 건만 채웁니다.
+    """
+    if use_demo:
+        return demo_mod.demo_semi_research()
+    out: dict = {"industry": [], "stocks": {}, "errors": {}, "scanned": 0}
+    try:
+        everything, err = research.fetch("industry", pages=config.SEMI_RESEARCH_PAGES)
+    except Exception as exc:  # noqa: BLE001
+        everything, err = [], f"{type(exc).__name__}: {exc}"
+    out["scanned"] = len(everything)
+    semis = [r for r in everything if semi_research.is_semi(r)]
+    if err and not everything:
+        out["errors"]["산업분석"] = err
+    try:
+        research.enrich(semis, limit=config.SEMI_DETAIL_LIMIT)
+    except Exception:  # noqa: BLE001 - 미리보기는 없어도 목록은 씁니다
+        pass
+    out["industry"] = semis
+
+    def one(pair):
+        code, name = pair
+        try:
+            items, e = research.fetch_stock(code, pages=config.SEMI_STOCK_PAGES)
+            research.enrich(items, limit=config.SEMI_DETAIL_LIMIT)
+            return code, name, items, e
+        except Exception as exc:  # noqa: BLE001
+            return code, name, [], f"{type(exc).__name__}: {exc}"
+
+    for code, name, items, e in _pool_map(one, semi_research.STOCKS, workers=2):
+        out["stocks"][code] = items
+        if e and not items:
+            out["errors"][name] = e
+    return out
 
 
 @swr.cached(21_600)
@@ -2228,6 +2271,112 @@ def render_research_tab(use_demo: bool) -> None:
         )
 
 
+def render_semi_research_tab(use_demo: bool) -> None:
+    """반도체 리포트 — 묶음 요약 + 리포트별 미리보기 (산업 · 삼성전자 · SK하이닉스).
+
+    2026-11-12 요청. 이 서버에는 글을 읽고 요약하는 AI 가 없어서, 요약은
+    (1) 코드가 세는 묶음 요약과 (2) 리포트별 본문 앞부분입니다. 전문은
+    싣지 않고 원문·PDF 로 보냅니다 (semi_research.py 머리말 참고).
+    """
+    data = load_semi_research(use_demo)
+    industry = list(data.get("industry") or [])
+    stocks = data.get("stocks") or {}
+    errors = data.get("errors") or {}
+    total = len(industry) + sum(len(v) for v in stocks.values())
+    st.markdown(
+        ui.render_section_head(
+            "반도체 리포트", "증권사 산업분석(반도체) · 삼성전자 · SK하이닉스", total),
+        unsafe_allow_html=True)
+    st.markdown(ui.render_footnote(
+        "<b>요약은 두 가지입니다.</b> 맨 위 상자는 코드가 센 <b>묶음 요약</b>"
+        "(건수 · 증권사 · 자주 나온 말)이고, 카드의 글은 리포트 <b>본문 앞부분</b>"
+        "입니다. 전문은 증권사의 저작물이라 싣지 않고 제목(원문)과 PDF 로 "
+        "보냅니다. 증권사 리포트는 매수 의견 비중이 매우 높습니다 — 결론보다 "
+        "근거가 된 숫자를 보십시오."), unsafe_allow_html=True)
+    if errors:
+        st.markdown(ui.render_notice(
+            "<b>받지 못한 것:</b> "
+            + " / ".join(f"{k} — {v}" for k, v in errors.items())[:300]),
+            unsafe_allow_html=True)
+    if not total:
+        st.markdown(ui.render_notice(
+            "<b>리포트를 받지 못했습니다.</b> 설정 → 진단의 '리서치 종목·상세 "
+            "확인' 을 누르면 실제 응답이 나옵니다."), unsafe_allow_html=True)
+        return
+
+    names = dict(semi_research.STOCKS)
+    views = [("industry", f"산업 — 반도체 ({len(industry)})")] + [
+        (code, f"{names.get(code, code)} ({len(stocks.get(code) or [])})")
+        for code, _n in semi_research.STOCKS]
+    labels = dict(views)
+    keys = [k for k, _l in views]
+    choice = None
+    picker = getattr(st, "segmented_control", None)
+    if picker is not None:
+        try:
+            choice = picker("보기", keys, default=keys[0], key="semi_view",
+                            format_func=lambda k: labels[k],
+                            label_visibility="collapsed")
+        except Exception:  # noqa: BLE001
+            choice = None
+    if choice is None:
+        choice = st.radio("보기", keys, horizontal=True, key="semi_view_r",
+                          format_func=lambda k: labels[k],
+                          label_visibility="collapsed")
+    if choice not in labels:
+        choice = keys[0]
+
+    if choice == "industry":
+        picked, what = industry, "반도체 산업"
+    else:
+        picked, what = list(stocks.get(choice) or []), names.get(choice, choice)
+    if not picked:
+        st.markdown(ui.render_notice(
+            f"<b>{what} 리포트가 없습니다.</b>"
+            + (f" 산업분석 {data.get('scanned', 0)}건을 훑었지만 반도체 업종이 "
+               "없었습니다." if choice == "industry" else "")),
+            unsafe_allow_html=True)
+        return
+
+    st.markdown(ui.render_digest(semi_research.digest(picked, what),
+                                 semi_research.keyword_counts(picked)),
+                unsafe_allow_html=True)
+    if choice != "industry":
+        ops = semi_research.opinion_summary(picked)
+        if ops["with_goal"] or ops["opinions"]:
+            bits = []
+            if ops["opinions"]:
+                bits.append("의견 " + " · ".join(f"{k} {n}건" for k, n in ops["opinions"]))
+            if ops["with_goal"]:
+                bits.append(f"목표주가 {ops['low']:,.0f}원 ~ {ops['high']:,.0f}원 "
+                            f"({ops['with_goal']}건)")
+            moves = [f"{label} {ops[key]}건" for key, label in
+                     (("up", "상향"), ("down", "하향"), ("keep", "유지")) if ops[key]]
+            if moves:
+                bits.append("직전 대비 " + " · ".join(moves))
+            st.markdown(ui.render_notice(
+                "<b>증권사가 낸 숫자입니다</b> (이 화면의 의견이 아닙니다) — "
+                + " / ".join(bits)
+                + f". 상세를 받은 최근 {config.SEMI_DETAIL_LIMIT}건 기준이고, "
+                "평균을 내어 하나의 숫자로 만들지 않습니다."),
+                unsafe_allow_html=True)
+
+    st.markdown(ui.render_report_cards(picked, limit=20), unsafe_allow_html=True)
+    rest = picked[20:]
+    if rest:
+        with st.expander(f"이전 리포트 {len(rest)}건 (제목만)"):
+            st.markdown(ui.render_research_table(rest, limit=60, show_category=False),
+                        unsafe_allow_html=True)
+    with_pdf = [r for r in picked if r.link]
+    if with_pdf:
+        st.markdown(ui.render_prompt_links(
+            research.summary_prompt(what, with_pdf)), unsafe_allow_html=True)
+        st.markdown(ui.render_footnote(
+            "리포트끼리 <b>엇갈리는 주장</b>이나 <b>근거가 된 숫자</b>까지 "
+            "정리하려면 위 링크를 누르십시오 — 제목과 PDF 주소가 채워진 채로 "
+            "Claude 가 열립니다."), unsafe_allow_html=True)
+
+
 def render_sector_heat_tab(use_demo: bool) -> None:
     """섹터 온도 — 업종별로 어디가 뜨겁고 어디가 식었나."""
     rows = load_sector_heat(use_demo)
@@ -3435,6 +3584,7 @@ FETCH_LABELS = {
     "load_sector_heat": "섹터 온도", "load_sector_names": "섹터 구성",
     "load_sector_news": "섹터 기사", "load_news": "헤드라인",
     "load_close_headlines": "마감 기사", "load_research": "리포트",
+    "load_semi_research": "반도체 리포트",
     "load_daily_brief": "전일 브리핑", "load_briefings": "브리핑 글",
 }
 
@@ -4238,6 +4388,7 @@ SECTION_LOADING = {
     "macro": "매크로 — FRED 13종·VIX·공포탐욕 (처음 10~20초)",
     "chart": "차트 조건 — 후보 종목의 1년 일봉 (처음 10~30초)",
     "research": "산업 리포트 — 증권사 리포트 목록 (처음 5~10초)",
+    "semi_research": "반도체 리포트 — 산업·삼성전자·SK하이닉스 (처음 5~15초)",
     "calendar": "주요 일정 — FRED 발표일 · 배당 이력 (처음 5~15초)",
     "supply": "수급 — 종목별 외국인·기관 순매매 (처음 5~15초)",
     "earnings": "실적 — 분기 실적과 추정치 (처음 5~15초)",
@@ -4340,6 +4491,8 @@ def _section_jobs(section: str, market: str, use_demo: bool) -> dict:
         jobs["섹터 온도"] = lambda: load_sector_heat(use_demo)
     elif section == "research":
         jobs["산업 리포트"] = lambda: load_research("industry", use_demo)
+    elif section == "semi_research":
+        jobs["반도체 리포트"] = lambda: load_semi_research(use_demo)
     elif section == "calendar":
         jobs["발표 일정"] = lambda: load_release_dates(use_demo, ffp)
         # 대상 목록은 함수 안에서 만듭니다 — 여기서는 '무엇을 받을지' 만 정하고
@@ -4709,6 +4862,8 @@ def render_body(opts: dict) -> None:
                 render_calendar_tab(data, opts["demo"], market=market)
             elif active == "research":
                 render_research_tab(opts["demo"])
+            elif active == "semi_research":
+                render_semi_research_tab(opts["demo"])
             elif active == "supply":
                 render_supply_tab(opts["demo"])
             elif active == "earnings":

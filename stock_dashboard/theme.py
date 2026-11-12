@@ -1565,6 +1565,36 @@ def build_rules() -> str:
   .dash-mt td.mt-obs span {{ display: block; color: var(--dash-ink-muted);
                             font-size: var(--fs-1); }}
   .dash-mt td.mt-obs span.late {{ color: var(--dash-badge-error); font-weight: 650; }}
+  /* 반도체 리포트 — 묶음 요약 + 리포트 카드 */
+  .dash-digest {{ background: var(--dash-surface); border: 1px solid var(--dash-border);
+    border-left: 3px solid var(--dash-accent); border-radius: var(--r-card);
+    padding: 11px 14px; margin: 4px 0 10px; }}
+  .dash-digest .dg-head {{ font-size: var(--fs-4); font-weight: 650; color: var(--dash-ink); }}
+  .dash-digest .dg-line {{ font-size: var(--fs-3); color: var(--dash-ink-2); margin-top: 5px; }}
+  .dash-digest .dg-words {{ display: flex; flex-wrap: wrap; gap: 5px 6px;
+    align-items: center; margin-top: 8px; }}
+  .dash-digest .dg-cap {{ font-size: var(--fs-2); color: var(--dash-ink-muted); margin-right: 2px; }}
+  .dash-digest .dg-chip {{ font-size: var(--fs-2); color: var(--dash-ink);
+    background: var(--dash-raised); border-radius: var(--r-pill); padding: 2px 9px;
+    white-space: nowrap; }}
+  .dash-digest .dg-chip b {{ color: var(--dash-accent); font-weight: 700; }}
+  .dash-rp {{ display: grid; gap: 8px; margin: 4px 0 12px; }}
+  .dash-rp .rp-card {{ background: var(--dash-surface); border: 1px solid var(--dash-border);
+    border-radius: var(--r-card); padding: 10px 13px; }}
+  .dash-rp .rp-who {{ font-size: var(--fs-2); color: var(--dash-ink-muted);
+    font-variant-numeric: tabular-nums; }}
+  .dash-rp .rp-pdf {{ margin-left: 6px; font-size: var(--fs-1); font-weight: 650;
+    color: var(--dash-accent); text-decoration: none;
+    border: 1px solid var(--dash-accent); border-radius: var(--r-chip); padding: 0 5px; }}
+  .dash-rp .rp-title {{ font-size: var(--fs-4); font-weight: 650; line-height: 1.4;
+    margin-top: 3px; }}
+  .dash-rp .rp-body {{ font-size: var(--fs-3); color: var(--dash-ink-2); line-height: 1.55;
+    margin-top: 5px; }}
+  .dash-rp .rp-meta {{ font-size: var(--fs-2); color: var(--dash-ink-2); margin-top: 7px;
+    padding-top: 6px; border-top: 1px dashed var(--dash-divider); }}
+  .dash-rp .rp-src {{ font-size: var(--fs-1); color: var(--dash-ink-muted);
+    border: 1px solid var(--dash-border); border-radius: var(--r-chip);
+    padding: 0 5px; margin-right: 6px; }}
   /* 받은 시각 — 화면마다 맨 위 한 줄 (좁으면 여러 줄로 넘어갑니다) */
   .dash-times {{ display: flex; flex-wrap: wrap; align-items: baseline;
     gap: 3px 12px; margin: 0 0 10px; font-size: var(--fs-1);

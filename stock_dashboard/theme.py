@@ -1754,6 +1754,14 @@ def build_rules() -> str:
     font-variant-numeric: tabular-nums; margin-right: 6px; }}
   table.dash-sctable td.sc-x {{ text-align: left; white-space: nowrap;
     font-variant-numeric: tabular-nums; }}
+  /* 누를 수 있는 단계 칸 · 사분면의 종목 이름 */
+  .dash-funnel a.fn-link {{ text-decoration: none !important; color: inherit !important;
+    cursor: pointer; border-color: var(--dash-accent) !important; }}
+  .dash-funnel a.fn-link .fn-l {{ text-decoration: underline; text-underline-offset: 3px; }}
+  .dash-funnel a.fn-link.fn-on {{ background: var(--dash-raised) !important;
+    box-shadow: inset 0 -3px 0 var(--dash-accent); }}
+  .dash-qmap a.qk {{ color: var(--dash-accent) !important; font-weight: 600;
+    text-decoration: underline; text-underline-offset: 3px; padding: 2px 0; display: inline-block; }}
   /* 사분면 지도 — 2×2 칸 (폰에서도 두 칸씩) */
   .dash-qmap {{ display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 4px 0 8px; }}
   .dash-qmap .qc {{ border: 1px solid var(--dash-border); border-radius: var(--r-card);

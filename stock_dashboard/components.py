@@ -1440,8 +1440,11 @@ def _md_bold(text: str) -> str:
     return "".join(out)
 
 
-def render_quadrant_map(verdicts) -> str:
-    """사분면 지도 — 어느 종목이 어디 있나."""
+def render_quadrant_map(verdicts, *, href_fn=None) -> str:
+    """사분면 지도 — 어느 종목이 어디 있나.
+
+    href_fn(티커) → 주소를 주면 종목 이름이 그 종목 칸으로 가는 링크가 됩니다.
+    """
     if not verdicts:
         return ""
     buckets: dict[int, list[str]] = {1: [], 2: [], 3: [], 4: [], 0: []}
@@ -1453,7 +1456,13 @@ def render_quadrant_map(verdicts) -> str:
     # ('가격 부담 낮음')이 붙었습니다. 칸마다 제목을 직접 적습니다.
     def cell(q: int, title: str, cls: str = "") -> str:
         names = buckets.get(q) or []
-        body = ", ".join(_esc(n) for n in names) if names else "—"
+
+        def one(n: str) -> str:
+            if href_fn is None:
+                return _esc(n)
+            return f'<a class="qk" href="{_esc(href_fn(n))}" target="_self">{_esc(n)}</a>'
+
+        body = ", ".join(one(n) for n in names) if names else "—"
         return (f'<div class="qc {cls}"><span class="qt">{title}</span>'
                 f'<span class="qn">{len(names)}</span><span class="qv">{body}</span></div>')
 
@@ -2959,9 +2968,16 @@ def render_funnel(steps, errors: dict | None = None, *, title: str = "") -> str:
         note = (f'<div class="fn-note">{_esc(stp.note)}</div>'
                 if stp.note else "")
         arrow = '<div class="fn-arrow" aria-hidden="true">›</div>' if i else ""
-        cells.append(
-            f'{arrow}<div class="{cls}"><div class="fn-n">{stp.count}</div>'
-            f'<div class="fn-l">{_esc(stp.label)}</div>{note}</div>')
+        inner = (f'<div class="fn-n">{stp.count}</div>'
+                 f'<div class="fn-l">{_esc(stp.label)}</div>{note}')
+        href = getattr(stp, "href", "")
+        if href:
+            # 누르면 그 단계의 목록으로 — 같은 창에서 엽니다
+            on = " fn-on" if getattr(stp, "on", False) else ""
+            cells.append(f'{arrow}<a class="{cls} fn-link{on}" href="{_esc(href)}" '
+                         f'target="_self">{inner}</a>')
+        else:
+            cells.append(f'{arrow}<div class="{cls}">{inner}</div>')
     head = (f'<div class="fn-title">{_esc(title)}</div>' if title else "")
     err_html = ""
     if errors:

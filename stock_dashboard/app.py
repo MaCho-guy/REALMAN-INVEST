@@ -1617,6 +1617,20 @@ def _criteria_block(th, *, market: str, quality_min: int | None = None) -> str:
 
 # ── 미국 — 버핏식 품질 기준만 ────────────────────────────────────────────
 
+def _stage_now(key: str) -> str:
+    """깔때기에서 지금 볼 단계 — 'q' 품질 · 'p' 가격까지 · 'c' 차트까지.
+
+    고르는 칸(key)을 이미 눌렀으면 그 값, 아니면 주소의 stage(단계 칸을 눌러 들어온
+    경우), 둘 다 없으면 'q'. 단계표를 고르는 칸보다 먼저 그리기 때문에, 고르는 칸의
+    값을 여기서 미리 읽습니다.
+    """
+    cur = st.session_state.get(key)
+    if cur in ("q", "p", "c"):
+        return cur
+    url = st.query_params.get("stage", "")
+    return url if url in ("q", "p", "c") else "q"
+
+
 def _universe_or_none(market: str, use_demo: bool) -> dict:
     """전수 심사 파일 (없거나 못 받으면 빈 묶음 — 화면은 예전 후보로 돌아갑니다)."""
     if use_demo:
@@ -1747,16 +1761,25 @@ def _discover_us(use_demo: bool) -> None:
     light = [s_ for s_ in passed if funnel.is_light(_fp(s_.ticker))]
     both = [s_ for s_ in light if funnel.is_oversold(_fc(s_.ticker))]
 
+    # 단계 칸을 누르면 그 단계의 목록으로 갑니다 (주소의 stage). 아래 고르는 칸과
+    # 같은 값입니다 — 2026-11-12 "숫자 칸을 눌러도 안 넘어간다".
+    stage = _stage_now("disc_stage") if fmap else "q"
+
+    def _sh(code: str) -> str:
+        return f"?m=us&s=discover&stage={code}" if fmap else ""
+
     # 어디서 얼마나 줄었는지 — 후보 → 재무 받음 → 통과 (→ 가격 → 차트)
     st.markdown(ui.render_funnel([
         kr_screen.FunnelStep("후보", n_members),
         kr_screen.FunnelStep("재무 받음", len(usable),
                              "못 받은 종목은 아래 '이유 보기'" if errors else ""),
-        kr_screen.FunnelStep(f"{quality_min}개 이상 통과", len(passed_all)),
+        kr_screen.FunnelStep(f"{quality_min}개 이상 통과", len(passed_all),
+                             href=_sh("q"), on=stage == "q"),
     ] + ([kr_screen.FunnelStep(universe.sector_label(pick_sector), len(passed))]
          if pick_sector else [])
-      + ([kr_screen.FunnelStep("가격 부담 낮음", len(light)),
-          kr_screen.FunnelStep("차트 과매도 쪽", len(both))] if fmap else []),
+      + ([kr_screen.FunnelStep("가격 부담 낮음", len(light), href=_sh("p"), on=stage == "p"),
+          kr_screen.FunnelStep("차트 과매도 쪽", len(both), href=_sh("c"), on=stage == "c")]
+         if fmap else []),
         errors, title="단계별로 남은 종목"),
         unsafe_allow_html=True)
     if sectors and not pick_sector:
@@ -1765,7 +1788,6 @@ def _discover_us(use_demo: bool) -> None:
 
     held = set(config.watchlist_us_tickers())
     sector_ko = {k: universe.sector_label(v) for k, v in sectors.items()}
-    stage = "q"
     extra_heads: tuple = ()
     extra: dict = {}
     if fmap:
@@ -1773,7 +1795,7 @@ def _discover_us(use_demo: bool) -> None:
                        "p": f"+ 가격 부담 낮음 ({len(light)})",
                        "c": f"+ 차트 과매도 쪽 ({len(both)})"}
         stage = st.segmented_control(
-            "어디까지 좁혀서 볼까", list(stage_names), default="q", key="disc_stage",
+            "어디까지 좁혀서 볼까", list(stage_names), default=stage, key="disc_stage",
             format_func=lambda k: stage_names[k], label_visibility="collapsed") or "q"
         made_f = fpay.get("made")
         unknown_p = sum(1 for s_ in passed if not funnel.price_known(_fp(s_.ticker)))
@@ -1922,20 +1944,24 @@ def _kr_quality_block(use_demo: bool) -> None:
         f"과거 실제 성장률(할인율 8~12% 전 구간 · 연 {config.FUNNEL_HIST_GROWTH_CAP * 100:g}% 까지만 인정) · "
         f"<b>차트</b> = 과매도 쪽"),
         unsafe_allow_html=True)
+    stage = _stage_now("disc_kr_stage")
     st.markdown(ui.render_funnel([
         kr_screen.FunnelStep("후보", int(fpay.get("n_members") or len(all_screens) + len(errors))),
         kr_screen.FunnelStep("재무 받음", len(usable),
                              "못 받은 종목은 아래 '이유 보기'" if errors else ""),
-        kr_screen.FunnelStep(f"판정 중 {bar} 이상 통과", len(quality)),
-        kr_screen.FunnelStep("가격 부담 낮음", len(light)),
-        kr_screen.FunnelStep("차트 과매도 쪽", len(both)),
+        kr_screen.FunnelStep(f"판정 중 {bar} 이상 통과", len(quality),
+                             href="?m=kr&s=discover&stage=q", on=stage == "q"),
+        kr_screen.FunnelStep("가격 부담 낮음", len(light),
+                             href="?m=kr&s=discover&stage=p", on=stage == "p"),
+        kr_screen.FunnelStep("차트 과매도 쪽", len(both),
+                             href="?m=kr&s=discover&stage=c", on=stage == "c"),
     ], errors, title="단계별로 남은 종목"), unsafe_allow_html=True)
 
     stage_names = {"q": f"품질 통과 ({len(quality)})",
                    "p": f"+ 가격 부담 낮음 ({len(light)})",
                    "c": f"+ 차트 과매도 쪽 ({len(both)})"}
     stage = st.segmented_control(
-        "어디까지 좁혀서 볼까", list(stage_names), default="q", key="disc_kr_stage",
+        "어디까지 좁혀서 볼까", list(stage_names), default=stage, key="disc_kr_stage",
         format_func=lambda k: stage_names[k], label_visibility="collapsed") or "q"
     shown = {"q": quality, "p": light, "c": both}[stage]
     held = {c for c, _n in config.watchlist_kr()}
@@ -4118,7 +4144,22 @@ def render_valuation_tab(data: dict[str, dict[str, Quote]], fx,
             "사분면 지도", "사업의 질(가로) × 가격의 기대(세로)", len(verdicts)),
         unsafe_allow_html=True,
     )
-    st.markdown(ui.render_quadrant_map(verdicts), unsafe_allow_html=True)
+    # 사분면의 종목 이름을 누르면 그 종목 칸이 맨 위에 펼쳐져 열립니다 (주소의 pick).
+    # 2026-11-12 "칸을 눌러도 안 넘어간다" — 종목 이름이 글자뿐이었습니다.
+    from urllib.parse import quote as _q  # noqa: PLC0415
+
+    m_now = st.query_params.get("m", "") or ("us" if market == "us" else "kr")
+    pick = st.query_params.get("pick", "")
+    st.markdown(ui.render_quadrant_map(
+        verdicts, href_fn=lambda t: f"?m={m_now}&s=valuation&pick={_q(str(t))}"),
+        unsafe_allow_html=True)
+    if pick and any(t[0].ticker == pick for t in triples):
+        triples = sorted(triples, key=lambda t: t[0].ticker != pick)   # 고른 종목을 맨 위로
+        st.markdown(ui.render_legend(
+            f"<b>{_esc_plain(pick)}</b> 을 맨 위에 펼쳤습니다 · 사분면의 다른 종목 이름을 누르면 바뀝니다"),
+            unsafe_allow_html=True)
+    else:
+        pick = ""
 
     # 종목마다 접습니다. 펼친 상태로 5종목이면 페이지가 8,000px 가 넘어
     # 가격 조건이 어디 있는지 찾지 못합니다. 접힌 제목에 **질·가격 점수와

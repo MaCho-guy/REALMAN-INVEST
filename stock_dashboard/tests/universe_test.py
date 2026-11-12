@@ -422,7 +422,7 @@ check("워크플로 — 시간 한도를 늘림 (주 1회 한국 심사 33분)",
 
 print("\n=== 화면 — 전수 심사 결과로 그린다 ===")
 _names = ("_discover_us", "_discover_kr", "_universe_or_none", "_universe_line",
-          "_fallback_note", "_criteria_block", "_kr_quality_block")
+          "_fallback_note", "_criteria_block", "_kr_quality_block", "_stage_now")
 _fns = [n for n in ast.parse(app_src).body
         if isinstance(n, ast.FunctionDef) and n.name in _names]
 
@@ -436,10 +436,11 @@ class _Ctx:
 
 
 class FakeSt:
-    def __init__(self, sector="", q=None, choice=None, pick=None):
+    def __init__(self, sector="", q=None, choice=None, pick=None, url_stage=None):
         self.md, self.exp, self._sector, self._q, self.choice = [], [], sector, q, choice
         self.sector_opts = None
         self.pick_opts, self._pick, self.session_state = None, pick, {}
+        self.query_params = {"stage": url_stage} if url_stage else {}
 
     def markdown(self, html, **k):
         self.md.append(html)
@@ -968,6 +969,28 @@ import theme as _th2
 check("접는 칸의 모양 — 두 줄 · 누르면 펼침",
       "details.dash-clamp:not([open]) > summary .t" in _th2.build_css("kr")
       and "-webkit-line-clamp: 2" in _th2.build_css("kr") and '"더 보기"' in _th2.build_css("kr"))
+
+print("\n=== 숫자 칸을 누르면 넘어간다 (2026-11-12 사용자 보고) ===")
+check("단계 칸이 링크다 — 품질 · 가격 · 차트 (후보 · 재무 받음은 아님)",
+      hq.count('class="fn-step') >= 5 and hq.count("fn-link") == 3
+      and 'href="?m=us&amp;s=discover&amp;stage=p" target="_self"' in hq
+      and 'href="?m=us&amp;s=discover&amp;stage=c"' in hq and "fn-on" in hq)
+stu, hu, _c = run("us", _pay2, funnel_payload=_fpay, url_stage="p")
+check("주소의 stage=p 로 들어오면 '가격 부담 낮음' 목록이 열린다 (고르는 칸도 같은 값)",
+      hu.count('class="sc-rk"') == 2 and "품질 통과 + 가격 부담 낮음" in hu
+      and hu.split("stage=p")[0].rsplit("<a", 1)[1].count("fn-on") == 1, "")
+stu2, hu2, _c = run("us", _pay2, funnel_payload=_fpay, url_stage="zzz")
+check("이상한 stage 값은 무시한다 (품질 단계)", hu2.count('class="sc-rk"') == 3)
+check("깔때기 파일이 없으면 링크도 없다", "fn-link" not in hn)
+check("한국 품질 깔때기의 단계 칸도 링크", 'href="?m=kr&amp;s=discover&amp;stage=p"' in hk
+      and hk.count("fn-link") >= 3)
+_qm2 = ui.render_quadrant_map([v_moved, v_same], href_fn=lambda t: f"?m=us&s=valuation&pick={t}")
+check("사분면의 종목 이름이 그 종목으로 가는 링크다",
+      '<a class="qk" href="?m=us&amp;s=valuation&amp;pick=EDGE" target="_self">EDGE</a>' in _qm2
+      and "<a " not in ui.render_quadrant_map([v_moved]).split("dash-legend")[0])
+check("밸류에이션 탭 — 고른 종목을 맨 위로 올려 펼친다",
+      'pick = st.query_params.get("pick", "")' in app_src
+      and "key=lambda t: t[0].ticker != pick" in app_src)
 
 print("\n=== 후보 한 줄 — 셈이 맞아야 한다 ===")
 _p = {"members": [{"ticker": f"A{i}", "index": True} for i in range(515)] + [{"ticker": "W", "index": False}],

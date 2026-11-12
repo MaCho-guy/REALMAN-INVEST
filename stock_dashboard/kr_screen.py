@@ -564,6 +564,10 @@ class FunnelStep:
     label: str
     count: int
     note: str = ""        # 이 단계에서 많이 빠졌다면 왜인지
+    #: 눌렀을 때 갈 주소 ('' = 누를 수 없는 칸). 2026-11-12 사용자: "숫자 칸을 눌러도
+    #: 그 목록으로 안 넘어간다" — 단계 칸이 버튼처럼 보이는데 글자뿐이었습니다.
+    href: str = ""
+    on: bool = False      # 지금 보고 있는 단계
 
 
 def vol_funnel(n_candidates: int, profiles: list[VolProfile],

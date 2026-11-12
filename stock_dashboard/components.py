@@ -1198,12 +1198,16 @@ def render_terms(terms) -> str:
 
 
 def render_screen_table(screens, criteria, *, held=(), sectors: dict | None = None,
-                        rank_from: int | None = None) -> str:
+                        rank_from: int | None = None, extra_heads: tuple = (),
+                        extra: dict | None = None) -> str:
     """전체 요약 표 — 어느 기업이 어느 기준에서 걸렸나 한눈에.
 
     held 에 든 티커는 ★, sectors({티커: 업종})를 주면 업종 칸을 더합니다.
     rank_from 을 주면 종목 이름 앞에 그 숫자부터 순위를 달고, 통과 칸에 순위의
     근거('판정 8 중 8')를 작게 적습니다 — 접어 둔 나머지 표는 이어지는 숫자로.
+
+    extra_heads 와 extra({티커: [(값, 보조 줄), …]})를 주면 통과 칸 뒤에 칸을
+    더합니다 — 깔때기의 '요구 성장률' · '차트' (funnel.py).
 
     좁은 화면에서는 한 줄이 카드 한 장이 되는데, 기준 9칸을 다 세우면 종목당
     12줄이라 20종목만 돼도 끝없이 내려야 했습니다. 그래서 **걸린 기준만**
@@ -1242,7 +1246,12 @@ def render_screen_table(screens, criteria, *, held=(), sectors: dict | None = No
             f"<tr><td title='{_esc(nm)}'>{rk}{star}{_esc(s.ticker)}"
             f"<span class='sc-name'>{_esc(nm[:22])}</span></td>{sect}"
             f'<td class="">{_esc(s.score_label)}{sub}</td>'
-            f'<td class="sc-miss">{miss}</td>'
+            + "".join(
+                f'<td class="sc-x">{_esc(v)}'
+                + (f"<span class='sc-sub'>{_esc(note)}</span>" if note else "") + "</td>"
+                for v, note in ((extra or {}).get(s.ticker)
+                                or [("—", "")] * len(extra_heads))[:len(extra_heads)])
+            + f'<td class="sc-miss">{miss}</td>'
             + "".join(cells) + "</tr>"
         )
     if not rows:
@@ -1251,7 +1260,8 @@ def render_screen_table(screens, criteria, *, held=(), sectors: dict | None = No
     return (
         '<div class="dash-table-wrap"><table class="dash-table dash-sctable">'
         f"<thead><tr><th>종목</th>{sect_h}<th>통과</th>"
-        f"<th class='sc-miss'>걸린 기준</th>{header}</tr></thead>"
+        + "".join(f"<th>{_esc(h)}</th>" for h in extra_heads)
+        + f"<th class='sc-miss'>걸린 기준</th>{header}</tr></thead>"
         f"<tbody>{''.join(rows)}</tbody></table></div>"
     )
 

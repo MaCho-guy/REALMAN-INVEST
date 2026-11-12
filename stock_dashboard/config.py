@@ -194,6 +194,10 @@ UNIVERSE_URLS = {
     "us": os.environ.get("UNIVERSE_US_URL", _DATA_RAW + "universe_us.json"),
     "kr": os.environ.get("UNIVERSE_KR_URL", _DATA_RAW + "universe_kr.json"),
 }
+UNIVERSE_URLS["funnel_us"] = os.environ.get("FUNNEL_US_URL", _DATA_RAW + "funnel_us.json")
+#: 깔때기(가격 · 차트)를 미리 계산해 둘 종목 — 품질 통과 수가 이 값 이상.
+#: 기본선(7)보다 한 칸 낮게 잡아, 화면에서 슬라이더를 6으로 내려도 숫자가 나옵니다.
+FUNNEL_MIN_PASS = 6
 #: 종목 발굴 표에 한 번에 싣는 줄 수 (나머지는 접어 둡니다).
 DISCOVER_TABLE_ROWS = 40
 #: 미국 발굴의 '통과' 기본선 — 9개 중 몇 개 이상 (2026-11-12 사용자 지정: 7).

@@ -125,6 +125,7 @@ import sector_heat
 import semi_research
 import report_summary
 import universe
+import funnel
 import chart_signals
 import daily_brief
 import calendar_events
@@ -1710,14 +1711,31 @@ def _discover_us(use_demo: bool) -> None:
          and s_.passed_count + s_.unknown_count >= quality_min
          and (not pick_sector or sectors.get(s_.ticker) == pick_sector)])
 
-    # 어디서 얼마나 줄었는지 — 후보 → 재무 받음 → 통과
+    # 깔때기 ② 가격 · ③ 차트 — 품질을 통과한 종목에만 수집기가 미리 계산해 둔 값
+    # (funnel.py). 전 종목에 다 돌리지 않고 좁혀 가며 겁니다.
+    fpay = _universe_or_none("funnel_us", use_demo) if from_file else {}
+    fmap = {r.get("t"): r for r in (fpay.get("rows") or []) if isinstance(r, dict)}
+
+    def _fp(t):
+        return (fmap.get(t) or {}).get("p")
+
+    def _fc(t):
+        return (fmap.get(t) or {}).get("c")
+
+    light = [s_ for s_ in passed if funnel.is_light(_fp(s_.ticker))]
+    both = [s_ for s_ in light if funnel.is_oversold(_fc(s_.ticker))]
+
+    # 어디서 얼마나 줄었는지 — 후보 → 재무 받음 → 통과 (→ 가격 → 차트)
     st.markdown(ui.render_funnel([
         kr_screen.FunnelStep("후보", n_members),
         kr_screen.FunnelStep("재무 받음", len(usable),
                              "못 받은 종목은 아래 '이유 보기'" if errors else ""),
         kr_screen.FunnelStep(f"{quality_min}개 이상 통과", len(passed_all)),
     ] + ([kr_screen.FunnelStep(universe.sector_label(pick_sector), len(passed))]
-         if pick_sector else []), errors, title="단계별로 남은 종목"),
+         if pick_sector else [])
+      + ([kr_screen.FunnelStep("가격 부담 낮음", len(light)),
+          kr_screen.FunnelStep("차트 과매도 쪽", len(both))] if fmap else []),
+        errors, title="단계별로 남은 종목"),
         unsafe_allow_html=True)
     if sectors and not pick_sector:
         st.markdown(ui.render_sector_pass(usable, passed_all, sectors, universe.sector_label),
@@ -1725,23 +1743,56 @@ def _discover_us(use_demo: bool) -> None:
 
     held = set(config.watchlist_us_tickers())
     sector_ko = {k: universe.sector_label(v) for k, v in sectors.items()}
+    stage = "q"
+    extra_heads: tuple = ()
+    extra: dict = {}
+    if fmap:
+        stage_names = {"q": f"품질 통과 ({len(passed)})",
+                       "p": f"+ 가격 부담 낮음 ({len(light)})",
+                       "c": f"+ 차트 과매도 쪽 ({len(both)})"}
+        stage = st.segmented_control(
+            "어디까지 좁혀서 볼까", list(stage_names), default="q", key="disc_stage",
+            format_func=lambda k: stage_names[k], label_visibility="collapsed") or "q"
+        made_f = fpay.get("made")
+        unknown_p = sum(1 for s_ in passed if not funnel.price_known(_fp(s_.ticker)))
+        st.markdown(ui.render_legend(
+            "<b>가격 부담 낮음</b> = 역DCF 로 역산한 '지금 주가가 요구하는 FCF 성장률' 이 "
+            "과거 실제 FCF 성장률 이하 (할인율 10% · 영구성장률 2.5% · 밸류에이션 탭과 같은 규칙) · "
+            "<b>차트</b> = 과매도 쪽 (CCI · 스토캐스틱 · 볼린저) · 계산 "
+            + (dt.datetime.fromtimestamp(made_f, KST).strftime("%m/%d %H:%M") if made_f else "?")
+            + (f" · 가격을 판정하지 못한 {unknown_p}종목(FCF 적자 · 사이클 왜곡 · 과거 성장률 "
+               "계산 불가)은 '낮음' 으로 세지 않습니다" if unknown_p else "")),
+            unsafe_allow_html=True)
+        extra_heads = ("요구 성장률", "차트")
+        names = {k: n for k, n, _r in chart_signals.CONDITIONS}
+        extra = {s_.ticker: [funnel.price_cells(_fp(s_.ticker)),
+                             (funnel.chart_cell(_fc(s_.ticker), names), "")]
+                 for s_ in passed}
+    quality_n = len(passed)
+    passed = {"q": passed, "p": light, "c": both}[stage]
     if not passed:
         st.markdown(
             ui.render_notice(
-                "<b>통과한 종목이 없습니다.</b> 기준을 한두 칸 낮추거나 업종을 "
-                f"'전체' 로 바꿔 보십시오 — {len(buffett.CRITERIA)}개를 전부 넘는 "
-                "기업은 드뭅니다."),
+                ("<b>통과한 종목이 없습니다.</b> 기준을 한두 칸 낮추거나 업종을 "
+                 f"'전체' 로 바꿔 보십시오 — {len(buffett.CRITERIA)}개를 전부 넘는 "
+                 "기업은 드뭅니다.") if not quality_n else
+                (f"<b>이 단계까지 남은 종목이 없습니다.</b> 품질 통과 {quality_n}종목 가운데 "
+                 "조건을 다 만족하는 종목이 지금은 없습니다 — 한 단계 앞을 보십시오.")),
             unsafe_allow_html=True,
         )
     else:
         st.markdown(
-            ui.render_section_head("통과 종목", "판정된 기준 중 통과 비율 순", len(passed)),
+            ui.render_section_head(
+                {"q": "통과 종목", "p": "품질 통과 + 가격 부담 낮음",
+                 "c": "품질 통과 + 가격 부담 낮음 + 차트 과매도 쪽"}[stage],
+                "판정된 기준 중 통과 비율 순", len(passed)),
             unsafe_allow_html=True,
         )
         top = passed[:config.DISCOVER_US_ROWS]
         # 한눈표 — 어느 종목이 어느 기준에서 걸렸는지. 펼치지 않고 비교합니다.
         st.markdown(ui.render_screen_table(top, buffett.CRITERIA, held=held,
-                                           sectors=sector_ko, rank_from=1),
+                                           sectors=sector_ko, rank_from=1,
+                                           extra_heads=extra_heads, extra=extra),
                     unsafe_allow_html=True)
         st.markdown(ui.render_legend(
             "<b>○</b> 통과 · <b>✗</b> 미달 · <b>?</b> 판정 불가(숫자 5년치 미만) · "
@@ -1756,7 +1807,7 @@ def _discover_us(use_demo: bool) -> None:
                              expanded=False):
                 st.markdown(ui.render_screen_table(
                     rest[:300], buffett.CRITERIA, held=held, sectors=sector_ko,
-                    rank_from=len(top) + 1),
+                    rank_from=len(top) + 1, extra_heads=extra_heads, extra=extra),
                     unsafe_allow_html=True)
         # 자세히 — 종목마다 접는 칸 30개를 늘어놓던 것을 한 칸으로 줄였습니다.
         # 고른 한 종목만 그리므로 화면도 짧고 보내는 양도 적습니다.

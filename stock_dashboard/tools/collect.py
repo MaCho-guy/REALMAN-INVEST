@@ -348,6 +348,7 @@ def build_universe_us(app, out_dir: str, *, members_fn=None, ticker_map_fn=None,
     """
     import buffett  # noqa: PLC0415
     import config  # noqa: PLC0415
+    import funnel  # noqa: PLC0415
     import universe  # noqa: PLC0415
     from sources import edgar, edgar_facts, universe_src  # noqa: PLC0415
 
@@ -423,7 +424,11 @@ def build_universe_us(app, out_dir: str, *, members_fn=None, ticker_map_fn=None,
                 continue
             if m.get("name"):
                 screen.name = m["name"]
-            screens.append(buffett.to_summary(screen, s=m.get("sector", "")))
+            # 품질을 통과한 종목만 역DCF 입력(FCF 이력 · 순부채)을 같이 남깁니다 —
+            # 가격 단계가 SEC 에 다시 묻지 않게 (funnel.py)
+            d = (funnel.dcf_inputs(screen)
+                 if screen.ok and screen.passed_count >= config.FUNNEL_MIN_PASS else None)
+            screens.append(buffett.to_summary(screen, s=m.get("sector", ""), d=d))
         del facts_map
         print(f"  미국 {min(i + size, len(todo))}/{len(todo)} · {time.time() - t0:.0f}초 · "
               f"못 받음 {len(errors)}")
@@ -474,6 +479,59 @@ def build_universe_kr(app, out_dir: str, *, members_fn=None) -> dict:
             "sec": time.time() - t0, "bytes": size_b, "rules": rules}
 
 
+def build_funnel_us(app, out_dir: str, *, caps_fn=None, ohlc_fn=None) -> dict:
+    """미국 깔때기 — 품질 통과 종목에만 가격(역DCF)과 차트 조건을 겁니다.
+
+    전수 심사 파일(universe_us.json — 방금 만들었거나 지난 것)에서 역DCF 입력이
+    있는 줄만 골라, 시가총액과 1년 일봉을 받아 계산합니다. 주가는 매일 바뀌므로
+    전수 심사를 건너뛴 날에도 **이 단계는 매번** 돕니다.
+    """
+    import chart_signals  # noqa: PLC0415
+    import config  # noqa: PLC0415
+    import funnel  # noqa: PLC0415
+    import universe  # noqa: PLC0415
+    from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
+    from sources import yahoo  # noqa: PLC0415
+
+    t0 = time.time()
+    prev = _read_prev(out_dir, "universe_us.json")
+    todo = [r for r in (prev.get("screens") or []) if isinstance(r.get("d"), dict)]
+    if not todo:
+        return {"skipped": "전수 심사 파일에 역DCF 입력이 없습니다"}
+    sym = {r["t"]: r["t"].replace(".", "-") for r in todo}      # 야후 표기 (BRK.B → BRK-B)
+
+    def caps_default(symbols):
+        def one(s):
+            try:
+                return s, yahoo.fetch_market_cap(s)
+            except Exception:  # noqa: BLE001
+                return s, None
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            return {s: v for s, v in pool.map(one, symbols) if v}
+
+    caps = (caps_fn or caps_default)(list(sym.values()))
+    t_caps = time.time() - t0
+    try:
+        ohlc, oerr = (ohlc_fn or yahoo.fetch_ohlc)(list(sym.values()))
+    except Exception as exc:  # noqa: BLE001
+        ohlc, oerr = {}, {s: f"야후 일봉 실패: {type(exc).__name__}" for s in sym.values()}
+    charts = {row.ticker: row for row in chart_signals.build_rows(
+        [(sym[r["t"]], r.get("n", "")) for r in todo], ohlc, oerr)}
+    rows = []
+    for r in todo:
+        s = sym[r["t"]]
+        rows.append({"t": r["t"], "p": funnel.price_part(r["t"], r["d"], caps.get(s)),
+                     "c": funnel.chart_part(charts[s])})
+    size_b = _write_out(out_dir, "funnel_us.json", universe.dump({
+        "rows": rows, "min_pass": config.FUNNEL_MIN_PASS,
+        "universe_made": prev.get("made")}))
+    return {"n": len(rows), "caps": len(caps), "bars": sum(1 for r in rows if not r["c"].get("e")),
+            "light": sum(1 for r in rows if funnel.is_light(r["p"])),
+            "priced": sum(1 for r in rows if funnel.price_known(r["p"])),
+            "os": sum(1 for r in rows if funnel.is_oversold(r["c"])),
+            "sec": time.time() - t0, "sec_caps": t_caps, "bytes": size_b}
+
+
 def build_universe(app, out_dir: str, markets=("us", "kr")) -> dict:
     """전수 심사 두 시장. 한쪽이 실패해도 다른 쪽은 갑니다."""
     out = {}
@@ -499,6 +557,18 @@ def build_universe(app, out_dir: str, markets=("us", "kr")) -> dict:
                   f"{r.get('bytes', 0) / 1024:.0f} KB")
             for name, info in (r.get("rules") or {}).items():
                 print(f"    규칙: {name} {info.get('n', 0)} ({info.get('how', '')})")
+    if "us" in markets:
+        try:
+            f = build_funnel_us(app, out_dir)
+        except Exception as exc:  # noqa: BLE001
+            f = {"skipped": f"{type(exc).__name__}: {redact(str(exc), secret_values())[:160]}"}
+        out["funnel_us"] = f
+        if f.get("skipped"):
+            print(f"  미국 깔때기: 건너뜀 — {f['skipped']}")
+        else:
+            print(f"  미국 깔때기: 품질 통과 {f['n']}종목 → 시가총액 {f['caps']} · 일봉 {f['bars']} · "
+                  f"가격 판정 {f['priced']} (부담 낮음 {f['light']}) · 차트 과매도 쪽 {f['os']} · "
+                  f"{f['sec']:.0f}초 (시가총액 {f['sec_caps']:.0f}초) · {f['bytes'] / 1024:.0f} KB")
     return out
 
 

@@ -1752,6 +1752,8 @@ def build_rules() -> str:
     color: var(--dash-ink-muted); white-space: nowrap; }}
   table.dash-sctable .sc-rk {{ font-style: normal; font-weight: 500; color: var(--dash-ink-muted);
     font-variant-numeric: tabular-nums; margin-right: 6px; }}
+  table.dash-sctable td.sc-x {{ text-align: left; white-space: nowrap;
+    font-variant-numeric: tabular-nums; }}
   /* '걸린 기준' 한 줄은 좁은 화면 전용 — 넓은 화면은 기준 9칸을 그대로 봅니다 */
   table.dash-sctable .sc-miss {{ display: none; }}
   table.dash-sctable td.sc-sect {{ text-align: left; font-size: var(--fs-2);

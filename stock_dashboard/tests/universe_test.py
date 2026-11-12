@@ -27,6 +27,8 @@ import components as ui  # noqa: E402
 import config  # noqa: E402
 import demo as demo_mod  # noqa: E402
 import kr_screen  # noqa: E402
+import chart_signals  # noqa: E402
+import funnel  # noqa: E402
 import universe  # noqa: E402
 from sources import universe_src  # noqa: E402
 
@@ -494,11 +496,13 @@ def us_payload(n=120):
         "errors": {"ASML": "CIK 를 찾지 못했습니다", "CRCL": "HTTP 404"}}))
 
 
-def run(market, payload, **kw):
+def run(market, payload, funnel_payload=None, **kw):
     st = FakeSt(**kw)
     calls = {"fallback": 0}
 
     def load_universe(m, use_demo):
+        if m == "funnel_us":
+            return funnel_payload or {}
         if isinstance(payload, Exception):
             raise payload
         return payload
@@ -514,6 +518,7 @@ def run(market, payload, **kw):
 
     import html as _h
     ns = {"st": st, "ui": ui, "config": config, "buffett": buffett, "kr_screen": kr_screen,
+          "funnel": funnel, "chart_signals": chart_signals,
           "universe": universe, "dt": dt, "KST": ZoneInfo("Asia/Seoul"),
           "_esc_plain": lambda t: _h.escape(str(t), quote=True),
           "load_universe": load_universe, "_soft_main": soft_main, "load_screens": None,
@@ -651,6 +656,84 @@ check("보류 칸 — 미달 1개 이하인데 판정 불가로 못 미친 종�
       and "숫자를 못 읽은 것" in html7, str(st7.exp))
 st8, html8, _c = run("us", _pay, q=9, sector="Information Technology")
 check("통과가 없어도 화면이 끝까지 그려진다", "통과한 종목이 없습니다" in html8)
+
+print("\n=== 깔때기 — 품질 → 가격(역DCF) → 차트 ===")
+_fcf = [[2016 + i, round(100e6 * 1.08 ** i)] for i in range(10)]      # 과거 연 8% 성장
+_d = {"f": _fcf, "nd": 0, "end": "2025-12-31"}
+cheap = funnel.price_part("A", _d, 2.0e9)       # 시가총액이 작다 → 요구 성장률이 낮다
+dear = funnel.price_part("A", _d, 2.0e10)       # 열 배 비싸다 → 요구 성장률이 높다
+check("역DCF — 요구 성장률과 과거 성장률을 같이 낸다",
+      cheap["g"] is not None and abs(cheap["h"] - 0.08) < 0.005 and cheap["sp"] == 9, str(cheap))
+check("싼 쪽은 '부담 낮음', 비싼 쪽은 아니다 (요구 ≤ 과거)",
+      funnel.is_light(cheap) and not funnel.is_light(dear) and dear["g"] > cheap["g"],
+      f"{cheap['g']:.3f} vs {dear['g']:.3f}")
+nocap = funnel.price_part("A", _d, None)
+loss = funnel.price_part("A", {"f": [[2016 + i, -1e6] for i in range(10)], "nd": 0}, 1e9)
+check("시가총액을 못 받았거나 FCF 가 적자면 판정하지 않는다 (낮음으로 세지 않음)",
+      not funnel.is_light(nocap) and nocap.get("e") and not funnel.price_known(loss) and loss.get("e"))
+check("왜곡이 큰 종목은 숫자가 있어도 낮음으로 세지 않는다",
+      not funnel.is_light({"gap": -0.1, "sev": True}) and funnel.is_light({"gap": -0.1}))
+v, note = funnel.price_cells(cheap)
+check("표의 글 — 요구 성장률과 과거", v.startswith("연 ") and "과거 연 8.0% · 9년" in note, f"{v} / {note}")
+check("차트 칸 — 쪽과 근거", funnel.chart_cell(
+    {"side": "os", "st": {"cci": "과매도 진입", "cloud": "양운", "macd": "아래"}},
+    {"cci": "CCI"}) == "과매도 쪽 · CCI 과매도 진입 · 양운"
+    and funnel.chart_cell(None) == "—" and funnel.chart_cell({"e": "x"}) == "—")
+_full = buffett.Screen(ticker="Z", years=[buffett.YearRow(year=2025, end="2025-12-31",
+                                                          operating_cash_flow=10.0, capex=4.0,
+                                                          long_term_debt=5.0, cash=2.0)])
+check("심사할 때 역DCF 입력만 추린다", funnel.dcf_inputs(_full) == {
+    "f": [[2025, 6]], "nd": 3, "end": "2025-12-31"}
+    and funnel.dcf_inputs(buffett.Screen(ticker="Z")) is None, str(funnel.dcf_inputs(_full)))
+
+with tempfile.TemporaryDirectory() as out:
+    _scr = [dict(buffett.to_summary(_all9, s="Utilities", d=_d), t=t) for t in ("AAA", "BRK.B")]
+    _scr.append(buffett.to_summary(_far, s="Utilities"))                # 품질 미달 — 입력 없음
+    pathlib.Path(out, "universe_us.json").write_text(universe.dump({
+        "rules": {}, "members": [], "screens": _scr, "errors": {}}), encoding="utf-8")
+    asked = {}
+
+    def _caps(symbols):
+        asked["caps"] = list(symbols)
+        return {"AAA": 2.0e9}
+
+    def _ohlc(symbols):
+        asked["ohlc"] = list(symbols)
+        got, errs = demo_mod.demo_chart_ohlc([(x, x) for x in symbols])
+        return got, errs
+
+    fr = collect.build_funnel_us(None, out, caps_fn=_caps, ohlc_fn=_ohlc)
+    fdata = universe.parse(pathlib.Path(out, "funnel_us.json").read_text(encoding="utf-8"))
+    check("깔때기는 품질 통과 종목(입력이 있는 줄)에만 건다",
+          fr["n"] == 2 and asked["caps"] == ["AAA", "BRK-B"] and asked["ohlc"] == ["AAA", "BRK-B"],
+          str(asked))
+    check("결과 파일 — 종목별 가격 · 차트", [r["t"] for r in fdata["rows"]] == ["AAA", "BRK.B"]
+          and fdata["rows"][0]["p"]["g"] is not None and "e" in fdata["rows"][1]["p"]
+          and ("side" in fdata["rows"][0]["c"] or "e" in fdata["rows"][0]["c"]), str(fdata["rows"])[:300])
+    pathlib.Path(out, "universe_us.json").write_text(universe.dump({
+        "rules": {}, "members": [], "screens": [buffett.to_summary(_far)], "errors": {}}), encoding="utf-8")
+    check("입력이 하나도 없으면 건너뛴다 (파일을 만들지 않음)",
+          collect.build_funnel_us(None, out, caps_fn=_caps, ohlc_fn=_ohlc).get("skipped"))
+
+_pay2 = us_payload(3)
+_pay2["screens"] = [dict(buffett.to_summary(_all9, s="Utilities"), t=t) for t in ("L1", "L2", "D1")]
+_fpay = {"made": 1_794_470_000, "rows": [
+    {"t": "L1", "p": cheap, "c": {"side": "os", "st": {"cci": "과매도 진입"}}},
+    {"t": "L2", "p": cheap, "c": {"side": "ob", "st": {"cci": "과매수 진입"}}},
+    {"t": "D1", "p": dear, "c": {"side": "os", "st": {"stoch": "과매도 구간"}}}]}
+stq, hq, _c = run("us", _pay2, funnel_payload=_fpay)
+check("단계표에 가격 · 차트 단계가 이어진다", "가격 부담 낮음" in hq and "차트 과매도 쪽" in hq
+      and "요구 성장률" in hq and "<th>차트</th>" in hq and "밸류에이션 탭과 같은 규칙" in hq)
+check("기본은 품질 통과 전부", hq.count('class="sc-rk"') == 3)
+stp, hp, _c = run("us", _pay2, funnel_payload=_fpay, choice="p")
+check("가격까지 좁히면 부담 낮은 종목만", hp.count('class="sc-rk"') == 2 and "D1" not in hp.split("dash-sctable")[1])
+stc, hc, _c = run("us", _pay2, funnel_payload=_fpay, choice="c")
+check("차트까지 좁히면 과매도 쪽만", hc.count('class="sc-rk"') == 1 and stc.pick_opts and "L1" in stc.pick_opts[0])
+ste, he, _c = run("us", _pay2, funnel_payload={"made": 1, "rows": [{"t": "L1", "p": dear, "c": {}}]}, choice="c")
+check("남은 종목이 없으면 그렇게 적는다 (화면은 끝까지)", "이 단계까지 남은 종목이 없습니다" in he)
+stn, hn, _c = run("us", _pay2)
+check("깔때기 파일이 없으면 품질 단계만 — 칸도 단계도 없다",
+      "가격 부담 낮음" not in hn and "요구 성장률" not in hn and hn.count('class="sc-rk"') == 3)
 
 print("\n=== 후보 한 줄 — 셈이 맞아야 한다 ===")
 _p = {"members": [{"ticker": f"A{i}", "index": True} for i in range(515)] + [{"ticker": "W", "index": False}],

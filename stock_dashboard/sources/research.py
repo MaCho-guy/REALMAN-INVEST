@@ -375,9 +375,22 @@ def reports_from_json(payload, kind: str) -> list[Report]:
         url = _pick(d, "url", "link", "href", avoid=("pdf", "image", "img", "thumb"))
         if ".pdf" in url.lower():
             url = ""
+        # 2026-11-12 실제 응답: researchCategory='산업분석', category='반도체'.
+        # 이름에 'category' 가 든 첫 칸을 집으면 '산업분석' 이 업종이 되어
+        # 87건이 전부 한 묶음이 됐습니다 — 이름이 **정확히** category 인 칸을 먼저.
+        generic = ("산업분석", "시황정보", "종목분석", "투자정보", "경제분석", "채권분석",
+                   "industry", "market", "daily", "invest", "company", "economy")
         cat = ""
-        for needle in ("upjong", "industry", "sector", "category"):
+        exact = d.get("category")
+        if isinstance(exact, str) and exact.strip() and exact.strip().lower() not in generic:
+            cat = exact.strip()
+        for needle in ((),) if cat else ("upjong", "industry", "sector", "category"):
+            if not needle:
+                break
             cat = _pick(d, needle)
+            if cat.lower() in generic:       # 목록 종류 이름은 업종이 아닙니다
+                cat = ""
+                continue
             # 'industry' · 'market' 같은 값은 업종이 아니라 목록 종류 이름
             if cat and cat.lower() not in ("industry", "market", "daily",
                                            "invest", "company"):

@@ -1081,6 +1081,27 @@ def fetch_market_filings(*, days: int = 5, pages: int = 3,
     return scan_market_filings(days=days, limit=limit).filings
 
 
+#: 큰 묶음에 들지 않는 공시(정기보고서·기타)에 붙이는 이름.
+OTHER_GROUP = "기타 공시"
+
+
+def to_market_filing(d: "Disclosure", stock_code: str = "") -> MarketFiling:
+    """종목별 공시 한 건을 시장 공시 표가 그리는 모양으로.
+
+    시장 공시는 '중요한 유형' 만 추려 300건까지 담습니다. 그래서 '내 종목만'
+    을 켜면 대부분 비었습니다 (내 종목에 그 며칠 사이 그런 공시가 없으면
+    0건). 내 종목은 **유형을 가리지 않고 전부** 보여주는 것이 맞아서,
+    종목별로 받은 공시를 이 모양으로 바꿔 같은 표에 넣습니다.
+    """
+    kind = classify_detail(d.report_nm)
+    return MarketFiling(
+        date=d.date_iso, corp_name=d.corp_name,
+        stock_code=d.stock_code or stock_code, title=d.report_nm,
+        kind=kind.group if kind else OTHER_GROUP,
+        rcept_no=d.rcept_no, sub=kind.label if kind else "",
+        flags=title_flags(d.report_nm, d.rm), filer=d.flr_nm)
+
+
 def filter_filings(filings: list[MarketFiling], *, groups=(), subs=(),
                    market: str = "", codes=None) -> list[MarketFiling]:
     """화면 필터. 비어 있는 조건은 '전부' 로 봅니다."""

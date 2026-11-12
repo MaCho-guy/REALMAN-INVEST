@@ -532,6 +532,21 @@ def kr_macro_row(label: str, kind: str, series: Series | None, error: str = "",
         value = f"{last.value / 1e8:,.1f}억 달러"
         if base is not None and base.value:
             value += f"  (전년동월비 {(last.value / base.value - 1) * 100:+.1f}%)"
+    elif kind == "pct":
+        value = f"전년동월비 {last.value:+.1f}%"
+        notes = [n for n in notes if "전년비 생략" not in n]
+        if base is not None:
+            notes.append(f"1년 전 {base.value:+.1f}%")
+    elif kind == "level":
+        value = f"{last.value:,.1f}"
+        if base is not None:
+            value += f"  (1년 전보다 {last.value - base.value:+.1f})"
+        notes.append("100 이 장기 추세")
+    elif kind == "balance":
+        value = f"{last.value:+.1f}"
+        if base is not None:
+            value += f"  (1년 전보다 {last.value - base.value:+.1f})"
+        notes.append("0 이 중립 · 긍정−부정 응답")
     else:                                    # index
         if base is not None and base.value:
             value = f"전년동월비 {(last.value / base.value - 1) * 100:+.1f}%"

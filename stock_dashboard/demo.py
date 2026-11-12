@@ -1124,11 +1124,18 @@ def demo_kr_macro(specs):
         elif kind == "usd":
             text = f"{rnd.uniform(550, 1100):,.1f}억 달러  (전년동월비 {yoy * 4:+.1f}%)"
             note = "9월분"
+        elif kind == "pct":
+            text, note = f"전년동월비 {yoy / 2:+.1f}%", f"8월분 · 1년 전 {yoy / 3:+.1f}%"
+        elif kind == "level":
+            lv = rnd.uniform(99, 103)
+            text = f"{lv:,.1f}  (1년 전보다 {rnd.uniform(-1.5, 2.0):+.1f})"
+            note = "9월분 · 100 이 장기 추세"
+        elif kind == "balance":
+            text = f"{rnd.uniform(-12, 4):+.1f}  (1년 전보다 {rnd.uniform(-5, 5):+.1f})"
+            note = "9월분 · 0 이 중립 · 긍정−부정 응답"
         else:
             text, note = f"전년동월비 {yoy:+.1f}%", f"9월분 · 지수 {val:,.1f}"
         rows.append((label, text, note))
-    rows[-1] = (specs[-1][1], "—", "(데모) 최근 3년 관측치가 없습니다 — "
-                "FRED 에서 중단된 계열일 수 있습니다")
     return rows
 
 

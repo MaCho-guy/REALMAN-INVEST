@@ -1011,6 +1011,115 @@ def diagnose_yahoo_events() -> None:
             print(f"  {row}")
 
 
+def diagnose_research_detail() -> None:
+    """리서치 — 종목 리포트 목록과 상세(요약·목표가)가 어떤 모양으로 오는지.
+
+    반도체 리포트 화면을 만들기 전에 **실제 응답**을 보려고 만든 것입니다.
+    주소는 전부 추측입니다 — 되는 것과 그 모양을 찍습니다. 본문은 앞
+    160자만 찍습니다 (구조 확인용).
+    """
+    import json as _json
+
+    import requests as _rq
+    from sources import research as _rs
+
+    head("리서치 — 종목 리포트 · 상세")
+    hdr = {**_rs.HEADERS, "Accept": "application/json"}
+    base = "https://m.stock.naver.com"
+
+    def show(value, limit=70):
+        text = str(value).replace("\n", " ")
+        return text if len(text) <= limit else text[:limit] + f"…(+{len(text) - limit})"
+
+    def call(url):
+        try:
+            r = _rq.get(url, headers=hdr, timeout=10)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  {url}\n    → 실패 {type(exc).__name__}")
+            return None
+        try:
+            data = r.json()
+        except Exception:  # noqa: BLE001
+            print(f"  {url}\n    → HTTP {r.status_code} · {len(r.content):,}B · JSON 아님: "
+                  f"{r.text[:60]!r}")
+            return None
+        print(f"  {url}\n    → HTTP {r.status_code} · {len(r.content):,}B")
+        return data
+
+    def rows_of(data):
+        if isinstance(data, list):
+            return [d for d in data if isinstance(d, dict)]
+        if isinstance(data, dict):
+            for key in ("result", "list", "data", "items", "researches", "contents"):
+                got = rows_of(data.get(key))
+                if got:
+                    return got
+            for val in data.values():
+                got = rows_of(val) if isinstance(val, (list, dict)) else []
+                if got:
+                    return got
+        return []
+
+    first_ids: dict[str, str] = {}
+    print("\n[목록]")
+    lists = [
+        ("industry", "/api/research/industry?pageSize=30&page=1"),
+        ("industry", "/api/research/industry?pageSize=30&page=1&category=반도체"),
+        ("industry", "/api/research/industry?pageSize=30&page=1&keyword=반도체"),
+        ("company", "/api/research/company?pageSize=30&page=1"),
+        ("company", "/api/research/company?pageSize=30&page=1&itemCode=005930"),
+        ("company", "/api/research/company?pageSize=30&page=1&code=005930"),
+        ("company", "/api/research/company?pageSize=30&page=1&stockCode=005930"),
+        ("company", "/api/research/company?pageSize=30&page=1&keyword=삼성전자"),
+        ("company", "/front-api/research/list?category=company&pageSize=30&page=1&itemCode=005930"),
+        ("company", "/api/stock/005930/research?pageSize=20&page=1"),
+        ("company", "/api/research/stock/005930?pageSize=20&page=1"),
+    ]
+    for kind, path in lists:
+        data = call(base + path)
+        rows = rows_of(data)
+        if not rows:
+            if isinstance(data, dict):
+                print(f"    키 {list(data)[:8]} · 줄 없음")
+            continue
+        cats: dict[str, int] = {}
+        for row in rows:
+            tag = str(row.get("category") or row.get("stockName") or row.get("itemName")
+                      or row.get("itemCode") or "?")
+            cats[tag] = cats.get(tag, 0) + 1
+        top = sorted(cats.items(), key=lambda kv: -kv[1])[:6]
+        print(f"    {len(rows)}줄 · 분포 {top}")
+        print("    첫 줄: " + ", ".join(f"{k}={show(v, 40)!r}" for k, v in rows[0].items()))
+        first_ids.setdefault(kind, str(rows[0].get("researchId") or rows[0].get("id")
+                                       or rows[0].get("nid") or ""))
+
+    print("\n[상세]")
+    for kind in ("industry", "company"):
+        rid = first_ids.get(kind)
+        if not rid:
+            print(f"  {kind}: 목록에서 번호를 얻지 못해 건너뜁니다")
+            continue
+        for path in (f"/api/research/{kind}/{rid}",
+                     f"/front-api/research/detail?category={kind}&researchId={rid}",
+                     f"/api/research/{kind}/detail/{rid}",
+                     f"/api/research/detail/{kind}/{rid}"):
+            data = call(base + path)
+            if data is None:
+                continue
+            node = data
+            if isinstance(node, dict) and isinstance(node.get("result"), dict):
+                node = node["result"]
+            if not isinstance(node, dict):
+                print(f"    모양: {type(node).__name__}")
+                continue
+            for key, val in node.items():
+                if isinstance(val, (dict, list)):
+                    print(f"    {key}: {type(val).__name__}[{len(val)}] "
+                          f"{show(_json.dumps(val, ensure_ascii=False), 160)}")
+                else:
+                    print(f"    {key}: {show(val, 160)!r}")
+
+
 def diagnose_research() -> None:
     """네이버 증권 리서치 목록 — 받아지는지, 줄이 제대로 읽히는지."""
     import requests as _rq

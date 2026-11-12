@@ -126,6 +126,9 @@ DART_CORP_CODE_OVERRIDES: dict[str, str] = {}
 #: 공시 조회 기간(일)과 건수
 DART_DISCLOSURE_DAYS = 180
 DART_DISCLOSURE_LIMIT = 15
+#: '내 종목만' 공시 — 종목마다 이 기간 · 이 건수까지 (유형을 가리지 않음)
+MY_FILINGS_DAYS = 90
+MY_FILINGS_LIMIT = 30
 
 #: 캐시 — 공시 30분, 고유번호 매핑 24시간, 재무제표 12시간(분기마다 바뀜)
 DART_CACHE_TTL_SEC = 1800
@@ -861,7 +864,8 @@ SECTION_ETF_PROXY = Section(
 # ──────────────────────────────────────────────────────────────────────────────
 # 섹션 7 — 관심종목
 # ──────────────────────────────────────────────────────────────────────────────
-# 사용자 지정: MSFT, AAPL, MU, O, QQQ, SCHD, UNH, 삼성전자, SK하이닉스
+# 사용자 지정: MSFT, AAPL, MU, O, QQQ, SCHD, UNH, AMT, CRCL, GOOGL,
+#              삼성전자, SK하이닉스, 삼성증권, SK스퀘어
 
 SECTION_WATCHLIST = Section(
     key="watchlist",
@@ -887,12 +891,25 @@ SECTION_WATCHLIST = Section(
                    note="미국 배당주 ETF"),
         Instrument("UnitedHealth", "UNH", "yahoo", "NYSE", "USD",
                    verified=True, decimals=2, analysis_key="UNH"),
+        # 2026-11-12 추가 (미국 보유): AMT · CRCL · GOOGL. 시세는 올린 뒤 실제
+        # 화면에서 확인합니다 — verified 는 그때 켭니다.
+        Instrument("American Tower", "AMT", "yahoo", "NYSE", "USD",
+                   decimals=2, analysis_key="AMT", note="통신탑 리츠(REIT)"),
+        Instrument("Circle Internet", "CRCL", "yahoo", "NYSE", "USD",
+                   decimals=2, analysis_key="CRCL"),
+        Instrument("Alphabet (A)", "GOOGL", "yahoo", "NASDAQ", "USD",
+                   decimals=2, analysis_key="GOOGL"),
         Instrument("삼성전자", "005930", "naver", "KOSPI", "KRW",
                    verified=True, decimals=0,
                    fundamental_symbol="005930.KS", analysis_key="005930"),
         Instrument("SK하이닉스", "000660", "naver", "KOSPI", "KRW",
                    verified=True, decimals=0,
                    fundamental_symbol="000660.KS", analysis_key="000660"),
+        # 2026-11-12 추가 (국내 보유): 삼성증권 · SK스퀘어
+        Instrument("삼성증권", "016360", "naver", "KOSPI", "KRW",
+                   decimals=0, fundamental_symbol="016360.KS", analysis_key="016360"),
+        Instrument("SK스퀘어", "402340", "naver", "KOSPI", "KRW",
+                   decimals=0, fundamental_symbol="402340.KS", analysis_key="402340"),
     ),
     footnote="프리장·애프터장 시세가 있으면 함께 표시합니다. 공시 분석은 '공시 분석' 탭에 있습니다.",
 )
@@ -1438,12 +1455,20 @@ LIQUIDITY_EXTRA: tuple[tuple[str, str, str, str, float, float], ...] = (
 #: 경유라 ID 체계가 미국 계열과 다르고, 중단된 계열도 많습니다.
 #: 진단으로 확인한 뒤 안 되는 것은 지우십시오.
 KR_MACRO_SERIES: tuple[tuple[str, str], ...] = (
-    ("KORCPIALLMINMEI", "한국 소비자물가 (지수)"),
-    ("KORPROINDMISMEI", "한국 광공업생산 (지수)"),
+    # 2026-11-12 FRED 에서 직접 확인한 마지막 관측 (같은 날 기준):
+    #   끊김  KORCPIALLMINMEI 소비자물가 2023-11 · KORPROINDMISMEI 광공업생산
+    #         2024-03 · KORLOLITONOSTSAM 선행지수 2024-01
+    #   살아 있음  아래 여덟 개 (2026-08 ~ 2026-09)
+    # 소비자물가는 FRED 에 살아 있는 한국 계열이 없습니다 (근원물가
+    # CPGRLE01KRM659N 도 2025-04 에서 끊김). 물가 대신 금리·실업률을 둡니다.
+    ("KORPRINTO01GYSAM", "한국 산업생산 (전년동월비)"),
+    ("KORLOLITOAASTSAM", "한국 OECD 경기선행지수"),
+    ("BSCICP02KRM460S", "한국 제조업 기업심리"),
     ("XTEXVA01KRM667S", "한국 수출액"),
     ("XTIMVA01KRM667S", "한국 수입액"),
+    ("LRHUTTTTKRM156S", "한국 실업률"),
     ("IR3TIB01KRM156N", "한국 3개월 시장금리"),
-    ("KORLOLITONOSTSAM", "한국 OECD 경기선행지수"),
+    ("IRLTLT01KRM156N", "한국 10년 국채금리"),
 )
 
 #: 계열마다 **값을 어떻게 읽나**. 2026-11-12 실제 화면: 수출액이
@@ -1452,10 +1477,15 @@ KR_MACRO_SERIES: tuple[tuple[str, str], ...] = (
 #:   index  지수 — 레벨은 기준연도에 따라 달라 뜻이 없으므로 전년동월비를 앞에
 #:   usd    달러 금액 — 억 달러로
 #:   rate   금리(%) — 변화는 %p
+#:   pct    이미 전년동월비(%)로 오는 계열 — 그대로
+#:   level  100 근처에서 오르내리는 지수(선행지수) — 레벨이 뜻이 있음
+#:   balance 긍정 − 부정 응답 비율(%p) — 0 이 중립
 KR_MACRO_KIND: dict[str, str] = {
-    "KORCPIALLMINMEI": "index", "KORPROINDMISMEI": "index",
+    "KORPRINTO01GYSAM": "pct", "KORLOLITOAASTSAM": "level",
+    "BSCICP02KRM460S": "balance",
     "XTEXVA01KRM667S": "usd", "XTIMVA01KRM667S": "usd",
-    "IR3TIB01KRM156N": "rate", "KORLOLITONOSTSAM": "index",
+    "LRHUTTTTKRM156S": "rate", "IR3TIB01KRM156N": "rate",
+    "IRLTLT01KRM156N": "rate",
 }
 
 
@@ -1529,6 +1559,9 @@ KR_SECTOR_ETFS: tuple[tuple, ...] = (
     ("117460", "에너지화학", ("에너지", "energy", "chem")),
     ("117680", "철강", ("철강", "steel")),
     ("117700", "건설", ("건설", "construction")),
-    ("102960", "기계장비", ("기계", "machinery")),
+    # 야후가 이 ETF 의 이름을 'KODEX MACHINARY & EQUIPMENT' 로 줍니다 (철자가
+    # machinery 가 아님 — 2026-11-12 실제 화면). 코드는 맞는데 낱말이 안 맞아
+    # '✗ 코드 확인' 이 떴습니다. 'machin' · 'equipment' 로 받습니다.
+    ("102960", "기계장비", ("기계", "machin", "equipment")),
     ("140710", "운송", ("운송", "transport")),
 )

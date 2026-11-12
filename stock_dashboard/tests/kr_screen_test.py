@@ -198,7 +198,8 @@ check("신고가만은 그보다 많거나 같다", n_h >= n_c, f"{n_h} vs {n_c}
 check("전부 통과하지는 않는다", n_h < len(demo_cands), f"{n_h}")
 demo_rows = demo_mod.demo_kr_value_rows(demo_cands)
 n_v = len(ks.value_hits(demo_rows))
-check("밸류가 1~20종목", 1 <= n_v <= 20, f"{n_v}종목")
+# 후보가 늘면(보유 종목 추가) 같이 늘 수 있어 절반 이하로 봅니다
+check("밸류가 1종목 이상 · 후보의 절반 이하", 1 <= n_v <= len(demo_cands) // 2, f"{n_v}종목 / {len(demo_cands)}")
 
 print("\n=== 유동성 바닥 ===")
 check("기준이 5억 원", ks.MIN_TURNOVER == 500_000_000.0)

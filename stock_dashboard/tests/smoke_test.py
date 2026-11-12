@@ -248,7 +248,8 @@ check_true("탭 라벨 중복 없음",
            len({l for _k, l in config.tab_labels()}) == len(config.tab_labels()))
 
 watch = {i.symbol for i in config.SECTION_WATCHLIST.instruments}
-expected_watch = {"MSFT", "AAPL", "MU", "O", "QQQ", "SCHD", "UNH", "005930", "000660"}
+expected_watch = {"MSFT", "AAPL", "MU", "O", "QQQ", "SCHD", "UNH", "AMT", "CRCL", "GOOGL",
+                  "005930", "000660", "016360", "402340"}      # 2026-11-12 보유 종목 추가
 check_true("관심종목 구성 일치", watch == expected_watch,
            f"차이: {watch ^ expected_watch}")
 check_true("관심종목 전부 analysis_key 보유",

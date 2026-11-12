@@ -306,6 +306,44 @@ def load_dart_disclosures(use_demo: bool,
     return out, errors
 
 
+@swr.cached(1_800, stale=6 * 3_600)
+def load_my_filings(codes: tuple[str, ...], use_demo: bool, key_fp: str = ""
+                    ) -> tuple[list, dict[str, str]]:
+    """내 종목(보유 + 관심)의 공시 — **유형을 가리지 않고** 종목별로. 30분 저장.
+
+    (시장 공시 모양의 목록 — 최신순, {코드: 실패 사유})
+    """
+    if use_demo:
+        found = []
+        for code, items in demo_mod.demo_dart_disclosures().items():
+            if code in codes:
+                found += [dart.to_market_filing(d, code) for d in items]
+        return sorted(found, key=lambda f: f.date, reverse=True), {}
+    if not codes:
+        return [], {}
+    corp_map, map_err = load_corp_codes()
+    if map_err:
+        return [], {"DART": map_err}
+
+    def one(code: str):
+        corp = dart.resolve_corp_code(code, corp_map, config.DART_CORP_CODE_OVERRIDES)
+        if corp is None:
+            return code, [], f"'{code}' 의 DART 고유번호를 찾지 못했습니다."
+        try:
+            items = dart.fetch_disclosures(corp, since_days=config.MY_FILINGS_DAYS,
+                                           limit=config.MY_FILINGS_LIMIT)
+        except dart.DartError as exc:
+            return code, [], str(exc)
+        return code, [dart.to_market_filing(d, code) for d in items], ""
+
+    found, errors = [], {}
+    for code, items, err in _pool_map(one, codes):
+        found += items
+        if err:
+            errors[code] = err
+    return sorted(found, key=lambda f: (f.date, f.rcept_no), reverse=True), errors
+
+
 @swr.cached(config.DART_FINANCIALS_CACHE_TTL_SEC, stale=14 * 86_400)
 def load_us_inventory_trends(use_demo: bool) -> tuple[dict[str, object], dict[str, str]]:
     """미국 기업 재고 지표 — EDGAR XBRL. 키가 필요 없습니다."""
@@ -769,9 +807,9 @@ def load_liquidity(use_demo: bool, key_fp: str = ""):
     return nl, extra
 
 
-@swr.cached(3_600, version=2)       # 2: 값의 모양이 바뀜 (억 달러 · %p · 몇 월분)
+@swr.cached(3_600, version=3)       # 3: 계열 교체 (2026-11-12)
 def load_kr_macro(use_demo: bool, key_fp: str = ""):
-    """한국 경제지표 (FRED 경유). 계열 ID 는 전부 미검증입니다."""
+    """한국 경제지표 (FRED 경유). 2026-11-12 살아 있는 계열로 교체."""
     if use_demo:
         return demo_mod.demo_kr_macro(config.KR_MACRO_SERIES)
     series, errors = fred.fetch_many(
@@ -2316,18 +2354,44 @@ def _render_market_filings(use_demo: bool) -> None:
             disabled=not my_codes,
             help="보유(Secrets 의 PORTFOLIO)와 워치리스트의 국내 종목.")
 
-    chosen = dart.filter_filings(
-        filings, groups=groups, subs=subs,
-        market="" if market in (None, "전체") else market,
-        codes=my_codes if only_mine else None)
-    mine_hits = sum(1 for f in filings if f.stock_code in my_codes)
-    st.markdown(ui.render_notice(
-        f"<b>{len(chosen)}건</b> / 추린 공시 {len(filings)}건"
-        + (f" · 읽은 공시 {scan.scanned:,}건" if getattr(scan, "scanned", 0) else "")
-        + (f" · <b>내 종목 {mine_hits}건</b>" if mine_hits else "")),
-        unsafe_allow_html=True)
-    st.markdown(ui.render_market_filings(chosen, held=my_codes, scan=scan),
-                unsafe_allow_html=True)
+    if only_mine:
+        # 내 종목은 시장 공시(중요 유형만 · 300건)에서 거르지 않습니다 —
+        # 2026-11-12 "내 종목만 했을 때 안 보임". 종목별로 **전부** 받습니다.
+        mine, m_errs = load_my_filings(tuple(sorted(my_codes)), use_demo,
+                                       dart.key_fingerprint())
+        chosen = [f for f in mine
+                  if (not groups or f.kind in groups) and (not subs or f.sub in subs)]
+        st.markdown(ui.render_notice(
+            f"<b>내 종목 {len(my_codes)}개의 공시 {len(chosen)}건</b> — 최근 "
+            f"{config.MY_FILINGS_DAYS}일, 유형을 가리지 않고 전부"
+            + (f" (위에서 고른 분류만 · 전체 {len(mine)}건)"
+               if (groups or subs) and len(chosen) != len(mine) else "")
+            + (" · 받지 못한 종목: " + ", ".join(sorted(m_errs)) if m_errs else "")),
+            unsafe_allow_html=True)
+        if chosen:
+            st.markdown(ui.render_market_filings(chosen, held=my_codes),
+                        unsafe_allow_html=True)
+        elif mine:
+            st.markdown(ui.render_footnote(
+                "고른 분류에 해당하는 공시가 없습니다 — 위의 분류를 지우면 "
+                "전부 보입니다."), unsafe_allow_html=True)
+        else:
+            st.markdown(ui.render_footnote(
+                f"최근 {config.MY_FILINGS_DAYS}일 동안 내 종목의 공시가 없습니다."
+                + (" " + " / ".join(f"{c}: {e}" for c, e in m_errs.items())[:200]
+                   if m_errs else "")), unsafe_allow_html=True)
+    else:
+        chosen = dart.filter_filings(
+            filings, groups=groups, subs=subs,
+            market="" if market in (None, "전체") else market)
+        mine_hits = sum(1 for f in filings if f.stock_code in my_codes)
+        st.markdown(ui.render_notice(
+            f"<b>{len(chosen)}건</b> / 추린 공시 {len(filings)}건"
+            + (f" · 읽은 공시 {scan.scanned:,}건" if getattr(scan, "scanned", 0) else "")
+            + (f" · <b>내 종목 {mine_hits}건</b>" if mine_hits else "")),
+            unsafe_allow_html=True)
+        st.markdown(ui.render_market_filings(chosen, held=my_codes, scan=scan),
+                    unsafe_allow_html=True)
     with st.expander("유형별로 무엇을 보면 되나"):
         st.markdown(ui.render_filing_guide(dart.DISCLOSURE_TYPES,
                                            dart.DISCLOSURE_GROUPS),
@@ -2365,11 +2429,10 @@ def _flows_korea(use_demo: bool) -> None:
     st.markdown(ui.render_simple_rows(kr_rows), unsafe_allow_html=True)
     st.markdown(
         ui.render_footnote(
-            "<b>한국 계열 ID 는 전부 미검증입니다.</b> FRED 의 한국 통계는 "
-            "OECD 경유라 ID 체계가 미국 계열과 다르고 중단된 것도 많습니다. "
-            "'—' 로 나오면 그 계열이 없는 것이니 진단 패널에서 확인하고 "
-            "config 에서 지우십시오. 원자료는 한국은행 ECOS 가 정확하지만 "
-            "별도 키가 필요합니다."),
+            "<b>FRED 에서 지금 갱신되는 한국 계열만 골랐습니다</b> (2026-11-12 "
+            "확인). 소비자물가는 FRED 의 한국 계열이 2023년에 끊겨 뺐습니다 — "
+            "물가까지 보려면 한국은행 ECOS 가 정확하지만 별도 키가 필요합니다. "
+            "줄에 '갱신이 멈춘 계열' 이라고 뜨면 그 계열도 끊긴 것입니다."),
         unsafe_allow_html=True,
     )
 
@@ -2497,6 +2560,9 @@ def render_diag_panel() -> None:
          "네이버 증권 리서치의 산업분석·시황 목록이 받아지는지, 줄마다 업종·"
          "제목·증권사·날짜·PDF 가 제대로 읽히는지. **이 해석기는 실제 응답으로 "
          "검증하지 못했으므로** 산업 리포트가 비거나 이상하면 눌러 보십시오."),
+        ("research2", "리서치 종목·상세 확인", "diagnose_research_detail",
+         "종목 리포트 목록(삼성전자)과 리포트 상세가 어떤 모양으로 오는지. "
+         "반도체 리포트 화면의 근거 확인용."),
         ("krcode", "국내 종목코드 대조", "diagnose_kr_codes",
          "config 의 6자리 코드가 실제로 그 회사인지 DART corpCode.xml 로 "
          "맞춰봅니다. 코드가 틀리면 **다른 회사 재무를 조용히 가져옵니다.** "
@@ -3355,7 +3421,8 @@ FETCH_LABELS = {
     "load_release_dates": "발표 일정",
     "load_feargreed": "공포탐욕", "load_vix": "VIX",
     "load_filings": "미국 공시", "load_dart_disclosures": "국내 공시",
-    "load_market_filings": "시장 공시", "load_corp_codes": "DART 고유번호",
+    "load_market_filings": "시장 공시", "load_my_filings": "내 종목 공시",
+    "load_corp_codes": "DART 고유번호",
     "load_kr_companies": "기업 개황",
     "load_inventory_trends": "국내 재고", "load_us_inventory_trends": "미국 재고",
     "load_screens": "미국 재무 심사", "load_kr_screens": "국내 재무 심사",

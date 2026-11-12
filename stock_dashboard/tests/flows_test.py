@@ -426,10 +426,27 @@ class _St:
         return _cl.nullcontext()
 
 
+# 내 종목의 공시 — 시장 공시(중요 유형만)에 없는 '기타' 유형까지 든 목록
+MY_FILINGS = [
+    dart.to_market_filing(dart.Disclosure(
+        corp_name="삼성전자", report_nm="분기보고서 (2026.09)", rcept_no="20261110000111",
+        rcept_dt="20261110", flr_nm="삼성전자", stock_code="005930")),
+    dart.to_market_filing(dart.Disclosure(
+        corp_name="SK하이닉스", report_nm="주요사항보고서(자기주식취득결정)",
+        rcept_no="20261105000222", rcept_dt="20261105", flr_nm="SK하이닉스",
+        stock_code="000660")),
+    dart.to_market_filing(dart.Disclosure(
+        corp_name="남의회사", report_nm="분기보고서 (2026.09)", rcept_no="20261101000333",
+        rcept_dt="20261101", flr_nm="남의회사", stock_code="999999")),
+]
+
+
 def _run_f(st, err=""):
     scan = demo_mod.demo_filing_scan()
     ns = {"st": st, "ui": ui, "config": config, "dart": dart, "portfolio": _pf,
-          "load_market_filings": lambda d, fp: (scan if not err else dart.FilingScan([]), err)}
+          "load_market_filings": lambda d, fp: (scan if not err else dart.FilingScan([]), err),
+          "load_my_filings": lambda codes, d, fp: (
+              [f for f in MY_FILINGS if f.stock_code in codes], {})}
     body = [_fns[n] for n in ("_kr_my_codes", "_multi_pick", "_render_market_filings")]
     exec(compile(_ast.Module(body=body, type_ignores=[]), "app.py", "exec"), ns)
     ns["_render_market_filings"](True)
@@ -449,8 +466,15 @@ check("고른 묶음만 표에", "dash-fk-dilute" in _h and "dash-fk-return'" no
 _h = _run_f(_St(market="코스피"))
 check("시장 필터가 표에 먹는다", "(데모) 코스닥" not in _h.split("<tbody>")[1])
 _h = _run_f(_St(mine=True))
-check("내 종목만 — 워치리스트 국내 종목이 남는다",
-      "삼성전자" in _h.split("<tbody>")[1] and "(데모) 코스닥" not in _h.split("<tbody>")[1])
+_body = _h.split("<tbody>")[1]
+check("내 종목만 — 시장 공시에서 거르지 않고 종목별 공시를 전부 보여준다 (2026-11-12 '안 보임')",
+      "분기보고서" in _body and "삼성전자" in _body and "SK하이닉스" in _body
+      and "남의회사" not in _body and "(데모) 코스닥" not in _body)
+check("중요 유형이 아닌 공시는 '기타 공시' 로 든다",
+      MY_FILINGS[0].kind == dart.OTHER_GROUP and MY_FILINGS[1].kind != dart.OTHER_GROUP,
+      f"{MY_FILINGS[0].kind} / {MY_FILINGS[1].kind}")
+check("몇 종목의 몇 건인지 적는다", "내 종목" in _h and "공시 2건" in _h)
+_h = _run_f(_St(mine=True, picks=["사라진 묶음 아님"]))
 _h = _run_f(_St(), err="DartKeyMissing: 키 없음")
 check("오류면 필터 없이 사유만", "키 없음" in _h and "dash-fc-grid" not in _h)
 
@@ -466,8 +490,13 @@ check("FRED 키 지문을 캐시 키로 쓴다",
       "load_inflation(use_demo, fred.key_fingerprint())" in _app)
 check("DART 키 지문도", "load_market_filings(use_demo, dart.key_fingerprint())"
       in _app)
-check("한국 계열이 미검증임을 화면에 적는다",
-      "한국 계열 ID 는 전부 미검증입니다" in _app)
+check("한국 계열 — 살아 있는 것만 골랐고 물가는 뺐다고 화면에 적는다",
+      "FRED 에서 지금 갱신되는 한국 계열만 골랐습니다" in _app and "소비자물가는" in _app)
+check("끊긴 계열 셋이 목록에 없다",
+      not {"KORCPIALLMINMEI", "KORPROINDMISMEI", "KORLOLITONOSTSAM"}
+      & {sid for sid, _l in config.KR_MACRO_SERIES})
+check("모든 한국 계열에 값의 종류가 있다",
+      all(sid in config.KR_MACRO_KIND for sid, _l in config.KR_MACRO_SERIES))
 
 _cfg = pathlib.Path("config.py").read_text(encoding="utf-8")
 check("한국 흐름이 한국 시장에만", "kr_flows" in config.market_tab_keys("kr")

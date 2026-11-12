@@ -154,6 +154,21 @@ gap = monthly(2025, 9, [100.0] * 13)
 gap.observations.pop(0)                       # 1년 전 같은 달이 빠진 경우
 gap_row = macro.kr_macro_row("빠진 달", "index", gap, "", TODAY)
 check("1년 전 같은 달이 없으면 13번째 앞 값과 비교하지 않는다", "전년동월비" not in gap_row[1], gap_row[1])
+# 2026-11-12 FRED 에서 직접 확인한 실제 값으로
+ip = macro.kr_macro_row("한국 산업생산 (전년동월비)", "pct",
+                        monthly(2025, 8, [1.9] + [0.5] * 11 + [-0.851788756388283]), "", TODAY)
+check("이미 전년비로 오는 계열은 그대로", ip[1] == "전년동월비 -0.9%" and "8월분" in ip[2] and "1년 전 +1.9%" in ip[2],
+      f"{ip[1]} | {ip[2]}")
+cli = macro.kr_macro_row("한국 OECD 경기선행지수", "level",
+                         monthly(2025, 9, [100.9] + [101.5] * 11 + [102.5310190176960]), "", TODAY)
+check("선행지수는 레벨 그대로 + 1년 전 대비", cli[1] == "102.5  (1년 전보다 +1.6)" and "100 이 장기 추세" in cli[2],
+      f"{cli[1]} | {cli[2]}")
+bsi = macro.kr_macro_row("한국 제조업 기업심리", "balance",
+                         monthly(2025, 9, [-12.0] + [-9.0] * 11 + [-7.666666666666670]), "", TODAY)
+check("기업심리는 부호를 붙여", bsi[1] == "-7.7  (1년 전보다 +4.3)" and "0 이 중립" in bsi[2], f"{bsi[1]} | {bsi[2]}")
+y10 = macro.kr_macro_row("한국 10년 국채금리", "rate",
+                         monthly(2025, 9, [2.9] + [3.5] * 11 + [4.454]), "", TODAY)
+check("10년 국채금리", y10[1] == "4.45%  (1년 전보다 +1.55%p)", y10[1])
 check("모든 한국 계열에 종류가 있다",
       all(sid in config.KR_MACRO_KIND for sid, _l in config.KR_MACRO_SERIES))
 check("앱이 이 함수로 줄을 만든다", "macro_mod.kr_macro_row(" in src and "% YoY" not in src)
@@ -300,7 +315,7 @@ check("옛 값이 남아 있어도 새로 받는다", new_fn() == "새 모양")
 new_fn.clear()
 check("비우기도 번호를 따른다", new_fn.age() is None and old_fn.age() is not None)
 check("한국 지표 · 수출 통계에 번호를 올렸다",
-      "@swr.cached(3_600, version=2)" in src and "@swr.cached(21_600, version=2)" in src)
+      "@swr.cached(3_600, version=3)" in src and "@swr.cached(21_600, version=2)" in src)
 
 print("\n=== 분석 실행 안내 ===")
 check("화면 3분의 1 을 차지하던 노란 경고가 없다", "분석 실행 불가" not in src)

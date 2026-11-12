@@ -514,7 +514,9 @@ check("다음 확인 목록", "다음에 확인할 것" in vhtml and "<ol>" in v
 check("프롬프트 접힘", "<details>" in vhtml)
 check("굵게만 허용", "<b>" in vhtml)
 
-check("사분면 지도", "dash-table" in ui.render_quadrant_map([q1, q2, q3, q4]))
+# 2026-11-12: 표 → 2×2 칸 (폰에서 표가 줄마다 카드로 세워져 지도가 아니게 됐습니다)
+check("사분면 지도", "dash-qmap" in ui.render_quadrant_map([q1, q2, q3, q4])
+      and ui.render_quadrant_map([q1, q2, q3, q4]).count('class="qc') == 5)
 check("빈 지도는 빈 문자열", ui.render_quadrant_map([]) == "")
 
 check("마크다운 이스케이프",

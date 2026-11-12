@@ -53,6 +53,43 @@ class Verdict:
     #: 2026-11-12 이전 규칙(할인율 10% 하나 · 과거 성장률은 시작 · 끝 두 해 · 주식보상비용
     #: 미차감)이었다면의 사분면. -1 = 계산하지 않음. 규칙을 바꾼 영향을 화면에 보이려고 둡니다.
     prev_quadrant: int = -1
+    #: 예전 규칙의 숫자 (요구 성장률 · 과거 성장률) — 왜 위치가 바뀌었는지 보이려고
+    prev_implied: float | None = None
+    prev_hist: float | None = None
+    #: 할인율 12% 일 때의 요구 성장률 (경계 판정의 근거)
+    band_hi: float | None = None
+
+    @property
+    def price_word(self) -> str:
+        return {"light": "낮음", "edge": "경계", "heavy": "높음"}.get(self.price_state, "판정 안 함")
+
+    @property
+    def price_reason(self) -> str:
+        """가격 판정의 근거 한 줄 — 카드 맨 위에 적습니다 (2026-11-12 "카드를 열어도
+        경계 · 상한이 안 나온다": 주의 문구는 해당할 때만 붙어서, 근거가 늘 보이지 않았습니다)."""
+        if self.price_state == "na":
+            return (self.dcf_error.split("\n")[0][:60] if self.dcf_error
+                    else "과거 성장률을 계산할 수 없습니다")
+        cap = config.FUNNEL_HIST_GROWTH_CAP
+        text = f"요구 연 {self.implied_growth * 100:,.1f}%"
+        if self.band_hi is not None:
+            text += f" (할인율 12%면 {self.band_hi * 100:,.1f}%)"
+        text += f" · 과거 연 {self.historical_growth * 100:,.1f}%"
+        if self.historical_growth > cap:
+            text += f" → {cap * 100:g}%까지만 인정"
+        return text
+
+    @property
+    def moved_reason(self) -> str:
+        """규칙을 바꿔 위치가 달라졌으면 예전 규칙의 숫자 한 줄, 아니면 ''."""
+        if self.prev_quadrant < 0 or self.prev_quadrant == self.quadrant:
+            return ""
+        mark = {0: "판정 안 함", 1: "①", 2: "②", 3: "③", 4: "④"}
+        text = f"예전 규칙에서는 {mark[self.prev_quadrant]}"
+        if self.prev_implied is not None and self.prev_hist is not None:
+            text += (f" — 요구 연 {self.prev_implied * 100:,.1f}% · 과거 연 "
+                     f"{self.prev_hist * 100:,.1f}% (할인율 10%만 · 시작 해와 끝 해)")
+        return text
 
     #: 통과·탈락한 기준 이름
     passed_names: list[str] = field(default_factory=list)
@@ -196,6 +233,7 @@ def build(screen, dcf: rdcf.Result | None, *,
             v.historical_span = span
         band = [x for x in dcf.sensitivity.values() if x is not None]
         band_hi = max(band) if len(band) >= 2 else None
+        v.band_hi = band_hi
     elif dcf is not None:
         v.dcf_error = dcf.error
     v.price_state = funnel.price_state(
@@ -216,6 +254,9 @@ def build(screen, dcf: rdcf.Result | None, *,
 
     if legacy_dcf is not None:
         v.prev_quadrant = legacy_quadrant(v.passed, threshold, legacy_dcf)
+        if legacy_dcf.ok and legacy_dcf.gap_span is not None:
+            v.prev_implied = legacy_dcf.implied_growth
+            v.prev_hist = legacy_dcf.historical_cagr[legacy_dcf.gap_span]
 
     v.next_checks = list(NEXT_CHECKS[v.quadrant])
     if v.failed_names and v.quadrant in (1, 2):

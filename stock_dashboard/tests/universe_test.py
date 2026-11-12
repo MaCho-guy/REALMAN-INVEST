@@ -907,8 +907,19 @@ check("바뀐 종목이 없으면 없다고 적고, 계산해 둔 것이 없으�
       and ui.render_rule_change([v_light]) == "")
 check("사분면 지도 아래에 붙는다 · 머리글이 새 규칙을 말한다",
       "가격 규칙 변경(11/12)의 영향" in ui.render_quadrant_map([v_moved, v_same])
-      and "<th>가격 부담 낮음</th><th>경계 · 높음</th>" in ui.render_quadrant_map([v_same])
       and "할인율 8~12% 전 구간" in ui.render_quadrant_map([v_same]))
+_qm = ui.render_quadrant_map([v_moved, v_same, v_fin2])
+check("사분면 지도는 표가 아니라 2×2 칸 — 칸마다 제목 · 종목 수 · 종목 (폰에서 머리글이 어긋나지 않게)",
+      'class="dash-qmap"' in _qm and "<table" not in _qm.split("dash-legend")[0]
+      and _qm.count('class="qc') == 5 and "① 품질 통과 · 가격 부담 낮음" in _qm
+      and '가격 판정 안 함 (역DCF 불가 · 금융업)</span><span class="qn">1</span><span class="qv">BANK' in _qm)
+_card = ui.render_verdict(v_moved)
+check("판단 카드 맨 위에 가격 판정과 근거가 늘 보인다 (경계 · 12% 일 때 숫자)",
+      'class="dash-vhead"' in _card and "가격 경계" in _card and "할인율 12%면" in _card
+      and "과거 연 8.0%" in _card and "예전 규칙에서는 ①" in _card and "시작 해와 끝 해" in _card)
+check("상한이 걸리면 근거 줄에 적는다 · 금융업은 사유를 적는다",
+      "15%까지만 인정" in ui.render_verdict(v_cap) and "가격 판정 안 함" in ui.render_verdict(v_fin2)
+      and "금융업" in ui.render_verdict(v_fin2) and "예전 규칙" not in ui.render_verdict(v_light))
 
 print("\n=== 후보 한 줄 — 셈이 맞아야 한다 ===")
 _p = {"members": [{"ticker": f"A{i}", "index": True} for i in range(515)] + [{"ticker": "W", "index": False}],

@@ -1366,9 +1366,23 @@ def render_verdict(v, *, prompt: str = "", show_next: bool = True) -> str:
     return (
         f'<div class="dash-verdict {cls}">'
         f'<div class="dash-verdict-pos">{_esc(QUADRANT_TITLE[v.quadrant])}</div>'
+        f"{_verdict_head(v)}"
         f'<div class="dash-verdict-line">{_md_bold(QUADRANT_MEANING[v.quadrant])}</div>'
         f"{body_html}{cav}{nxt}{prompt_block}</div>"
     )
+
+
+def _verdict_head(v) -> str:
+    """카드 맨 위 — 품질 · 가격 판정과 그 근거 한 줄 (늘 보입니다)."""
+    state = getattr(v, "price_state", "na")
+    moved = getattr(v, "moved_reason", "")
+    return (
+        '<div class="dash-vhead">'
+        f'<span class="vc">품질 {_esc(v.passed)}/{_esc(v.total)}</span>'
+        f'<span class="vc p-{_esc(state)}">가격 {_esc(v.price_word)}</span>'
+        f'<span class="vr">{_esc(v.price_reason)}</span>'
+        + (f'<span class="vr vm">{_esc(moved)}</span>' if moved else "")
+        + "</div>")
 
 
 def _md_bold(text: str) -> str:
@@ -1388,22 +1402,23 @@ def render_quadrant_map(verdicts) -> str:
     for v in verdicts:
         buckets[v.quadrant].append(v.ticker)
 
-    def cell(q: int) -> str:
+    # 표가 아니라 2×2 칸입니다. 2026-11-12 폰 화면: 표는 좁은 화면에서 줄마다 카드로
+    # 세워져 '지도' 가 아니게 되고, 합친 칸('판정 안 함')에는 엉뚱한 머리글
+    # ('가격 부담 낮음')이 붙었습니다. 칸마다 제목을 직접 적습니다.
+    def cell(q: int, title: str, cls: str = "") -> str:
         names = buckets.get(q) or []
         body = ", ".join(_esc(n) for n in names) if names else "—"
-        return f'<td>{body}</td>'
+        return (f'<div class="qc {cls}"><span class="qt">{title}</span>'
+                f'<span class="qn">{len(names)}</span><span class="qv">{body}</span></div>')
 
     return (
-        '<div class="dash-table-wrap"><table class="dash-table">'
-        "<thead><tr><th></th>"
-        # 머리글은 짧게 (폰에서 3칸 표) — 규칙 설명은 아래 한 줄에 있습니다
-        "<th>가격 부담 낮음</th><th>경계 · 높음</th></tr></thead>"
-        "<tbody>"
-        f"<tr><td>기준 많이 통과</td>{cell(1)}{cell(2)}</tr>"
-        f"<tr><td>기준 적게 통과</td>{cell(3)}{cell(4)}</tr>"
-        f'<tr><td>판정 안 함 (역DCF 불가 · 금융업)</td><td colspan="2">'
-        f'{", ".join(_esc(n) for n in buckets[0]) or "—"}</td></tr>'
-        "</tbody></table></div>"
+        '<div class="dash-qmap">'
+        + cell(1, "① 품질 통과 · 가격 부담 낮음", "q1")
+        + cell(2, "② 품질 통과 · 가격 경계 · 높음")
+        + cell(3, "③ 품질 미달 · 가격 부담 낮음")
+        + cell(4, "④ 품질 미달 · 가격 경계 · 높음")
+        + cell(0, "가격 판정 안 함 (역DCF 불가 · 금융업)", "wide")
+        + "</div>"
         + render_rule_change(verdicts)
     )
 

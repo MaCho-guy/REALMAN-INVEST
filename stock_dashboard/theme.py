@@ -1754,6 +1754,29 @@ def build_rules() -> str:
     font-variant-numeric: tabular-nums; margin-right: 6px; }}
   table.dash-sctable td.sc-x {{ text-align: left; white-space: nowrap;
     font-variant-numeric: tabular-nums; }}
+  /* 사분면 지도 — 2×2 칸 (폰에서도 두 칸씩) */
+  .dash-qmap {{ display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 4px 0 8px; }}
+  .dash-qmap .qc {{ border: 1px solid var(--dash-border); border-radius: var(--r-card);
+    background: var(--dash-surface); padding: 8px 10px; min-width: 0; }}
+  .dash-qmap .qc.wide {{ grid-column: 1 / -1; }}
+  .dash-qmap .qc.q1 {{ border-color: var(--dash-accent); }}
+  .dash-qmap .qt {{ display: block; font-size: var(--fs-2); color: var(--dash-ink-muted);
+    line-height: 1.35; }}
+  .dash-qmap .qn {{ display: block; font-size: var(--fs-5); font-weight: 700;
+    color: var(--dash-ink); font-variant-numeric: tabular-nums; }}
+  .dash-qmap .qv {{ display: block; font-size: var(--fs-3); color: var(--dash-ink-2);
+    line-height: 1.45; overflow-wrap: anywhere; }}
+  /* 판단 카드 맨 위 — 품질 · 가격 판정과 근거 */
+  .dash-vhead {{ display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: baseline;
+    margin: 4px 0 6px; }}
+  .dash-vhead .vc {{ border: 1px solid var(--dash-border); border-radius: var(--r-pill);
+    padding: 0 9px; font-size: var(--fs-2); font-weight: 600; color: var(--dash-ink);
+    background: var(--dash-surface); white-space: nowrap; }}
+  .dash-vhead .vc.p-light {{ border-color: var(--dash-accent); color: var(--dash-accent); }}
+  .dash-vhead .vc.p-na {{ color: var(--dash-ink-muted); font-weight: 500; }}
+  .dash-vhead .vr {{ flex-basis: 100%; font-size: var(--fs-3); color: var(--dash-ink);
+    font-variant-numeric: tabular-nums; line-height: 1.45; }}
+  .dash-vhead .vr.vm {{ font-size: var(--fs-2); color: var(--dash-ink-muted); }}
   /* '걸린 기준' 한 줄은 좁은 화면 전용 — 넓은 화면은 기준 9칸을 그대로 봅니다 */
   table.dash-sctable .sc-miss {{ display: none; }}
   table.dash-sctable td.sc-sect {{ text-align: left; font-size: var(--fs-2);

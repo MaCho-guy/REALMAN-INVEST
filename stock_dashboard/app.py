@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import datetime as dt
 import os
+import sys
 from zoneinfo import ZoneInfo
 
 from concurrent.futures import ThreadPoolExecutor
@@ -53,6 +54,58 @@ if _MISSING:
           "통째로 덮어쓰십시오. 파일 하나만 빠져도 그 파일을 쓰는 모든 "
           "화면이 멈춥니다.")
     st.stop()
+
+
+def _build_id() -> str:
+    """지금 서버에 놓인 파일 묶음의 지문 — BUILD.json 내용의 해시."""
+    import hashlib  # noqa: PLC0415
+
+    base = os.path.dirname(os.path.abspath(__file__))
+    try:
+        with open(os.path.join(base, "BUILD.json"), "rb") as fh:
+            return hashlib.sha256(fh.read()).hexdigest()[:16]
+    except OSError:
+        try:
+            return f"mtime:{os.path.getmtime(os.path.abspath(__file__))}"
+        except OSError:
+            return ""
+
+
+def _drop_stale_modules(modules=None, build: str | None = None) -> list[str]:
+    """새 파일이 올라왔는데 **메모리에는 옛 모듈**이 남아 있으면 내보냅니다.
+
+    2026-11-12 실제 사고. 새 묶음을 올린 뒤 앱이
+    `AttributeError … config.QUOTE_WAIT_FRESH_SEC` 로 멈췄습니다. 저장소의
+    config.py 에는 그 값이 있었습니다 — 서버 프로세스가 **예전에 불러 둔
+    config 를 그대로 쥐고** 새 app.py 만 다시 돌린 것입니다. 스트림릿은
+    본문(app.py)은 매번 새로 읽지만 import 한 모듈은 프로세스에 남깁니다.
+    앱을 재부팅하면 풀리지만, 올릴 때마다 재부팅할 수는 없습니다.
+
+    그래서 import **전에** 확인합니다: 지금 파일 묶음(BUILD.json)이 이
+    프로세스가 마지막으로 정상 시작한 묶음과 다르면, 이 폴더에서 불러온
+    모듈을 전부 내보내 아래 import 가 새 파일을 읽게 합니다. 저장해 둔
+    값(swr)도 같이 사라지지만 임시 폴더 사본과 스냅샷에서 다시 채웁니다.
+    돌려주는 것은 내보낸 모듈 이름입니다.
+    """
+    modules = sys.modules if modules is None else modules
+    build = _build_id() if build is None else build
+    if not build or getattr(sys, "_dash_build", None) == build:
+        return []
+    base = os.path.dirname(os.path.abspath(__file__)) + os.sep
+    dropped = []
+    for name, mod in list(modules.items()):
+        if name in ("__main__", "__mp_main__"):
+            continue
+        path = getattr(mod, "__file__", None)
+        if path and os.path.abspath(path).startswith(base):
+            dropped.append(name)
+    for name in dropped:
+        modules.pop(name, None)
+    return sorted(dropped)
+
+
+# 스트림릿이 본문으로 돌릴 때만 (수집기·테스트가 모듈로 불러올 때는 건드리지 않음)
+_DROPPED = _drop_stale_modules() if __name__ == "__main__" else []
 
 import swr  # noqa: E402
 
@@ -4572,6 +4625,9 @@ def main() -> None:
     # 화면에 찍히는 모든 문구에서 인증키를 지웁니다. 이 앱은 주소만 알면
     # 누구나 볼 수 있고, 연결 실패 문구에는 요청 주소가 통째로 들어옵니다.
     safe.guard_streamlit(st)
+    # 여기까지 왔으면 import 가 전부 새 파일로 끝난 것입니다 — 이 묶음을
+    # '정상 시작한 묶음' 으로 적어, 다음부터는 모듈을 내보내지 않습니다.
+    sys._dash_build = _build_id()
     _force_light_theme()
 
     # 파일 버전 검사를 **가장 먼저** 합니다. 일부만 올라간 상태면 아래

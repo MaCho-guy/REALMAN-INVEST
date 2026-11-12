@@ -312,6 +312,60 @@ msg = buildstamp._toml_error(broken)
 check("잘린 false 를 짚어 준다", "5번째 줄" in msg and "fals" in msg and "잘렸" in msg, msg)
 check("멀쩡하면 조용하다", buildstamp._toml_error(broken.replace("fals\n", "false\n")) == "")
 
+print("\n=== 새 파일을 올린 뒤 옛 모듈이 남는 사고 (2026-11-12) ===")
+import ast  # noqa: E402
+import types  # noqa: E402
+
+tree = ast.parse(src)
+want = {"_build_id", "_drop_stale_modules"}
+body = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in want]
+ns = {"os": os, "sys": sys, "__file__": os.path.abspath("app.py")}
+exec(compile(ast.Module(body=body, type_ignores=[]), "app.py", "exec"), ns)  # noqa: S102
+drop, build_id = ns["_drop_stale_modules"], ns["_build_id"]
+
+stale = types.ModuleType("config")          # 옛 config — 새 값이 없습니다
+stale.__file__ = os.path.abspath("config.py")
+stale.CACHE_TTL_SEC = 60
+sub = types.ModuleType("sources.dart")
+sub.__file__ = os.path.abspath("sources/dart.py")
+outside = types.ModuleType("requests")
+outside.__file__ = "/usr/lib/python3/site-packages/requests/__init__.py"
+builtin = types.ModuleType("time")           # __file__ 없음
+main_mod = types.ModuleType("__main__")
+main_mod.__file__ = os.path.abspath("app.py")
+mods = {"config": stale, "sources.dart": sub, "requests": outside,
+        "time": builtin, "__main__": main_mod}
+
+saved = getattr(sys, "_dash_build", None)
+sys._dash_build = "예전 묶음"
+out = drop(mods, build="새 묶음")
+check("묶음이 바뀌면 이 폴더의 모듈을 내보낸다", out == ["config", "sources.dart"], str(out))
+check("남의 모듈 · 본문은 그대로", set(mods) == {"requests", "time", "__main__"}, str(set(mods)))
+sys._dash_build = "새 묶음"
+mods2 = {"config": stale}
+check("묶음이 같으면 건드리지 않는다", drop(mods2, build="새 묶음") == [] and "config" in mods2)
+del sys._dash_build
+mods3 = {"config": stale}
+check("이 코드가 처음 올라간 프로세스에서도 내보낸다 (기록이 없을 때)",
+      drop(mods3, build="새 묶음") == ["config"])
+check("새로 켜진 프로세스에서는 내보낼 것이 없다", drop({"requests": outside}, build="x") == [])
+
+# 사고 재현: 옛 config 가 메모리에 있으면 새 값이 없고, 내보낸 뒤 다시 불러오면 있다
+real = sys.modules.pop("config", None)
+sys.modules["config"] = stale
+check("재현 — 옛 모듈에는 새 값이 없다", not hasattr(sys.modules["config"], "QUOTE_WAIT_FRESH_SEC"))
+drop(build="새 묶음")
+import config as _fresh  # noqa: E402
+
+check("내보낸 뒤 다시 불러오면 새 값이 있다",
+      getattr(_fresh, "QUOTE_WAIT_FRESH_SEC", None) == 3.0)
+if saved is not None:
+    sys._dash_build = saved
+check("지문은 BUILD.json 내용에서", len(build_id()) == 16)
+check("import 보다 먼저 확인한다",
+      src.index("_drop_stale_modules() if __name__") < src.index("import swr  # noqa: E402"))
+check("정상 시작한 뒤에 묶음을 적는다", "sys._dash_build = _build_id()" in src)
+
 print("\n" + "=" * 54)
 if FAILURES:
     print(f"실패 {len(FAILURES)}건: {FAILURES}")

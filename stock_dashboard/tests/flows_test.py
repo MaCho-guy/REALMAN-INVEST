@@ -447,7 +447,8 @@ def _run_f(st, err=""):
           "load_market_filings": lambda d, fp: (scan if not err else dart.FilingScan([]), err),
           "load_my_filings": lambda codes, d, fp: (
               [f for f in MY_FILINGS if f.stock_code in codes], {})}
-    body = [_fns[n] for n in ("_kr_my_codes", "_multi_pick", "_render_market_filings")]
+    body = [_fns[n] for n in ("_kr_my_codes", "_multi_pick", "_render_my_filings",
+                                  "_render_market_filings")]
     exec(compile(_ast.Module(body=body, type_ignores=[]), "app.py", "exec"), ns)
     ns["_render_market_filings"](True)
     return "".join(st.md)
@@ -477,6 +478,8 @@ check("몇 종목의 몇 건인지 적는다", "내 종목" in _h and "공시 2�
 _h = _run_f(_St(mine=True, picks=["사라진 묶음 아님"]))
 _h = _run_f(_St(), err="DartKeyMissing: 키 없음")
 check("오류면 필터 없이 사유만", "키 없음" in _h and "dash-fc-grid" not in _h)
+check("시장 공시를 못 받아도 내 종목 공시는 보여준다 (받는 길이 다름)",
+      "내 종목" in _h and "분기보고서" in _h and "남의회사" not in _h)
 
 print("\n=== 앱 배선 ===")
 _app = pathlib.Path("app.py").read_text(encoding="utf-8")

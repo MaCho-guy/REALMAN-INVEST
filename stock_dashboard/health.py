@@ -54,6 +54,13 @@ def health(value, _depth: int = 0) -> tuple[int, int]:
     if isinstance(value, dict):
         if not value:
             return 0, 0
+        if isinstance(value.get("errors"), (dict, list)):
+            # {…값들…, "errors": {이름: 사유}} — 사유 묶음은 값이 아닙니다.
+            # (글자만 든 묶음이라 아래 규칙으로는 '쓸 만한 값 1' 로 세어져,
+            #  전부 실패한 반도체 리포트가 스냅샷에 들어갔습니다.)
+            rest = {k: v for k, v in value.items() if k != "errors"}
+            good, bad = health(rest, _depth + 1) if rest else (0, 0)
+            return good, bad + len(value["errors"])
         if "error" in value or "_error" in value:
             # {rows, error} 처럼 결과와 실패 사유를 함께 담는 묶음
             if value.get("error") or value.get("_error"):

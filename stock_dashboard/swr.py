@@ -490,6 +490,7 @@ class Cached:
                 with e.lock:
                     if not e.ok:
                         e.value, e.at, e.ok = got[0], got[1], True
+                        e.failed = _looks_failed(got[0])   # 옛 실패 사본은 금방 다시 받음
         ttl = self._ttl_of(e, args)
         if e.ok:
             age = time.time() - e.at
@@ -535,6 +536,7 @@ class Cached:
                 with e.lock:
                     if not e.ok:
                         e.value, e.at, e.ok = got[0], got[1], True
+                        e.failed = _looks_failed(got[0])   # 옛 실패 사본은 금방 다시 받음
         if e.ok and time.time() - e.at < window:
             age = time.time() - e.at
             if age >= self._ttl_of(e, args):

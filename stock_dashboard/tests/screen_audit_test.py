@@ -573,6 +573,11 @@ swr.KEEP_GOOD_MAX = old_keep
 
 import health as _health  # noqa: E402
 
+check("'errors' 묶음은 값으로 세지 않는다 (전부 실패한 반도체 리포트)",
+      _health.looks_failed({"industry": [], "stocks": {"005930": [], "000660": []},
+                            "errors": {"산업분석": "요청 실패"}, "scanned": 0}))
+check("일부만 실패했으면 쓸 만한 값",
+      not _health.looks_failed(demo_mod.demo_semi_research() | {"errors": {"SK하이닉스": "요청 실패"}}))
 sys.path.insert(0, "tools")
 check("수집기와 저장소가 같은 규칙을 쓴다",
       __import__("collect").looks_failed is _health.looks_failed)

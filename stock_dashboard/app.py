@@ -2450,6 +2450,38 @@ def _multi_pick(label: str, options: list[str], key: str,
                                key=key + "_m", help=help_text or None))
 
 
+def _render_my_filings(my_codes: set, use_demo: bool, groups=(), subs=()) -> None:
+    """내 종목(보유 + 관심)의 공시 — 유형을 가리지 않고 종목별로.
+
+    시장 공시(중요 유형만 · 300건)에서 거르지 않습니다 — 2026-11-12
+    "내 종목만 했을 때 안 보임". 그리고 시장 공시를 **못 받았을 때도**
+    이 목록은 따로 받아 보여줍니다 (받는 길이 다릅니다).
+    """
+    mine, m_errs = load_my_filings(tuple(sorted(my_codes)), use_demo,
+                                   dart.key_fingerprint())
+    chosen = [f for f in mine
+              if (not groups or f.kind in groups) and (not subs or f.sub in subs)]
+    st.markdown(ui.render_notice(
+        f"<b>내 종목 {len(my_codes)}개의 공시 {len(chosen)}건</b> — 최근 "
+        f"{config.MY_FILINGS_DAYS}일, 유형을 가리지 않고 전부"
+        + (f" (위에서 고른 분류만 · 전체 {len(mine)}건)"
+           if (groups or subs) and len(chosen) != len(mine) else "")
+        + (" · 받지 못한 종목: " + ", ".join(sorted(m_errs)) if m_errs else "")),
+        unsafe_allow_html=True)
+    if chosen:
+        st.markdown(ui.render_market_filings(chosen, held=my_codes),
+                    unsafe_allow_html=True)
+    elif mine:
+        st.markdown(ui.render_footnote(
+            "고른 분류에 해당하는 공시가 없습니다 — 위의 분류를 지우면 "
+            "전부 보입니다."), unsafe_allow_html=True)
+    else:
+        st.markdown(ui.render_footnote(
+            f"최근 {config.MY_FILINGS_DAYS}일 동안 내 종목의 공시가 없습니다."
+            + (" " + " / ".join(f"{c}: {e}" for c, e in m_errs.items())[:200]
+               if m_errs else "")), unsafe_allow_html=True)
+
+
 def _render_market_filings(use_demo: bool) -> None:
     """시장 공시 — 묶음별 건수 → 필터(묶음·세부·시장·내 종목) → 표 → 설명."""
     scan, f_err = load_market_filings(use_demo, dart.key_fingerprint())
@@ -2466,6 +2498,12 @@ def _render_market_filings(use_demo: bool) -> None:
     if f_err or not filings:
         st.markdown(ui.render_market_filings(filings, error=f_err, scan=scan),
                     unsafe_allow_html=True)
+        # 시장 전체를 못 받았어도 내 종목 공시는 따로 받습니다 (요청이 다름).
+        # 2026-11-12 실제 화면: 시장 공시가 시간 초과되자 '내 종목만' 스위치
+        # 까지 같이 사라져, 정작 보려던 내 종목 공시를 볼 길이 없었습니다.
+        mine_codes = _kr_my_codes(use_demo)
+        if mine_codes:
+            _render_my_filings(mine_codes, use_demo)
         return
 
     counts = dart.count_filings(filings)
@@ -2507,31 +2545,7 @@ def _render_market_filings(use_demo: bool) -> None:
             help="보유(Secrets 의 PORTFOLIO)와 워치리스트의 국내 종목.")
 
     if only_mine:
-        # 내 종목은 시장 공시(중요 유형만 · 300건)에서 거르지 않습니다 —
-        # 2026-11-12 "내 종목만 했을 때 안 보임". 종목별로 **전부** 받습니다.
-        mine, m_errs = load_my_filings(tuple(sorted(my_codes)), use_demo,
-                                       dart.key_fingerprint())
-        chosen = [f for f in mine
-                  if (not groups or f.kind in groups) and (not subs or f.sub in subs)]
-        st.markdown(ui.render_notice(
-            f"<b>내 종목 {len(my_codes)}개의 공시 {len(chosen)}건</b> — 최근 "
-            f"{config.MY_FILINGS_DAYS}일, 유형을 가리지 않고 전부"
-            + (f" (위에서 고른 분류만 · 전체 {len(mine)}건)"
-               if (groups or subs) and len(chosen) != len(mine) else "")
-            + (" · 받지 못한 종목: " + ", ".join(sorted(m_errs)) if m_errs else "")),
-            unsafe_allow_html=True)
-        if chosen:
-            st.markdown(ui.render_market_filings(chosen, held=my_codes),
-                        unsafe_allow_html=True)
-        elif mine:
-            st.markdown(ui.render_footnote(
-                "고른 분류에 해당하는 공시가 없습니다 — 위의 분류를 지우면 "
-                "전부 보입니다."), unsafe_allow_html=True)
-        else:
-            st.markdown(ui.render_footnote(
-                f"최근 {config.MY_FILINGS_DAYS}일 동안 내 종목의 공시가 없습니다."
-                + (" " + " / ".join(f"{c}: {e}" for c, e in m_errs.items())[:200]
-                   if m_errs else "")), unsafe_allow_html=True)
+        _render_my_filings(my_codes, use_demo, groups, subs)
     else:
         chosen = dart.filter_filings(
             filings, groups=groups, subs=subs,

@@ -81,6 +81,15 @@ RETRY_AFTER = 60.0
 BACKGROUND_WORKERS = 8
 
 
+def _scrub(text: str) -> str:
+    """오류 문구에서 인증키를 지웁니다 (sources.safe 가 없으면 그대로)."""
+    try:
+        from sources import safe  # noqa: PLC0415
+        return safe.scrub(text)
+    except Exception:  # noqa: BLE001
+        return text
+
+
 @dataclass
 class _Entry:
     value: object = None
@@ -90,6 +99,10 @@ class _Entry:
     error: str = ""               # 마지막 새로 받기 실패
     retry_at: float = 0.0         # 실패 뒤 이 시각 전에는 다시 안 받음
     lock: threading.Lock = field(default_factory=threading.Lock)
+    #: 뒤에서 받기가 끝나면 켜집니다 (wait_fresh 가 이걸 기다립니다)
+    done: threading.Event = field(default_factory=threading.Event)
+    #: 새 값을 기다려 줄 마지막 시각 — 한 번의 새로 받기에 한 번만 기다립니다
+    wait_until: float = 0.0
 
 
 _store: dict[str, _Entry] = {}
@@ -279,23 +292,55 @@ def _note_stale(name: str, age: float) -> None:
         _stale_ages[name] = max(age, _stale_ages.get(name, 0.0))
 
 
+def _module_name(fn: Callable) -> str:
+    """키에 쓸 모듈 이름. 본문 스크립트(__main__)는 **파일 이름**으로 적습니다.
+
+    스트림릿은 app.py 를 __main__ 으로 돌리고, 아침 수집기는 같은 파일을
+    'app' 이라는 모듈로 불러옵니다. 이름이 다르면 수집해 둔 값을 앱이 못
+    찾으므로, 둘 다 'app' 이 되게 합니다.
+    """
+    mod = getattr(fn, "__module__", "") or ""
+    if mod in ("__main__", "__mp_main__"):
+        try:
+            return os.path.splitext(os.path.basename(fn.__code__.co_filename))[0]
+        except AttributeError:
+            return mod
+    return mod
+
+
 class Cached:
     """@cached(...) 로 감싼 함수. 부르면 값, .clear() 로 비우기."""
 
-    def __init__(self, fn: Callable, ttl: float, stale: float,
-                 keep: Callable[[object], bool] | None, disk: bool):
+    def __init__(self, fn: Callable, ttl, stale: float,
+                 keep: Callable[[object], bool] | None, disk: bool,
+                 wait_fresh: float = 0.0):
         self.fn = fn
-        self.ttl = float(ttl)
-        self.stale = float(max(stale, ttl))
+        #: ttl 은 숫자이거나 **함수**(인자를 받아 초를 돌려줌)입니다. 장중에는
+        #: 5분, 장이 닫히면 1시간처럼 때에 따라 달라지는 것에 씁니다.
+        self._ttl_fn = ttl if callable(ttl) else None
+        self.ttl = 0.0 if callable(ttl) else float(ttl)
+        self.stale = float(stale) if self._ttl_fn else float(max(stale, ttl))
         self.keep = keep
         self.disk = disk
+        #: 묵은 값을 주기 전에 새 값을 이만큼(초) 기다려 봅니다. 시세처럼
+        #: '옛 값이 잠깐이라도 보이면 곤란한' 것에 씁니다. 0 이면 안 기다림.
+        self.wait_fresh = float(wait_fresh)
         self.name = fn.__name__
+        self.module = _module_name(fn)
         functools.update_wrapper(self, fn)
         _registry[self.name] = self
 
+    def ttl_for(self, args: tuple = ()) -> float:
+        if self._ttl_fn is None:
+            return self.ttl
+        try:
+            return float(self._ttl_fn(*args))
+        except Exception:  # noqa: BLE001
+            return 3_600.0
+
     # ── 키 ────────────────────────────────────────────────────────────────
     def key(self, args: tuple, kwargs: dict) -> str:
-        return f"{self.fn.__module__}.{self.name}|{args!r}|{sorted(kwargs.items())!r}"
+        return f"{self.module}.{self.name}|{args!r}|{sorted(kwargs.items())!r}"
 
     # ── 받기 ──────────────────────────────────────────────────────────────
     def _fetch(self, key: str, args, kwargs, e: _Entry) -> None:
@@ -303,7 +348,7 @@ class Cached:
         try:
             value = self.fn(*args, **kwargs)
         except Exception as exc:  # noqa: BLE001
-            e.error = f"{type(exc).__name__}: {exc}"
+            e.error = _scrub(f"{type(exc).__name__}: {exc}")
             if not e.ok:
                 raise
             return
@@ -312,7 +357,7 @@ class Cached:
             try:
                 if not self.keep(value):
                     e.error = "새로 받은 값이 비어 직전 값을 유지"
-                    e.at = time.time() - self.ttl * 0.75   # 곧 다시 시도
+                    e.at = time.time() - self.ttl_for(args) * 0.75   # 곧 다시 시도
                     return
             except Exception:  # noqa: BLE001
                 pass
@@ -325,10 +370,12 @@ class Cached:
         return max(self.stale, HARD_STALE)
 
     def _background(self, key: str, args, kwargs, e: _Entry) -> None:
+        ttl = self.ttl_for(args)
+
         def run():
             try:
                 with e.lock:
-                    if time.time() - e.at >= self.ttl:     # 그사이 누가 받았으면 건너뜀
+                    if time.time() - e.at >= ttl:          # 그사이 누가 받았으면 건너뜀
                         before = e.at
                         self._fetch(key, args, kwargs, e)
                         if e.at == before:                 # 못 받았음 — 잠시 쉼
@@ -337,11 +384,15 @@ class Cached:
                 e.retry_at = time.time() + RETRY_AFTER
             finally:
                 e.refreshing = False
+                e.done.set()
         e.refreshing = True
+        e.done.clear()
+        e.wait_until = time.time() + self.wait_fresh
         try:
             _pool.submit(run)
         except RuntimeError:            # 인터프리터 종료 중
             e.refreshing = False
+            e.done.set()
 
     def __call__(self, *args, **kwargs):
         key = self.key(args, kwargs)
@@ -353,14 +404,24 @@ class Cached:
                 with e.lock:
                     if not e.ok:
                         e.value, e.at, e.ok = got[0], got[1], True
+        ttl = self.ttl_for(args)
         if e.ok:
             age = time.time() - e.at
-            if age < self.ttl:
+            if age < ttl:
                 return e.value
             if age < window:
                 if not e.refreshing and time.time() >= e.retry_at:
                     self._background(key, args, kwargs, e)
-                _note_stale(self.name, age)
+                # 새 값을 잠깐 기다려 봅니다 (wait_fresh). 그 안에 오면 새 값을,
+                # 안 오면 묵은 값을 줍니다. 한 번의 새로 받기에는 정해진
+                # 시각(wait_until)까지만 — 여러 곳에서 불러도 합쳐서 그만큼.
+                if self.wait_fresh and e.refreshing:
+                    left = e.wait_until - time.time()
+                    if left > 0:
+                        e.done.wait(left)
+                    if time.time() - e.at < ttl:
+                        return e.value
+                _note_stale(self.name, time.time() - e.at)
                 return e.value
         # 값이 없거나 너무 오래됨 — 기다려서 받습니다 (같은 키는 한 번만)
         with e.lock:
@@ -386,7 +447,7 @@ class Cached:
                         e.value, e.at, e.ok = got[0], got[1], True
         if e.ok and time.time() - e.at < window:
             age = time.time() - e.at
-            if age >= self.ttl:
+            if age >= self.ttl_for(args):
                 if not e.refreshing and time.time() >= e.retry_at:
                     self._background(key, args, kwargs, e)
                 _note_stale(self.name, age)
@@ -415,7 +476,7 @@ class Cached:
         return None if e is None or not e.ok else time.time() - e.at
 
     def clear(self) -> None:
-        prefix = f"{self.fn.__module__}.{self.name}|"
+        prefix = f"{self.module}.{self.name}|"
         with _store_lock:
             for k in [k for k in _store if k.startswith(prefix)]:
                 if DISK:
@@ -426,9 +487,9 @@ class Cached:
                 del _store[k]
 
 
-def cached(ttl: float, *, stale: float | None = None,
+def cached(ttl, *, stale: float | None = None,
            keep: Callable[[object], bool] | None = None,
-           disk: bool = True) -> Callable[[Callable], Cached]:
+           disk: bool = True, wait_fresh: float = 0.0) -> Callable[[Callable], Cached]:
     """데코레이터.
 
     ttl    이 시간 안이면 저장된 값을 그대로 (초)
@@ -439,8 +500,108 @@ def cached(ttl: float, *, stale: float | None = None,
     disk   임시 폴더에 사본을 남길지
     """
     def deco(fn: Callable) -> Cached:
-        return Cached(fn, ttl, stale if stale is not None else ttl * 6, keep, disk)
+        if stale is not None:
+            window = stale
+        else:
+            window = 6 * 3_600 if callable(ttl) else ttl * 6
+        return Cached(fn, ttl, window, keep, disk, wait_fresh)
     return deco
+
+
+# ── 스냅샷 — 아침 수집기가 만들고 앱이 읽습니다 ─────────────────────────────
+#
+# 화면을 여는 순간에 받으면 느립니다. 그래서 정해진 시각에 수집기
+# (tools/collect.py, GitHub Actions)가 모든 화면의 데이터를 미리 받아
+# 한 파일로 묶어 두고, 앱은 값이 하나도 없을 때(서버가 막 깨어났을 때)
+# 그 파일을 읽어 채웁니다. 읽은 값은 '받은 시각' 이 그대로라 묵은 값으로
+# 취급되어, 바로 보여주고 뒤에서 새로 받는 흐름을 탑니다.
+
+SEED_FORMAT = 1
+
+
+def export_seed(secrets: tuple[str, ...] = (), skip=None) -> tuple[bytes, dict]:
+    """지금 메모리에 있는 값들을 한 덩어리로. (gzip 바이트, 보고서)
+
+    secrets 에 든 글자가 **하나라도** 들어 있는 항목은 뺍니다. 실패 메시지에
+    요청 주소(인증키 포함)가 섞여 들어갈 수 있고, 이 파일은 공개 저장소에
+    올라가기 때문입니다.
+
+    skip(값) 이 참이면 그 항목도 뺍니다 — 수집기는 '받기에 실패한 결과' 를
+    여기서 걸러, 앱이 실패를 물려받지 않고 직접 받게 합니다.
+    """
+    import gzip  # noqa: PLC0415
+
+    needles = [x.encode("utf-8") for x in secrets if x and len(x) >= 6]
+    items: dict[str, bytes] = {}
+    report = {"kept": 0, "dropped_secret": [], "dropped_error": [],
+              "dropped_failed": [], "bytes": 0}
+    with _store_lock:
+        snapshot = [(k, e.at, e.value) for k, e in _store.items() if e.ok]
+    for key, at, value in snapshot:
+        try:
+            if skip is not None and skip(value):
+                report["dropped_failed"].append(key.split("|")[0])
+                continue
+        except Exception:  # noqa: BLE001 - 판단을 못 하면 넣지 않습니다
+            report["dropped_failed"].append(key.split("|")[0])
+            continue
+        try:
+            blob = pickle.dumps((key, at, _deps_of(value), value),
+                                protocol=4)        # 4 = 파이썬 3.4 이상 어디서나
+        except Exception as exc:  # noqa: BLE001
+            report["dropped_error"].append(f"{key[:60]} — {type(exc).__name__}")
+            continue
+        if any(n in blob for n in needles) or any(n in key.encode("utf-8")
+                                                  for n in needles):
+            report["dropped_secret"].append(key.split("|")[0])
+            continue
+        items[key] = blob
+        report["kept"] += 1
+    raw = pickle.dumps({"format": SEED_FORMAT, "made": time.time(),
+                        "items": items}, protocol=4)
+    out = gzip.compress(raw, compresslevel=6)
+    report["bytes"] = len(out)
+    return out, report
+
+
+def import_seed(blob: bytes, max_age: float = 3 * 86_400) -> dict:
+    """스냅샷을 메모리에 채웁니다. 이미 값이 있는 키는 건드리지 않습니다.
+
+    항목마다 '그 값을 만든 코드 파일' 이 지금과 같은지 확인하고, 다르면
+    그 항목만 버립니다 (파일 사본과 같은 규칙).
+    """
+    import gzip  # noqa: PLC0415
+
+    report = {"loaded": 0, "skipped_old": 0, "skipped_code": 0,
+              "skipped_have": 0, "made": 0.0}
+    try:
+        pack = pickle.loads(gzip.decompress(blob))
+        if pack.get("format") != SEED_FORMAT:
+            return report
+    except Exception:  # noqa: BLE001
+        return report
+    report["made"] = float(pack.get("made") or 0.0)
+    now = time.time()
+    for key, item in (pack.get("items") or {}).items():
+        try:
+            saved_key, at, deps, value = pickle.loads(item)
+        except Exception:  # noqa: BLE001 - 클래스가 사라졌거나 모양이 다름
+            report["skipped_code"] += 1
+            continue
+        if saved_key != key or now - at > max_age:
+            report["skipped_old"] += 1
+            continue
+        if any(_module_hash(name) != digest for name, digest in deps.items()):
+            report["skipped_code"] += 1
+            continue
+        e = _entry(key)
+        with e.lock:
+            if e.ok:
+                report["skipped_have"] += 1
+                continue
+            e.value, e.at, e.ok = value, at, True
+        report["loaded"] += 1
+    return report
 
 
 def clear_all() -> None:
@@ -491,3 +652,36 @@ def warm(tag: str, calls: dict[str, Callable[[], object]], *,
 
 def registry() -> dict[str, Cached]:
     return dict(_registry)
+
+
+#: 스냅샷 읽기 — 프로세스마다 한 번만 시도합니다.
+_seed_lock = threading.Lock()
+_seed_state: dict = {"tried": False, "report": None}
+
+
+def load_seed_from(url: str, timeout: float = 4.0) -> dict | None:
+    """url 의 스냅샷을 받아 채웁니다. 이미 시도했으면 지난 결과를 돌려줍니다.
+
+    서버가 막 깨어난 첫 화면에서 한 번 부릅니다. 실패해도 조용히 넘어갑니다
+    (스냅샷은 있으면 좋은 것이고, 없으면 예전처럼 직접 받습니다).
+    """
+    if not url:
+        return None
+    with _seed_lock:
+        if _seed_state["tried"]:
+            return _seed_state["report"]
+        _seed_state["tried"] = True
+        t0 = time.time()
+        try:
+            import urllib.request  # noqa: PLC0415
+            req = urllib.request.Request(url, headers={"User-Agent": "dash-seed/1"})
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                blob = resp.read()
+            report = import_seed(blob)
+            report["bytes"] = len(blob)
+        except Exception as exc:  # noqa: BLE001
+            report = {"loaded": 0, "error": f"{type(exc).__name__}: {exc}"[:160]}
+        report["sec"] = round(time.time() - t0, 2)
+        _seed_state["report"] = report
+        return report
+

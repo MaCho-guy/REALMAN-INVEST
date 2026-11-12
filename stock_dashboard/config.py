@@ -167,6 +167,18 @@ SCREEN_CACHE_TTL_SEC = 86_400  # 24시간 — 연간 재무는 1년에 한 번 �
 #: 200회 요청(12초 안팎)이 듭니다. 2026-11-12 실측 "국내 재무 심사 12.7초".
 SCREEN_STALE_SEC = 30 * 86_400
 
+#: 차트 조건을 다시 계산하는 간격 — 장중 5분, 장이 닫히면 1시간.
+CHART_TTL_OPEN_SEC = 300
+CHART_TTL_CLOSED_SEC = 3_600
+#: 묵은 시세를 보여주기 전에 새 시세를 기다려 주는 시간(초). 0 이면 안 기다림.
+QUOTE_WAIT_FRESH_SEC = 3.0
+#: 아침 수집기가 올려 두는 스냅샷 (저장소의 data 브랜치). 서버가 막 깨어나
+#: 값이 하나도 없을 때 이걸 읽어 채웁니다. 환경변수 SEED_URL 로 바꿀 수
+#: 있고, 빈 값이면 읽지 않습니다.
+SEED_URL = os.environ.get(
+    "SEED_URL",
+    "https://raw.githubusercontent.com/MaCho-guy/REALMAN-INVEST/data/seed.pkl.gz")
+
 #: 관심종목 외에 함께 돌릴 후보. 미국 종목(SEC 신고 기업)만 됩니다 —
 #: 삼성전자·SK하이닉스는 SEC 에 신고하지 않아 이 스크리너로는 안 됩니다.
 #: 아래 목록은 '버핏식 기준을 적용해볼 만한' 성격의 종목을 업종별로 넓게

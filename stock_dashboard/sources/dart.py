@@ -101,7 +101,13 @@ _throttle_lock = threading.Lock()
 
 
 class DartError(RuntimeError):
-    pass
+    """요청이 실패했을 때."""
+
+    def __init__(self, *args):
+        # 연결 실패 문구에는 요청 주소(인증키 포함)가 통째로 들어옵니다.
+        # 오류가 만들어지는 순간에 지워, 어디로 흘러가든 키가 없게 합니다.
+        from . import safe  # noqa: PLC0415
+        super().__init__(*(safe.scrub(a) if isinstance(a, str) else a for a in args))
 
 
 class DartKeyMissing(DartError):
@@ -192,8 +198,9 @@ def _describe(exc: Exception) -> str:
     'HTTPSConnectionPool(host=...' 로 시작하는 원문은 앞부분만 보이면
     무엇이 문제인지 알 수 없습니다 — 원인 종류를 **앞에** 적습니다.
     """
+    from . import safe  # noqa: PLC0415
     name = type(exc).__name__
-    text = str(exc)
+    text = safe.scrub(str(exc))      # 요청 주소에 든 인증키를 지웁니다
     if isinstance(exc, requests.ConnectTimeout) or "ConnectTimeout" in text:
         kind = "연결 시간 초과 — 서버에 닿지 못함 (해외 접속 차단 가능성)"
     elif isinstance(exc, requests.ReadTimeout) or "Read timed out" in text:

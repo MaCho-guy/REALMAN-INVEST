@@ -157,6 +157,7 @@ def build_css(convention: str, stack: bool = True) -> str:
     그대로 두고 옆으로 밀어 봅니다.
     """
     return ("<style>" + build_vars(convention) + build_rules()
+            + build_native_rules()
             + (build_stack_rules() if stack else "") + "</style>")
 
 
@@ -2203,5 +2204,172 @@ def build_stack_rules() -> str:
       font-size: var(--fs-2); font-family: {FONT_STACK};
       border-bottom: 1px solid var(--dash-divider);
     }}
+  }}
+"""
+
+
+def build_native_rules() -> str:
+    """스트림릿 **기본 부품**(버튼·접는 카드·칩·토글·선택 상자)의 색을 고정합니다.
+
+    2026-11-12 실제 앱에서 확인한 문제: 테마 설정 파일(.streamlit/config.toml)
+    이 적용되지 않고 있었습니다 (마지막 줄이 잘려 문법 오류). 그러면
+    스트림릿은 **보는 기기의 다크/라이트 설정**을 따라갑니다. 다크 모드
+    휴대폰에서는 기본 부품이 검은 바탕·흰 글자로 그려지는데, 대시보드는
+    밝은 바탕을 깔고 있어서 — 버튼은 검은 덩어리가 되고, 바탕 없이 글자만
+    있는 부품(접는 카드 제목·토글 이름·칩 이름)은 흰 글자가 밝은 바탕에
+    묻혀 **아예 안 보였습니다.**
+
+    설정 파일에 기대지 않도록, 기본 부품의 색을 여기서 대시보드 변수로
+    직접 정합니다. 선택자는 실제 앱의 구조에서 읽은 것입니다
+    (stBaseButton-secondary · stPopoverButton · stButtonGroup 안의
+    role=radio 버튼 · stExpander …). 스트림릿이 구조를 바꾸면 그 부품만
+    기본 모양으로 돌아갑니다.
+    """
+    return f"""
+  /* ══ 스트림릿 기본 부품 — 기기의 다크 모드와 무관하게 ══════════════════ */
+  :root {{ color-scheme: light; }}
+  .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"] {{
+    color: var(--dash-ink);
+  }}
+  header[data-testid="stHeader"] {{
+    background: var(--dash-page) !important; color: var(--dash-ink) !important;
+  }}
+  header[data-testid="stHeader"] * {{ color: var(--dash-ink) !important; }}
+
+  /* 글자 — 바탕 없이 글자만 있는 부품들 */
+  [data-testid="stMarkdownContainer"], [data-testid="stWidgetLabel"],
+  [data-testid="stWidgetLabel"] p, [data-testid="stCheckbox"] label,
+  [data-testid="stRadio"] label, [data-testid="stRadio"] label p,
+  [data-testid="stCheckbox"] label p, [data-testid="stExpanderDetails"],
+  [data-testid="stSpinner"], [data-testid="stText"] {{
+    color: var(--dash-ink);
+  }}
+  [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p,
+  [data-testid="stTooltipIcon"] svg {{
+    color: var(--dash-ink-muted) !important;
+  }}
+
+  /* 버튼 — 기본(흰 바탕·테두리), 강조(남색) */
+  button[kind="secondary"], [data-testid="stBaseButton-secondary"],
+  [data-testid="stPopoverButton"], [data-testid="stBaseButton-headerNoPadding"] {{
+    background: var(--dash-surface) !important; color: var(--dash-ink) !important;
+    border: 1px solid var(--dash-border) !important;
+    border-radius: var(--r-inner) !important;
+  }}
+  button[kind="secondary"]:hover, [data-testid="stPopoverButton"]:hover {{
+    border-color: var(--dash-accent) !important; color: var(--dash-accent) !important;
+    background: var(--dash-surface) !important;
+  }}
+  button[kind="secondary"]:active, button[kind="secondary"]:focus:not(:active),
+  [data-testid="stPopoverButton"]:focus:not(:active) {{
+    background: var(--dash-surface) !important; color: var(--dash-ink) !important;
+    border-color: var(--dash-accent) !important;
+  }}
+  button[kind="primary"], [data-testid="stBaseButton-primary"] {{
+    background: var(--dash-accent) !important; color: #fff !important;
+    border: 1px solid var(--dash-accent) !important;
+    border-radius: var(--r-inner) !important;
+  }}
+  button [data-testid="stMarkdownContainer"],
+  button [data-testid="stMarkdownContainer"] p,
+  button [data-testid="stIconMaterial"] {{ color: inherit !important; }}
+
+  /* 고르는 칩 (시장 · 스크리너 · 조건) — 줄이 넘치면 잘리지 않고 다음 줄로 */
+  [data-testid="stButtonGroup"] [role="radiogroup"],
+  [data-testid="stButtonGroup"] > div:last-child {{
+    flex-wrap: wrap !important; gap: 6px !important; overflow: visible !important;
+  }}
+  [data-testid="stButtonGroup"] button {{
+    background: var(--dash-surface) !important; color: var(--dash-ink-2) !important;
+    border: 1px solid var(--dash-border) !important;
+    border-radius: var(--r-pill) !important; min-height: 36px;
+    max-width: 100%;
+  }}
+  [data-testid="stButtonGroup"] button * {{ color: inherit !important; }}
+  [data-testid="stButtonGroup"] button p {{
+    white-space: normal !important; text-align: left; line-height: 1.3;
+  }}
+  [data-testid="stButtonGroup"] button[aria-checked="true"],
+  [data-testid="stButtonGroup"] button[aria-pressed="true"],
+  [data-testid="stButtonGroup"] button[aria-selected="true"],
+  [data-testid="stButtonGroup"] button[kind$="Active"] {{
+    background: color-mix(in srgb, var(--dash-accent) 12%, var(--dash-surface)) !important;
+    color: var(--dash-accent) !important; border-color: var(--dash-accent) !important;
+    font-weight: 700 !important;
+  }}
+
+  /* 접는 카드 — 접혀 있어도 제목이 보여야 합니다 */
+  [data-testid="stExpander"] details {{
+    background: var(--dash-surface) !important;
+    border: 1px solid var(--dash-border) !important;
+    border-radius: var(--r-card) !important;
+  }}
+  [data-testid="stExpander"] summary {{
+    color: var(--dash-ink) !important; background: transparent !important;
+    border-radius: var(--r-card) !important;
+  }}
+  [data-testid="stExpander"] summary:hover,
+  [data-testid="stExpander"] summary:focus,
+  [data-testid="stExpander"] summary:active {{
+    color: var(--dash-accent) !important; background: var(--dash-raised) !important;
+  }}
+  [data-testid="stExpander"] summary *,
+  [data-testid="stExpander"] summary svg {{ color: inherit !important; fill: currentColor; }}
+  [data-testid="stExpander"] summary p {{ font-weight: 600; }}
+
+  /* 떠오르는 패널 · 선택 상자 · 입력란 */
+  [data-testid="stPopoverBody"], [data-baseweb="popover"] > div > div {{
+    background: var(--dash-surface) !important; color: var(--dash-ink) !important;
+    border-color: var(--dash-border) !important;
+  }}
+  [data-baseweb="select"] > div, [data-baseweb="input"], [data-baseweb="base-input"],
+  [data-baseweb="input"] input, [data-testid="stNumberInput"] input,
+  [data-testid="stTextInput"] input, textarea {{
+    background: var(--dash-surface) !important; color: var(--dash-ink) !important;
+    border-color: var(--dash-border) !important;
+    -webkit-text-fill-color: var(--dash-ink);
+  }}
+  [data-baseweb="select"] * {{ color: var(--dash-ink) !important; }}
+  [role="listbox"], [data-baseweb="menu"], [data-baseweb="menu"] ul {{
+    background: var(--dash-surface) !important;
+  }}
+  [role="option"], [data-baseweb="menu"] li {{
+    color: var(--dash-ink) !important; background: var(--dash-surface) !important;
+  }}
+  [role="option"]:hover, [role="option"][aria-selected="true"] {{
+    background: var(--dash-raised) !important;
+  }}
+  [data-testid="stNumberInput"] button {{
+    background: var(--dash-raised) !important; color: var(--dash-ink) !important;
+  }}
+  /* 탭 (설정 패널 안) */
+  [data-baseweb="tab"] {{ color: var(--dash-ink-2) !important; background: transparent !important; }}
+  [data-baseweb="tab"][aria-selected="true"] {{ color: var(--dash-accent) !important; }}
+  [data-baseweb="tab-highlight"] {{ background: var(--dash-accent) !important; }}
+  [data-baseweb="tab-border"] {{ background: var(--dash-divider) !important; }}
+
+  /* 알림 상자 (st.info · st.warning) — 흰 글자가 밝은 바탕에 묻히지 않게 */
+  [data-testid="stAlert"] *, [data-testid="stAlertContainer"] * {{
+    color: var(--dash-ink) !important;
+  }}
+
+  /* ── 위쪽 조작 줄 — 휴대폰에서도 **한 줄** ─────────────────────────────
+     스트림릿은 좁은 화면에서 칸을 위아래로 쌓습니다. 설정 버튼 셋과
+     갱신 버튼이 화면 한 장을 다 쓰던 이유입니다. 이 줄만은 쌓지 않습니다. */
+  div[data-testid="stHorizontalBlock"]:has(.dash-ctrlmark) {{
+    flex-wrap: nowrap !important; gap: 6px !important; align-items: stretch;
+  }}
+  div[data-testid="stHorizontalBlock"]:has(.dash-ctrlmark) > div[data-testid="stColumn"] {{
+    min-width: 0 !important; width: auto !important; flex: 1 1 0 !important;
+  }}
+  div[data-testid="stHorizontalBlock"]:has(.dash-ctrlmark) button {{
+    width: 100% !important; min-height: 38px; padding: 4px 8px !important;
+  }}
+  div[data-testid="stHorizontalBlock"]:has(.dash-ctrlmark) button p {{
+    font-size: var(--fs-3) !important; white-space: nowrap;
+  }}
+  div[data-testid="stElementContainer"]:has(> div > .dash-ctrlmark),
+  div[data-testid="stElementContainer"]:has(.dash-ctrlmark):not(:has(button)) {{
+    display: none !important;
   }}
 """

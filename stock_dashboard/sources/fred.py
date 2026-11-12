@@ -149,6 +149,12 @@ _throttle_lock = threading.Lock()
 class FredError(RuntimeError):
     """FRED 조회 실패."""
 
+    def __init__(self, *args):
+        # 연결 실패 문구에는 요청 주소(인증키 포함)가 통째로 들어옵니다.
+        # 오류가 만들어지는 순간에 지워, 어디로 흘러가든 키가 없게 합니다.
+        from . import safe  # noqa: PLC0415
+        super().__init__(*(safe.scrub(a) if isinstance(a, str) else a for a in args))
+
 
 @dataclass(frozen=True)
 class Observation:

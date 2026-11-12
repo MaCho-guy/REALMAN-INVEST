@@ -152,6 +152,34 @@ def _parse_theme(text: str) -> dict:
     return out
 
 
+def _toml_error(text: str) -> str:
+    """TOML 문법 오류를 사람 말로 (없으면 빈 문자열). 파이썬 3.11 미만은 건너뜀."""
+    try:
+        import tomllib  # noqa: PLC0415
+    except ImportError:
+        return ""
+    try:
+        tomllib.loads(text)
+        return ""
+    except tomllib.TOMLDecodeError as exc:
+        import re as _re  # noqa: PLC0415
+        m = _re.search(r"line (\d+)", str(exc))
+        where, shown = "", ""
+        if m:
+            n = int(m.group(1))
+            lines = text.splitlines()
+            where = f" {n}번째 줄"
+            if 0 < n <= len(lines):
+                shown = f" — `{lines[n - 1].strip()[:60]}`"
+        hint = ""
+        if _re.search(r"=\s*(fals|fal|tru|tr)\s*$", text, _re.M):
+            hint = " (true / false 가 중간에 잘렸습니다)"
+        return (f"문법 오류{where}{shown}{hint}. 한 줄이라도 틀리면 Streamlit 이 "
+                "이 파일 **전체**를 읽지 못해 테마가 적용되지 않습니다")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def theme_problems(path: str) -> list[str]:
     """설정 파일 하나의 문제 목록 (비어 있으면 정상)."""
     try:
@@ -167,6 +195,13 @@ def theme_problems(path: str) -> list[str]:
                      "자동 고침 때문입니다. 이러면 Streamlit 이 파일을 못 읽습니다. "
                      "곧은 따옴표(\")로 바꾸십시오")
         text = text.translate({ord(c): '"' for c in _CURLY})
+    # **파일 전체가 문법에 맞는지** 봅니다. 2026-11-12: 저장소의 파일이
+    # 마지막 줄에서 잘려 있었습니다 (`gatherUsageStats = fals`). [theme] 값은
+    # 전부 맞아서 아래 검사는 통과했지만, 한 줄이라도 틀리면 Streamlit 은
+    # 파일 **전체**를 못 읽습니다 — 테마가 통째로 적용되지 않습니다.
+    syntax = _toml_error(text)
+    if syntax:
+        probs.append(syntax)
     got = _parse_theme(text)
     if not got:
         probs.append("[theme] 구역을 찾지 못했습니다 — 첫 줄이 [theme] 인지 "

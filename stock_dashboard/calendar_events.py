@@ -125,6 +125,29 @@ def nth_weekday(year: int, month: int, weekday: int, n: int) -> dt.date:
     return d + dt.timedelta(weeks=n - 1)
 
 
+def is_open(market: str, now: dt.datetime | None = None) -> bool:
+    """정규장이 지금 열려 있나. market: kr | us. now 는 시간대가 붙은 시각.
+
+    한국 09:00~15:30 (KST), 미국 09:30~16:00 (뉴욕). 주말·휴장일은 닫힘.
+    미국 조기 마감일은 13:00 에 닫습니다. 휴장일 표가 끝난 뒤(TABLE_END)는
+    주말만 가립니다 — 그때는 휴장일에 '열림' 으로 잘못 답할 수 있습니다.
+    """
+    from zoneinfo import ZoneInfo  # noqa: PLC0415
+
+    now = now or dt.datetime.now(dt.timezone.utc)
+    if market == "kr":
+        local = now.astimezone(ZoneInfo("Asia/Seoul"))
+        holidays, start, end = KRX_HOLIDAYS, dt.time(9, 0), dt.time(15, 30)
+    else:
+        local = now.astimezone(ZoneInfo("America/New_York"))
+        holidays, start = NYSE_HOLIDAYS, dt.time(9, 30)
+        end = (dt.time(13, 0) if local.date().isoformat() in NYSE_EARLY_CLOSE
+               else dt.time(16, 0))
+    if local.weekday() >= 5 or local.date().isoformat() in holidays:
+        return False
+    return start <= local.time() < end
+
+
 def previous_trading_day(d: dt.date, holidays: dict) -> dt.date:
     """d 가 주말·휴장이면 그 앞 거래일."""
     while d.weekday() >= 5 or d.isoformat() in holidays:

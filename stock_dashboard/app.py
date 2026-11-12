@@ -100,6 +100,7 @@ from sources import (
     dart, edgar, edgar_facts, edgar_xbrl, feargreed, fred, hyperliquid,
     naver, news, research, vix, yahoo,
 )
+from sources import safe
 from sources.model import Quote
 from theme import build_css
 
@@ -133,7 +134,11 @@ def _any_quote_ok(payload) -> bool:
 # 스레드에서 미리 받아 둘 수 있습니다 (_warm_market).
 # ──────────────────────────────────────────────────────────────────────────────
 
-@swr.cached(config.CACHE_TTL_SEC, stale=1_800, keep=_any_quote_ok)
+# wait_fresh: 저장된 시세가 60초를 넘겼으면 새 시세를 **3초까지** 기다립니다.
+# 그 안에 오면 새 값만 보이고, 안 오면 그때만 묵은 값을 먼저 보여줍니다
+# (2026-11-12 "옛 시세가 안 보이게" — 열자마자 뜨는 것과의 절충).
+@swr.cached(config.CACHE_TTL_SEC, stale=1_800, keep=_any_quote_ok,
+            wait_fresh=config.QUOTE_WAIT_FRESH_SEC)
 def load_all(use_demo: bool) -> dict[str, dict[str, Quote]]:
     """모든 소스에서 시세를 모읍니다. 소스별 실패는 격리됩니다."""
     if use_demo:
@@ -369,13 +374,27 @@ def load_news(targets: tuple[tuple[str, str, str], ...], use_demo: bool) -> dict
         return {}
 
 
-@swr.cached(3_600)
+def _chart_ttl(market: str = "kr", use_demo: bool = False) -> float:
+    """차트 조건을 얼마나 자주 다시 계산하나 — 장중 5분, 그 밖에는 1시간.
+
+    일봉 지표는 종가에 확정되지만, 장중에도 '오늘 봉이 지금 가격에서
+    끝난다면' 의 값은 계속 움직입니다. 1시간에 한 번이면 장중에 보기에
+    너무 굼떴습니다 (2026-11-12 "차트는 실시간이어야 쓸만하지 않나").
+    """
+    try:
+        return config.CHART_TTL_OPEN_SEC if calendar_events.is_open(market) \
+            else config.CHART_TTL_CLOSED_SEC
+    except Exception:  # noqa: BLE001
+        return 3_600.0
+
+
+@swr.cached(_chart_ttl, stale=6 * 3_600)
 def load_chart_rows(market: str, use_demo: bool):
     """차트 조건 — 후보의 1년 일봉(고·저·종) → 종목별 지표 한 줄.
 
     한국은 네이버 먼저, 못 받은 종목만 야후(.KS/.KQ). 미국은 야후.
-    일봉은 하루 한 번 바뀌므로 1시간 저장합니다. 장중에는 오늘 봉이
-    아직 완성되지 않은 값이라, 지표도 장 마감 뒤에 확정됩니다.
+    장중에는 5분, 장이 닫히면 1시간 저장합니다 (_chart_ttl). 장중의 오늘
+    봉은 아직 완성되지 않은 값이라, 지표도 장 마감 뒤에 확정됩니다.
     """
     cands = config.chart_candidates(market)
     if use_demo:
@@ -1581,6 +1600,15 @@ def render_chart_tab(use_demo: bool, *, market: str = "kr") -> None:
             "봉이 완성되지 않아 값과 거래량 배수가 마감 때와 다릅니다."),
         unsafe_allow_html=True,
     )
+    live = (not use_demo) and calendar_events.is_open(market)
+    if live:
+        age = load_chart_rows.age(market, use_demo)
+        when = ("" if age is None else
+                f" · {dt.datetime.fromtimestamp(time.time() - age, KST):%H:%M} 기준")
+        st.markdown(ui.render_notice(
+            f"<b>장중 잠정</b>{when} — 오늘 봉을 지금 가격으로 넣어 계산했습니다. "
+            f"{config.CHART_TTL_OPEN_SEC // 60}분마다 다시 계산하며, 조건은 "
+            "<b>종가에 달라질 수 있습니다.</b>"), unsafe_allow_html=True)
     st.markdown(ui.render_chart_counts(
         chart_signals.counts(rows), len(ok_rows), len(rows), conds),
         unsafe_allow_html=True)
@@ -2430,7 +2458,9 @@ def render_diag_panel() -> None:
                 except Exception as exc:  # noqa: BLE001
                     output = (buffer.getvalue()
                               + f"\n\n예외: {type(exc).__name__}: {exc}")
-            st.session_state[f"diag_out_{key}"] = output
+            # 진단 결과는 통째로 복사해 밖에 붙여넣는 글입니다 — 요청 주소에
+            # 섞여 나온 인증키를 여기서 한 번 더 지웁니다.
+            st.session_state[f"diag_out_{key}"] = safe.scrub(output)
 
         output = st.session_state.get(f"diag_out_{key}")
         if output:
@@ -3839,10 +3869,16 @@ def controls() -> dict:
     # 깨지는 버그가 계속 생기고 둘 다 어중간해집니다 — 실제로 각주 태그,
     # 링크 색, 차트 대비가 전부 한쪽에서만 틀렸습니다. 하나를 제대로
     # 만드는 쪽을 골랐습니다.
-    c2, c3, c4 = st.columns([2, 2, 2])
+    # 한 줄: 표시 · 데이터 · 진단 · 갱신. 2026-11-12 실제 앱(휴대폰 폭)에서
+    # 보니 설정 버튼 셋과 갱신 버튼이 위아래로 쌓여 **화면 한 장**을 쓰고
+    # 있었습니다 (스트림릿은 좁은 화면에서 칸을 쌓습니다). 표식(.dash-ctrlmark)
+    # 을 넣어 두면 theme.build_native_rules 가 이 줄만은 쌓지 않게 합니다.
+    c2, c3, c4, c5 = st.columns([2, 2, 2, 2])
+    with c2:
+        st.markdown('<div class="dash-ctrlmark"></div>', unsafe_allow_html=True)
 
     with c2:
-        with _pane("표시 설정", "휴대폰 · 표 모양 · 설명 문구"):
+        with _pane("표시", "휴대폰 · 표 모양 · 설명 문구"):
             # 등락 색상 고르기를 없앴습니다 (2026-11-12 "빼고 한국식으로 고정").
             # 상승 적색 · 하락 청색 하나만 씁니다. 쓰지 않는 선택지는 설정을
             # 길게 만들 뿐입니다.
@@ -3889,7 +3925,7 @@ def controls() -> dict:
             )
 
     with c4:
-        with _pane("진단 · 실행", "데이터가 맞는지 확인 · 분석 실행 설정"):
+        with _pane("진단", "데이터가 맞는지 확인 · 분석 실행 설정"):
             # 진단 패널 하나 때문에 앱 전체가 안 켜지면 안 됩니다.
             # 2026-11-11 에 tools/diagnose.py 가 낡았다는 이유로 여기서
             # AttributeError 가 났고, controls() 안이라 화면이 통째로
@@ -3939,10 +3975,12 @@ def controls() -> dict:
                 )
             st.session_state["skill_commands"] = cmds
 
-    if st.button("지금 갱신", use_container_width=False):
-        load_all.clear()
-        load_fundamentals.clear()
-        st.rerun()
+    with c5:
+        if st.button("갱신", use_container_width=True,
+                     help="시세를 지금 다시 받습니다."):
+            load_all.clear()
+            load_fundamentals.clear()
+            st.rerun()
 
     return {
         "convention": convention,
@@ -4344,6 +4382,13 @@ def _market_switch() -> str:
 def render_body(opts: dict) -> None:
     log = perf.RunLog()
     swr.reset_stale_served()
+    # 서버가 막 깨어났으면(값이 하나도 없으면) 아침 수집기가 올려 둔
+    # 스냅샷부터 읽습니다. 프로세스마다 한 번, 최대 4초. 그 뒤의 받기들은
+    # 스냅샷 값을 '묵은 값' 으로 바로 쓰고 뒤에서 새로 받습니다.
+    if not opts["demo"]:
+        seed = log.measure("스냅샷", swr.load_seed_from, config.SEED_URL)
+        if seed and seed.get("loaded"):
+            st.session_state["_seed_note"] = seed
     # 시세와 이 화면의 데이터를 **동시에** 받기 시작합니다. 전에는 시세 →
     # 공시 → 재고 → 섹터 → 매크로를 한 줄로 기다렸습니다.
     _m = _peek_market()
@@ -4479,6 +4524,40 @@ def render_body(opts: dict) -> None:
     )
 
 
+def _force_light_theme() -> None:
+    """설정 파일 없이도 밝은 테마로 — 스트림릿의 테마 값을 코드에서 정합니다.
+
+    2026-11-12 실제 앱 확인: .streamlit/config.toml 이 적용되지 않고
+    있었습니다 (마지막 줄이 `fals` 로 잘려 문법 오류). 그러면 스트림릿은
+    보는 기기의 다크/라이트 설정을 따라가고, 다크 모드 휴대폰에서는 기본
+    부품의 흰 글자가 밝은 바탕에 묻혀 안 보였습니다 (차트 조건 화면에서
+    31곳). 색은 theme.build_native_rules 가 CSS 로도 고정하지만, 여기서
+    테마 자체를 바꿔 두면 CSS 가 닿지 않는 부품(떠오르는 메뉴 등)까지
+    맞습니다. 스트림릿 내부 기능이라 실패하면 조용히 넘어갑니다.
+    """
+    try:
+        from streamlit import config as _stcfg  # noqa: PLC0415
+    except Exception:  # noqa: BLE001
+        return
+    changed = False
+    for name, value in buildstamp.EXPECTED_THEME.items():
+        option = f"theme.{name}"
+        try:
+            if _stcfg.get_option(option) != value:
+                _stcfg.set_option(option, value)
+                changed = True
+        except Exception:  # noqa: BLE001
+            return
+    # 처음 한 번은 이미 옛 테마로 화면이 시작됐으므로 다시 그립니다.
+    if changed and not st.session_state.get("_theme_forced"):
+        st.session_state["_theme_forced"] = True
+        try:
+            st.rerun()
+        except Exception as exc:  # noqa: BLE001
+            if type(exc).__name__ in ("RerunException", "StopException"):
+                raise
+
+
 def main() -> None:
     st.set_page_config(
         page_title="주식 대시보드",
@@ -4489,6 +4568,11 @@ def main() -> None:
         # 가렸습니다.
         initial_sidebar_state="collapsed",
     )
+
+    # 화면에 찍히는 모든 문구에서 인증키를 지웁니다. 이 앱은 주소만 알면
+    # 누구나 볼 수 있고, 연결 실패 문구에는 요청 주소가 통째로 들어옵니다.
+    safe.guard_streamlit(st)
+    _force_light_theme()
 
     # 파일 버전 검사를 **가장 먼저** 합니다. 일부만 올라간 상태면 아래
     # 코드가 AttributeError 로 죽는데, Streamlit Cloud 는 오류 본문을 가려서

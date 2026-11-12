@@ -61,6 +61,14 @@ EXTRA_CSS = """
   /* 앱 기본값과 같이: 설명 문단은 숨기고, 꼭 필요한 안내(notice)만 */
   .dash-footnote:not(.dash-notice) { display: none; }
   body.pv-notes .dash-footnote { display: block; }
+  /* 앱의 설정 줄과 같은 모양 — 표시 · 데이터 · 진단 · 갱신 이 한 줄 */
+  .pv-ctrl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+             gap: 8px; margin: 0 0 12px; }
+  .pv-ctrl span { display: block; text-align: center; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+    font-size: var(--fs-3); color: var(--dash-ink);
+    background: var(--dash-surface); border: 1px solid var(--dash-border);
+    border-radius: var(--r-inner); padding: 8px 6px; }
   .pv-topctl { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
                margin-bottom: 12px; }
   .pv-topctl .pv-market { margin-bottom: 0; }
@@ -1216,6 +1224,11 @@ def _chart_panel(use_demo: bool, market: str = "kr") -> str:
         ui.render_footnote(
             "<b>읽어볼 목록이지 매매 신호가 아닙니다.</b> 지표는 지난 가격을 "
             "다시 정리한 값이고 방향을 말해주지 않습니다."),
+        # 장이 열려 있을 때만 나오는 안내 (프리뷰에서는 항상 보여 줍니다)
+        ui.render_notice(
+            "<b>장중 잠정</b> · 10:35 기준 — 오늘 봉을 지금 가격으로 넣어 "
+            f"계산했습니다. {config.CHART_TTL_OPEN_SEC // 60}분마다 다시 계산하며, "
+            "조건은 <b>종가에 달라질 수 있습니다.</b>"),
         ui.render_chart_counts(cs.counts(rows), len(ok_rows), len(rows), conds),
     ]
     chips = "".join(f'<span class="pv-chip">{n}</span>' for n in names.values())
@@ -1714,6 +1727,8 @@ def build_html(convention: str, use_demo: bool) -> str:
         '<span class="dash-logo-sub">야간 대체시세 · 시장 지표 · 관심종목</span>'
         "</div>",
         banner,
+        '<div class="pv-ctrl" aria-hidden="true"><span>표시</span>'
+        '<span>데이터</span><span>진단</span><span>갱신</span></div>',
         market_switch,
         '<div class="pv-shell">',
         '<div class="pv-side">' + "".join(navs) + "</div>",

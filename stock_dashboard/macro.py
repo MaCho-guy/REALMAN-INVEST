@@ -21,6 +21,9 @@ import datetime as dt
 from dataclasses import dataclass, field
 
 from config import MacroSeries
+
+#: 일별 계열을 '발표 지연' 으로 보기 시작하는 날수 (주말 2일 + 휴일 + 공개 1일).
+DAILY_STALE_DAYS = 5
 from sources.fred import Series
 
 
@@ -223,7 +226,13 @@ def build_reading(spec: MacroSeries, series: Series | None,
 
     # 발표 지연 — 통상 주기의 N 배를 넘으면 표시합니다
     from config import MACRO_STALE_MULTIPLIER
-    if lag is not None and lag > spec.period_days * MACRO_STALE_MULTIPLIER:
+    # 일별 계열은 '다음 영업일 공개' 라 주말·휴일이 끼면 3~4일은 정상입니다.
+    # 2026-11-12 실제 화면: 11/9 종가(3일 전)에 '발표 지연' 이 붙었습니다 —
+    # 주기 1일 × 2.5 = 2.5일을 넘겼다는 이유였습니다. 일별은 5일부터 봅니다.
+    limit = spec.period_days * MACRO_STALE_MULTIPLIER
+    if spec.period_days < 7:
+        limit = max(limit, DAILY_STALE_DAYS)
+    if lag is not None and lag > limit:
         reading.stale = True
 
     if series.missing_count > len(series.observations) and not gap_note:

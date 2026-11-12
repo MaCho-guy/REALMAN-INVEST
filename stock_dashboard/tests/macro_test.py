@@ -920,6 +920,10 @@ _d10 = macro.build_reading(
 check("일별 금리 — 휴일이 끼면 3일 전이 최신", _d10.lag_days == 3
       and _d10.period_label == "11/09 종가" and _d10.cadence_label == "다음 영업일 공개",
       f"{_d10.period_label} · {_d10.cadence_label}")
+check("일별 3일 전은 지연이 아니다 (주말·휴일)", not _d10.stale)
+_d10_late = macro.build_reading(
+    _d10_spec, series_of("DGS10", [("2026-11-04", 4.1), ("2026-11-05", 4.1)]), "", _today)
+check("일별도 5일을 넘기면 지연", _d10_late.lag_days == 7 and _d10_late.stale)
 check("지금 시세가 없으면 적지 않는다", _d10.live_label == "")
 _before = [(t.reading.spec.key, t.rule) for t in macro.evaluate_all([_d10])]
 macro.attach_context([_d10], live_quotes={"^TNX": (4.95, 0.80), "^IRX": (4.0, None)})

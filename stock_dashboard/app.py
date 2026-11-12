@@ -1757,12 +1757,14 @@ def _discover_us(use_demo: bool) -> None:
         unknown_p = sum(1 for s_ in passed if not funnel.price_known(_fp(s_.ticker)))
         st.markdown(ui.render_legend(
             "<b>가격 부담 낮음</b> = 역DCF 로 역산한 '지금 주가가 요구하는 FCF 성장률' 이 "
-            "과거 실제 FCF 성장률 이하 (할인율 10% · 영구성장률 2.5% · 과거 성장률은 "
-            f"연 {config.FUNNEL_HIST_GROWTH_CAP * 100:g}% 까지만 인정) · "
+            "과거 실제 FCF 성장률 이하 — <b>할인율 8~12% 전 구간에서</b> 성립할 때만 (10% 에서만 "
+            "성립하면 '경계') · 과거 성장률은 앞 3년 평균 → 뒤 3년 평균, "
+            f"연 {config.FUNNEL_HIST_GROWTH_CAP * 100:g}% 까지만 인정 · FCF 에서 주식보상비용 차감 · "
+            "금융업은 판정하지 않음 · "
             "<b>차트</b> = 과매도 쪽 (CCI · 스토캐스틱 · 볼린저) · 계산 "
             + (dt.datetime.fromtimestamp(made_f, KST).strftime("%m/%d %H:%M") if made_f else "?")
             + (f" · 가격을 판정하지 못한 {unknown_p}종목(FCF 적자 · 사이클 왜곡 · 과거 성장률 "
-               "계산 불가)은 '낮음' 으로 세지 않습니다" if unknown_p else "")),
+               "계산 불가 · 금융업)은 '낮음' 으로 세지 않습니다" if unknown_p else "")),
             unsafe_allow_html=True)
         extra_heads = ("요구 성장률", "차트")
         names = {k: n for k, n, _r in chart_signals.CONDITIONS}
@@ -1887,7 +1889,7 @@ def _kr_quality_block(use_demo: bool) -> None:
         f"<b>품질</b> = 버핏식 기준 {len(buffett.CRITERIA)}개 중 {qmin}개 이상 통과 "
         f"(DART 사업보고서 최근 10년 · 심사 {_when(q_made)}) · 전체 판정 가운데 "
         f"<b>판정 불가 {unknown_pct:.0f}%</b> · <b>가격 부담 낮음</b> = 역DCF 요구 FCF 성장률 ≤ "
-        f"과거 실제 성장률(연 {config.FUNNEL_HIST_GROWTH_CAP * 100:g}% 까지만 인정) · "
+        f"과거 실제 성장률(할인율 8~12% 전 구간 · 연 {config.FUNNEL_HIST_GROWTH_CAP * 100:g}% 까지만 인정) · "
         f"<b>차트</b> = 과매도 쪽 · 가격 · 차트 계산 {_when(made)}"),
         unsafe_allow_html=True)
     st.markdown(ui.render_funnel([

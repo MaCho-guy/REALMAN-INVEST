@@ -144,6 +144,10 @@ TAGS: dict[str, tuple[str, ...]] = {
         "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
         "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments",
     ),
+    # 주식보상비용 — 현금흐름표에서 순이익에 되더해지는 비현금 비용. 영업현금흐름에
+    # 그대로 들어 있어 FCF 를 부풀립니다 (직원에게 주식으로 준 급여는 주주의 비용).
+    # 품질 기준에는 쓰지 않고, 가격 단계(역DCF)의 FCF 에서만 뺍니다 (funnel.py).
+    "sbc": ("ShareBasedCompensation", "AllocatedShareBasedCompensationExpense"),
     # 세전이익을 국내 · 해외로만 나눠 적는 회사 — 둘을 더해 세전이익으로 씁니다
     "pretax_domestic": ("IncomeLossFromContinuingOperationsBeforeIncomeTaxesDomestic",),
     "pretax_foreign": ("IncomeLossFromContinuingOperationsBeforeIncomeTaxesForeign",),
@@ -173,6 +177,7 @@ TAG_LABELS: dict[str, str] = {
     "dep_amort": "감가상각비", "tax_expense": "법인세비용",
     "interest_paid": "실제 낸 이자", "interest_net": "순이자(이자수익 − 이자비용)",
     "pretax_domestic": "세전이익(국내)", "pretax_foreign": "세전이익(해외)",
+    "sbc": "주식보상비용",
 }
 
 
@@ -185,9 +190,9 @@ FLOW_KEYS = ("net_income", "revenue", "gross_profit", "cost_of_revenue",
              "dep_amort", "capex", "operating_cash_flow",
              "operating_income", "interest_expense", "tax_expense",
              "pretax_income", "interest_paid", "pretax_domestic", "pretax_foreign",
-             "interest_net")
+             "interest_net", "sbc")
 #: 다른 계정을 채우는 데만 쓰는 보조 계정 — 없어도 '못 찾은 계정' 에 올리지 않습니다
-AUX_KEYS = ("interest_paid", "pretax_domestic", "pretax_foreign", "interest_net")
+AUX_KEYS = ("interest_paid", "pretax_domestic", "pretax_foreign", "interest_net", "sbc")
 STOCK_KEYS = ("equity", "assets", "liabilities", "long_term_debt",
               "retained_earnings", "cash", "short_term_investments",
               "long_term_investments", "short_term_debt")
@@ -231,6 +236,7 @@ class YearRow:
     pretax_domestic: float | None = None
     pretax_foreign: float | None = None
     interest_net: float | None = None
+    sbc: float | None = None
 
     # ── 파생 지표 ────────────────────────────────────────────────────────────
     @property
@@ -1001,7 +1007,8 @@ def run_checks(screen: Screen, th: Thresholds | None = None) -> Screen:
 #:   2 (2026-11-12): 후보 태그를 연도별로 합침 · 회계연도 말만 축으로 · 낸 이자 대체 ·
 #:                   무차입 추정 · 자본 마이너스 부채 판정 · 조사에서 나온 태그 추가
 #:   3 (2026-11-12): 품질 통과 종목에 역DCF 입력(FCF 이력 · 순부채)을 같이 남김 (funnel.py)
-SCREEN_REV = 3
+#:   4 (2026-11-12): 역DCF 입력의 FCF 에서 주식보상비용을 뺌
+SCREEN_REV = 4
 
 #: 연간 보고서 양식 — 이 양식으로 낸 12개월 구간의 끝이 회계연도 말입니다
 ANNUAL_FORMS = ("10-K", "20-F", "40-F")

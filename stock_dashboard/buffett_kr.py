@@ -179,6 +179,10 @@ KR_RULES: tuple[KrAccount, ...] = (
 
 KR_RULES_BY_KEY = {r.key: r for r in KR_RULES}
 
+#: 국내 재무를 읽는 방식이 바뀔 때마다 올립니다 (미국의 buffett.SCREEN_REV 와 따로 —
+#: 미국 쪽만 바뀌었을 때 19분짜리 DART 심사를 다시 돌리지 않으려고).
+KR_REV = 3
+
 
 def find_account(accounts, rule: KrAccount):
     """계정 하나를 찾습니다. 표준ID → 정확한 이름 → 부분일치(가장 짧은 것).

@@ -1,10 +1,14 @@
-# 재무 태그 조사 — 손으로만 돌립니다 (Actions 화면 → Run workflow).
+# 재무 계정 조사 — 손으로만 돌립니다 (Actions 화면 → Run workflow).
 # '판정 불가' 가 왜 나는지 전 종목의 실제 응답으로 세어 로그에 찍습니다.
 # 데이터 파일이나 화면은 건드리지 않습니다.
 name: survey
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      market:
+        description: "us (SEC) 또는 kr (DART)"
+        default: "us"
 
 permissions:
   contents: read
@@ -12,7 +16,7 @@ permissions:
 jobs:
   survey:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -25,4 +29,11 @@ jobs:
       - name: 조사
         env:
           TZ: Asia/Seoul
-        run: python stock_dashboard/tools/tag_survey.py
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+          MARKET: ${{ inputs.market }}
+        run: |
+          if [ "$MARKET" = "kr" ]; then
+            python stock_dashboard/tools/kr_account_survey.py
+          else
+            python stock_dashboard/tools/tag_survey.py
+          fi

@@ -520,7 +520,9 @@ def build_funnel_us(app, out_dir: str, *, caps_fn=None, ohlc_fn=None) -> dict:
     rows = []
     for r in todo:
         s = sym[r["t"]]
-        rows.append({"t": r["t"], "p": funnel.price_part(r["t"], r["d"], caps.get(s)),
+        rows.append({"t": r["t"],
+                     "p": funnel.price_part(r["t"], r["d"], caps.get(s),
+                                            financial=r.get("s") == "Financials"),
                      "c": funnel.chart_part(charts[s])})
     size_b = _write_out(out_dir, "funnel_us.json", universe.dump({
         "rows": rows, "min_pass": config.FUNNEL_MIN_PASS,
@@ -542,6 +544,7 @@ def build_funnel_kr(app, out_dir: str, *, screens_fn=None, caps_fn=None, ohlc_fn
     가격 · 차트는 매번 새로 계산합니다. DART 키가 없으면 건너뜁니다.
     """
     import buffett  # noqa: PLC0415
+    import buffett_kr  # noqa: PLC0415
     import chart_signals  # noqa: PLC0415
     import config  # noqa: PLC0415
     import funnel  # noqa: PLC0415
@@ -557,7 +560,7 @@ def build_funnel_kr(app, out_dir: str, *, screens_fn=None, caps_fn=None, ohlc_fn
         return {"skipped": "한국 후보 목록(universe_kr.json)이 없습니다"}
     prev = _read_prev(out_dir, name)
     q_made = prev.get("q_made") or 0
-    reuse = (not force and prev.get("screens") and prev.get("screen_rev") == buffett.SCREEN_REV
+    reuse = (not force and prev.get("screens") and prev.get("screen_rev") == buffett_kr.KR_REV
              and (time.time() - q_made) < config.FUNNEL_KR_MAX_AGE_HOURS * 3600
              and len(prev["screens"]) >= len(members) // 2)
     if reuse:
@@ -610,7 +613,7 @@ def build_funnel_kr(app, out_dir: str, *, screens_fn=None, caps_fn=None, ohlc_fn
              "c": funnel.chart_part(charts[r["t"]])} for r in todo]
     size_b = _write_out(out_dir, name, universe.dump({
         "screens": screens, "errors": errors, "rows": rows, "q_made": q_made,
-        "screen_rev": buffett.SCREEN_REV, "min_pass": config.FUNNEL_MIN_PASS,
+        "screen_rev": buffett_kr.KR_REV, "min_pass": config.FUNNEL_MIN_PASS,
         "n_members": len(members)}))
     ok = [r for r in screens if r.get("y") and not r.get("e")]
     verdicts = [c[1] for r in ok for c in r.get("c") or []]

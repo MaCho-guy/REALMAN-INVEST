@@ -666,7 +666,8 @@ _d = {"f": _fcf, "nd": 0, "end": "2025-12-31"}
 cheap = funnel.price_part("A", _d, 2.0e9)       # 시가총액이 작다 → 요구 성장률이 낮다
 dear = funnel.price_part("A", _d, 2.0e10)       # 열 배 비싸다 → 요구 성장률이 높다
 check("역DCF — 요구 성장률과 과거 성장률을 같이 낸다",
-      cheap["g"] is not None and abs(cheap["h"] - 0.08) < 0.005 and cheap["sp"] == 9, str(cheap))
+      cheap["g"] is not None and abs(cheap["h"] - 0.08) < 0.005 and cheap["sp"] == 7
+      and cheap["hk"] == "avg3", str(cheap))
 check("싼 쪽은 '부담 낮음', 비싼 쪽은 아니다 (요구 ≤ 과거)",
       funnel.is_light(cheap) and not funnel.is_light(dear) and dear["g"] > cheap["g"],
       f"{cheap['g']:.3f} vs {dear['g']:.3f}")
@@ -682,7 +683,28 @@ check("과거 성장률은 상한(연 15%)까지만 인정 — 과거 35% · 요
       and funnel.is_light(_hot, cap=1.0) and funnel.is_light({"g": 0.149, "h": 0.353})
       and "상한 연 15.0% 적용" in funnel.price_cells(_hot)[1], funnel.price_cells(_hot)[1])
 v, note = funnel.price_cells(cheap)
-check("표의 글 — 요구 성장률과 과거", v.startswith("연 ") and "과거 연 8.0% · 9년" in note, f"{v} / {note}")
+check("표의 글 — 요구 성장률과 과거", v.startswith("연 ") and "낮음 · 과거 연 8.0% · 7년" in note, f"{v} / {note}")
+# ── 2026-11-12 가격 규칙 보강 ──
+_spike = [[2016 + i, 100e6] for i in range(9)] + [[2025, 400e6]]        # 마지막 해만 4배
+t_g, t_sp = funnel.trend_growth(_spike)
+check("과거 성장률 — 앞 3년 평균 → 뒤 3년 평균 (마지막 해 일회성에 덜 흔들린다)",
+      t_sp == 7 and 0.09 < t_g < 0.11 and funnel.trend_growth(_spike[:5]) == (None, None)
+      and funnel.trend_growth([[y, -1.0] for y in range(2016, 2026)])[0] is None, f"{t_g:.3f}")
+_edge = {"g": 0.05, "h": 0.08, "hi": 0.10, "sp": 7}
+check("할인율 8~12% 전 구간에서 성립해야 낮음 — 10% 에서만 성립하면 경계",
+      funnel.price_state(_edge) == "edge" and not funnel.is_light(_edge)
+      and funnel.price_state(dict(_edge, hi=0.07)) == "light"
+      and funnel.price_state(dict(_edge, g=0.09)) == "heavy"
+      and "경계 — 할인율 12% 면 연 10.0%" in funnel.price_cells(_edge)[1], funnel.price_cells(_edge)[1])
+fin = funnel.price_part("B", _d, 2.0e9, financial=True)
+check("금융업은 판정하지 않는다 (해당 없음)",
+      funnel.price_state(fin) == "na" and not funnel.price_known(fin)
+      and funnel.price_cells(fin) == ("해당 없음", "금융업"))
+_sbc = buffett.Screen(ticker="Z", years=[buffett.YearRow(
+    year=2025, end="2025-12-31", operating_cash_flow=10.0, capex=4.0, sbc=2.0)])
+check("FCF 에서 주식보상비용을 뺀다 (뺀 연도 수를 적어 둠)",
+      funnel.dcf_inputs(_sbc)["f"] == [[2025, 4]] and funnel.dcf_inputs(_sbc)["sbc"] == 1
+      and "ShareBasedCompensation" in buffett.KEEP_TAGS)
 check("차트 칸 — 쪽과 근거", funnel.chart_cell(
     {"side": "os", "st": {"cci": "과매도 진입", "cloud": "양운", "macd": "아래"}},
     {"cci": "CCI"}) == "과매도 쪽 · CCI 과매도 진입 · 양운"
@@ -715,6 +737,17 @@ with tempfile.TemporaryDirectory() as out:
     check("깔때기는 품질 통과 종목(입력이 있는 줄)에만 건다",
           fr["n"] == 2 and asked["caps"] == ["AAA", "BRK-B"] and asked["ohlc"] == ["AAA", "BRK-B"],
           str(asked))
+    _scr[1]["s"] = "Financials"
+    pathlib.Path(out, "universe_us.json").write_text(universe.dump({
+        "rules": {}, "members": [], "screens": _scr, "errors": {}}), encoding="utf-8")
+    collect.build_funnel_us(None, out, caps_fn=lambda sy: {x: 2.0e9 for x in sy}, ohlc_fn=_ohlc)
+    _fin = universe.parse(pathlib.Path(out, "funnel_us.json").read_text(encoding="utf-8"))
+    check("수집기가 금융업을 가격 단계에서 뺀다", _fin["rows"][1]["p"].get("na")
+          and not _fin["rows"][0]["p"].get("na"))
+    _scr[1]["s"] = "Utilities"
+    pathlib.Path(out, "universe_us.json").write_text(universe.dump({
+        "rules": {}, "members": [], "screens": _scr, "errors": {}}), encoding="utf-8")
+    fr = collect.build_funnel_us(None, out, caps_fn=_caps, ohlc_fn=_ohlc)
     check("결과 파일 — 종목별 가격 · 차트", [r["t"] for r in fdata["rows"]] == ["AAA", "BRK.B"]
           and fdata["rows"][0]["p"]["g"] is not None and "e" in fdata["rows"][1]["p"]
           and ("side" in fdata["rows"][0]["c"] or "e" in fdata["rows"][0]["c"]), str(fdata["rows"])[:300])
@@ -731,7 +764,8 @@ _fpay = {"made": 1_794_470_000, "rows": [
     {"t": "D1", "p": dear, "c": {"side": "os", "st": {"stoch": "과매도 구간"}}}]}
 stq, hq, _c = run("us", _pay2, funnel_payload=_fpay)
 check("단계표에 가격 · 차트 단계가 이어진다", "가격 부담 낮음" in hq and "차트 과매도 쪽" in hq
-      and "요구 성장률" in hq and "<th>차트</th>" in hq and "까지만 인정" in hq)
+      and "요구 성장률" in hq and "<th>차트</th>" in hq and "까지만 인정" in hq and "전 구간에서" in hq
+      and "주식보상비용" in hq)
 check("기본은 품질 통과 전부", hq.count('class="sc-rk"') == 3)
 stp, hp, _c = run("us", _pay2, funnel_payload=_fpay, choice="p")
 check("가격까지 좁히면 부담 낮은 종목만", hp.count('class="sc-rk"') == 2 and "D1" not in hp.split("dash-sctable")[1])

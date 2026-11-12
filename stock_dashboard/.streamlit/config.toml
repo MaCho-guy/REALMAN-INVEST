@@ -9,4 +9,4 @@ textColor = "#15181c"
 maxUploadSize = 5
 
 [browser]
-gatherUsageStats = fals
+gatherUsageStats = false

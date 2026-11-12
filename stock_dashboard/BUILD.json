@@ -67,6 +67,7 @@
  "tools/scaffold_analysis.py": "d14557497ecf",
  "tools/ship.py": "a0ce5c4c6b09",
  "tools/stamp.py": "8b3ad54a1b60",
+ "tools/tag_survey.py": "9b6a9117da76",
  "tools/validate_tickers.py": "2ec32fb1f7cf",
  "tools/xref.py": "c638d7aad997",
  "universe.py": "aa28b965b210",

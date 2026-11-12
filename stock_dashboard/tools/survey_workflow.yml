@@ -1,0 +1,28 @@
+# 재무 태그 조사 — 손으로만 돌립니다 (Actions 화면 → Run workflow).
+# '판정 불가' 가 왜 나는지 전 종목의 실제 응답으로 세어 로그에 찍습니다.
+# 데이터 파일이나 화면은 건드리지 않습니다.
+name: survey
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  survey:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: stock_dashboard/requirements.txt
+      - name: 필요한 패키지
+        run: pip install -r stock_dashboard/requirements.txt
+      - name: 조사
+        env:
+          TZ: Asia/Seoul
+        run: python stock_dashboard/tools/tag_survey.py

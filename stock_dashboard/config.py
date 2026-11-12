@@ -196,9 +196,12 @@ UNIVERSE_URLS = {
 }
 UNIVERSE_URLS["funnel_us"] = os.environ.get("FUNNEL_US_URL", _DATA_RAW + "funnel_us.json")
 UNIVERSE_URLS["funnel_kr"] = os.environ.get("FUNNEL_KR_URL", _DATA_RAW + "funnel_kr.json")
-#: 국내 품질 심사(DART 사업보고서)를 다시 하는 주기(시간) — 연간 재무라 하루 한 번이면 됩니다.
-#: 350종목 × 사업보고서 4건 = 약 1,400건 (DART 한도는 하루 20,000건).
-FUNNEL_KR_MAX_AGE_HOURS = 20.0
+#: 국내 품질 심사(DART 사업보고서)를 다시 하는 주기(시간) — **일주일에 한 번**.
+#: 350종목 × 사업보고서 4건 = 약 1,400건 (DART 한도는 하루 20,000건)이고,
+#: 2026-11-12 첫 실행에서 **1,143초(19분)** 걸렸습니다. 매일 하면 아침 수집 전체가
+#: 그만큼 늦어집니다. 연간 재무는 1년에 한 번 바뀌므로 주 1회면 충분합니다.
+#: 가격 · 차트 단계는 이 주기와 상관없이 매 수집마다 다시 계산합니다.
+FUNNEL_KR_MAX_AGE_HOURS = 156.0
 #: 깔때기(가격 · 차트)를 미리 계산해 둘 종목 — 품질 통과 수가 이 값 이상.
 #: 기본선(7)보다 한 칸 낮게 잡아, 화면에서 슬라이더를 6으로 내려도 숫자가 나옵니다.
 FUNNEL_MIN_PASS = 6

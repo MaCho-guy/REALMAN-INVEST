@@ -1635,8 +1635,10 @@ def _universe_line(market: str, payload: dict) -> str:
     src = ("위키백과의 지수 구성 종목 표 · 재무는 SEC EDGAR" if market == "us"
            else "네이버 증권의 지수 구성 종목 · 시가총액 순위")
     # render_legend 가 글자를 한 번 바꿔 줍니다 — 여기서 또 바꾸면 'S&amp;P' 로 보입니다
-    return (f"<b>후보</b> — {universe.rule_text(market, payload)} "
-            f"· 심사 {when} · 목록 출처: {src}")
+    # 기준 시각과 출처를 맨 앞에 — 길면 두 줄만 보이므로(ui.clamp) 뒤에 두면 가려집니다
+    n = len(payload.get("members") or [])
+    return (f"<b>후보 {n}종목</b> · 심사 {when} · 출처: {src} — "
+            f"{universe.rule_text(market, payload)}")
 
 
 def _fallback_note(market: str) -> str:
@@ -1707,9 +1709,13 @@ def _discover_us(use_demo: bool) -> None:
     with col3:
         show_source = st.toggle("기준 출처·한계", value=False, key="disc_src")
 
-    st.markdown(_criteria_block(config.screen_thresholds(), market="us",
-                                quality_min=quality_min),
-                unsafe_allow_html=True)
+    # 정의 · 기준표는 접어 둡니다 (한국 · 밸류에이션 탭과 같게). 2026-11-12 "폰에서
+    # 글자가 너무 많다" — 기준 9줄과 설명 두 문단이 표보다 먼저 화면을 채웠습니다.
+    with st.expander(f"버핏식 품질 기준 {len(buffett.CRITERIA)}개 — 정의와 통과 조건",
+                     expanded=False):
+        st.markdown(_criteria_block(config.screen_thresholds(), market="us",
+                                    quality_min=quality_min),
+                    unsafe_allow_html=True)
 
     screens = buffett.rank(all_screens)
     usable = [s_ for s_ in screens if s_.ok]
@@ -1772,13 +1778,15 @@ def _discover_us(use_demo: bool) -> None:
         made_f = fpay.get("made")
         unknown_p = sum(1 for s_ in passed if not funnel.price_known(_fp(s_.ticker)))
         st.markdown(ui.render_legend(
+            "<b>가격 · 차트 계산 "
+            + (dt.datetime.fromtimestamp(made_f, KST).strftime("%m/%d %H:%M") if made_f else "?")
+            + "</b> (시세 야후 · 재무 SEC EDGAR) — "
             "<b>가격 부담 낮음</b> = 역DCF 로 역산한 '지금 주가가 요구하는 FCF 성장률' 이 "
             "과거 실제 FCF 성장률 이하 — <b>할인율 8~12% 전 구간에서</b> 성립할 때만 (10% 에서만 "
             "성립하면 '경계') · 과거 성장률은 앞 3년 평균 → 뒤 3년 평균, "
             f"연 {config.FUNNEL_HIST_GROWTH_CAP * 100:g}% 까지만 인정 · FCF 에서 주식보상비용 차감 · "
             "금융업은 판정하지 않음 · "
-            "<b>차트</b> = 과매도 쪽 (CCI · 스토캐스틱 · 볼린저) · 계산 "
-            + (dt.datetime.fromtimestamp(made_f, KST).strftime("%m/%d %H:%M") if made_f else "?")
+            "<b>차트</b> = 과매도 쪽 (CCI · 스토캐스틱 · 볼린저)"
             + (f" · 가격을 판정하지 못한 {unknown_p}종목(FCF 적자 · 사이클 왜곡 · 과거 성장률 "
                "계산 불가 · 금융업)은 '낮음' 으로 세지 않습니다" if unknown_p else "")),
             unsafe_allow_html=True)
@@ -1905,13 +1913,14 @@ def _kr_quality_block(use_demo: bool) -> None:
         f"대형주 전수 → 버핏식 품질 기준 {len(buffett.CRITERIA)}개 → 가격 → 차트"),
         unsafe_allow_html=True)
     st.markdown(ui.render_legend(
+        f"<b>품질 심사 {_when(q_made)}</b> (DART 사업보고서) · <b>가격 · 차트 계산 {_when(made)}</b> — "
         f"<b>품질</b> = 판정된 기준 가운데 {bar} 이상 통과 (9개 중 {qmin}개와 같은 비율 · "
-        f"판정된 기준 6개 이상 · DART 사업보고서 최근 10년 · 심사 {_when(q_made)}) · "
+        f"판정된 기준 6개 이상 · 최근 10년) · "
         f"전체 판정 가운데 <b>판정 불가 {unknown_pct:.0f}%</b> — 감가상각비가 재무제표 본문에 "
         "없는 회사가 많아 <b>주주이익 · 설비투자</b> 두 기준은 대부분 판정 불가입니다 · "
         "<b>가격 부담 낮음</b> = 역DCF 요구 FCF 성장률 ≤ "
         f"과거 실제 성장률(할인율 8~12% 전 구간 · 연 {config.FUNNEL_HIST_GROWTH_CAP * 100:g}% 까지만 인정) · "
-        f"<b>차트</b> = 과매도 쪽 · 가격 · 차트 계산 {_when(made)}"),
+        f"<b>차트</b> = 과매도 쪽"),
         unsafe_allow_html=True)
     st.markdown(ui.render_funnel([
         kr_screen.FunnelStep("후보", int(fpay.get("n_members") or len(all_screens) + len(errors))),

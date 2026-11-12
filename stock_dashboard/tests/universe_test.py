@@ -941,6 +941,34 @@ check("밸류에이션 탭 — 판단을 먼저 그리고 기준 9개 · 역DCF 
       and 'ui.render_more("자세히 — 가격 (역DCF 숫자 · 밸류에이션 지표)"' in app_src
       and "ui.render_price_block(price" in app_src)
 
+print("\n=== 폰에서 글자 줄이기 — 긴 설명은 두 줄만, 누르면 펼침 ===")
+_long = "가" * 30 + " <b>굵게</b> " + "나" * 60
+_cl = ui.clamp(_long)
+check("긴 글은 접는 칸으로 — 글은 한 글자도 지우지 않는다",
+      _cl.startswith('<details class="dash-clamp">') and _long in _cl and "<summary>" in _cl)
+check("짧은 글은 그대로 (태그는 글자 수에서 뺀다)",
+      ui.clamp("짧은 글 <b>" + "x" * 5 + "</b>") == "짧은 글 <b>xxxxx</b>"
+      and ui.clamp("<b>" + "가" * 60 + "</b>") == "<b>" + "가" * 60 + "</b>")
+check("한 줄만 보이는 변형", 'class="dash-clamp one"' in ui.clamp("가" * 30, limit=24, one=True))
+check("기호 풀이 줄(render_legend)은 길면 접힌다 — 짧으면 그대로",
+      "dash-clamp" in ui.render_legend("가" * 100) and "dash-clamp" not in ui.render_legend("○ 통과 · ✗ 미달"))
+_ul = hq.split('class="dash-legend">')[1][:260]
+check("후보 줄 — 기준 시각과 출처가 맨 앞 (접어도 보인다)",
+      _ul.index("심사 ") < _ul.index("위키백과") < _ul.index("S&amp;P 500 구성 종목")
+      and "<b>후보 5종목</b>" in _ul, _ul[:150])
+_pl = next(x for x in hq.split('class="dash-legend">') if "가격 부담 낮음</b> =" in x)[:200]
+check("가격 줄 — 계산 시각과 출처가 맨 앞", _pl.index("가격 · 차트 계산") < _pl.index("가격 부담 낮음")
+      and "야후" in _pl[:120] and "SEC EDGAR" in _pl[:120], _pl[:120])
+check("한국 품질 줄 — 심사 시각과 출처가 맨 앞",
+      hk.index("품질 심사 ") < hk.index("판정된 기준 가운데") and "DART 사업보고서" in hk)
+check("미국 발굴 — 기준 정의와 기준표는 접어 둔다 (지우지 않음)",
+      any(e.startswith("버핏식 품질 기준 9개 — 정의와 통과 조건") for e in stq.exp)
+      and "dash-criteria" in hq)
+import theme as _th2
+check("접는 칸의 모양 — 두 줄 · 누르면 펼침",
+      "details.dash-clamp:not([open]) > summary .t" in _th2.build_css("kr")
+      and "-webkit-line-clamp: 2" in _th2.build_css("kr") and '"더 보기"' in _th2.build_css("kr"))
+
 print("\n=== 후보 한 줄 — 셈이 맞아야 한다 ===")
 _p = {"members": [{"ticker": f"A{i}", "index": True} for i in range(515)] + [{"ticker": "W", "index": False}],
       "rules": {"S&P 500 구성 종목": {"n": 503}, "나스닥100 에만 있는 종목": {"n": 15}}}

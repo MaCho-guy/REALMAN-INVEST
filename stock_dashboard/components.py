@@ -1180,13 +1180,33 @@ def render_criteria_table(rows, *, title: str = "", intro: str = "",
             + "".join(body) + f"</tbody></table>{foot_html}</div>")
 
 
+#: 이 글자 수(태그 제외)를 넘는 설명은 두 줄만 보이고 누르면 펼쳐집니다.
+CLAMP_CHARS = 64
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def clamp(inner_html: str, *, limit: int = CLAMP_CHARS, one: bool = False) -> str:
+    """긴 설명을 두 줄(one 이면 한 줄)만 보이게 — 누르면 전부 펼쳐집니다.
+
+    2026-11-12 사용자: "폰에서 글자가 너무 많아 보기가 힘들다 — 접을 수 있게".
+    글은 지우지 않습니다. 접힌 상태에서도 앞 두 줄은 그대로 읽히므로, 출처와
+    기준 시각은 **글의 맨 앞**에 두면 접어도 보입니다. 짧은 글은 그대로 둡니다.
+    inner_html 은 이미 안전하게 만든 HTML 입니다.
+    """
+    if len(_TAG_RE.sub("", inner_html)) <= limit:
+        return inner_html
+    return (f'<details class="dash-clamp{" one" if one else ""}">'
+            f'<summary><span class="t">{inner_html}</span></summary></details>')
+
+
 def render_legend(html: str) -> str:
     """표·차트를 읽는 데 꼭 필요한 한 줄 (기호 풀이 · 분류 건수).
 
     render_footnote 는 '설명 문구 표시' 가 꺼져 있으면(기본) 숨겨집니다.
     기호의 뜻이나 분류 결과처럼 **없으면 표를 못 읽는 글**은 이쪽으로 냅니다.
+    길면 두 줄만 보이고 누르면 펼쳐집니다 (clamp).
     """
-    return f'<div class="dash-legend">{_safe_inline(html)}</div>' if html else ""
+    return f'<div class="dash-legend">{clamp(_safe_inline(html))}</div>' if html else ""
 
 
 def render_terms(terms) -> str:
@@ -1961,7 +1981,7 @@ def render_summary_row(row) -> str:
 
     goto = (f'<div class="dash-srow-goto">→ {_esc(row.goto)} 탭</div>'
             if row.goto else "")
-    detail = (f'<div class="dash-srow-detail">{_esc(row.detail)}</div>'
+    detail = (f'<div class="dash-srow-detail">{clamp(_esc(row.detail))}</div>'
               if row.detail else "")
     return (
         f'<div class="dash-srow {_esc(row.level)}">'
@@ -2341,7 +2361,7 @@ def render_screener_head(title: str, rule: str, count: int,
 
     기준이 화면에 없으면 몇 주 뒤에 "이게 왜 걸렸지" 를 되묻게 됩니다.
     """
-    cav = (f'<div class="dash-scr-caveat">{_safe_inline(caveat)}</div>'
+    cav = (f'<div class="dash-scr-caveat">{clamp(_safe_inline(caveat))}</div>'
            if caveat else "")
     return (
         '<div class="dash-scr-head">'
@@ -3284,7 +3304,7 @@ def render_chart_counts(counts: dict, n_ok: int, n_total: int,
             f'<div class="cc-cell"><div class="cc-name">{_esc(name)}</div>'
             f'<div class="cc-n">{n}<span>/ {n_ok}</span></div>'
             f'<div class="cc-bar"><i style="width:{share:.0f}%"></i></div>'
-            f'<div class="cc-rule">{_esc(rule)}</div></div>')
+            f'<div class="cc-rule">{clamp(_esc(rule), limit=24, one=True)}</div></div>')
     miss = n_total - n_ok
     tail = (f'<div class="cc-miss">후보 {n_total}종목 중 {miss}종목은 일봉이 '
             "없거나 모자라 계산하지 못했습니다.</div>" if miss else "")
@@ -3755,7 +3775,7 @@ def render_chart_detail(row, conditions) -> str:
             f'<div class="cd-row {cls}"><span class="cd-name">{_esc(name)}</span>'
             f'<span class="cd-verdict">{_esc(verdict)}</span>'
             f'<span class="cd-val">{_esc(vals[key])}</span>'
-            f'<span class="cd-rule">{_esc(rule)}</span></div>')
+            f'<span class="cd-rule">{clamp(_esc(rule), limit=24, one=True)}</span></div>')
     legend = ('<div class="cd-legend"><span class="lg-price">종가</span>'
               '<span class="lg-bull">양운</span><span class="lg-bear">음운</span>'
               f"<span>최근 {len(row.spark)}거래일 · 세로선 오른쪽이 앞 구름</span></div>")

@@ -1766,6 +1766,17 @@ def build_rules() -> str:
     color: var(--dash-ink); font-variant-numeric: tabular-nums; }}
   .dash-qmap .qv {{ display: block; font-size: var(--fs-3); color: var(--dash-ink-2);
     line-height: 1.45; overflow-wrap: anywhere; }}
+  /* 긴 설명 — 두 줄만 보이고 누르면 펼쳐집니다 (components.clamp) */
+  details.dash-clamp > summary {{ list-style: none; cursor: pointer; }}
+  details.dash-clamp > summary::-webkit-details-marker {{ display: none; }}
+  details.dash-clamp:not([open]) > summary .t {{ display: -webkit-box;
+    -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }}
+  details.dash-clamp.one:not([open]) > summary .t {{ -webkit-line-clamp: 1; }}
+  details.dash-clamp > summary::after {{ content: "더 보기"; font-size: var(--fs-1);
+    font-weight: 600; color: var(--dash-accent); }}
+  details.dash-clamp[open] > summary::after {{ content: "접기"; }}
+  details.dash-clamp.one > summary::after {{ content: "▾"; }}
+  details.dash-clamp.one[open] > summary::after {{ content: "▴"; }}
   /* '자세히' 로 접어 두는 칸 */
   details.dash-more {{ border-top: 1px solid var(--dash-divider); margin-top: 6px; }}
   details.dash-more > summary {{ cursor: pointer; padding: 8px 0 6px; font-size: var(--fs-3);

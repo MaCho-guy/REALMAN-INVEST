@@ -274,6 +274,14 @@ def rule_text(market: str, payload: dict) -> str:
     members = payload.get("members") or []
     rules = payload.get("rules") or {}
     extra = sum(1 for m in members if not m.get("index"))
-    parts = [f"{name} {info.get('n', 0)}" for name, info in rules.items()]
+    # 이름이 이미 그 숫자로 끝나면 ('…상위 150') 숫자를 또 붙이지 않습니다
+    parts = [name if name.endswith(f" {info.get('n', 0)}") else f"{name} {info.get('n', 0)}"
+             for name, info in rules.items()]
+    # 한 회사가 주식을 두 종류 상장한 경우(GOOGL · GOOG 등)는 재무가 같아 하나로
+    # 셉니다 — 그만큼 합계가 모자라므로 그 사실을 적습니다 (2026-11-12 실제:
+    # 503 + 15 + 1 = 519 인데 516종목으로 적혀 셈이 안 맞아 보였습니다).
+    total = sum(int(info.get("n", 0) or 0) for info in rules.values()) + extra
+    merged = total - len(members)
     return (" + ".join(parts) + (f" + 관심종목 {extra}" if extra else "")
+            + (f" − 같은 회사의 다른 주식 {merged}" if merged > 0 else "")
             + f" = {len(members)}종목")

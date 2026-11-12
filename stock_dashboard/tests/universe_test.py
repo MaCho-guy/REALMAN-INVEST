@@ -577,6 +577,17 @@ check("업종 칩 — 통과/전체", "1/2" in ui.render_sector_pass(
     [buffett.from_summary(us_payload(2)["screens"][0])],
     {"MSFT": "A", "U1": "A"}))
 
+print("\n=== 후보 한 줄 — 셈이 맞아야 한다 ===")
+_p = {"members": [{"ticker": f"A{i}", "index": True} for i in range(515)] + [{"ticker": "W", "index": False}],
+      "rules": {"S&P 500 구성 종목": {"n": 503}, "나스닥100 에만 있는 종목": {"n": 15}}}
+_line = universe.rule_text("us", _p)
+check("겹쳐 센 종목을 빼는 항이 보인다 (503 + 15 + 1 − 3 = 516)",
+      "− 같은 회사의 다른 주식 3" in _line and _line.endswith("= 516종목"), _line)
+_k = {"members": [{"ticker": str(i), "index": i < 200} for i in range(350)],
+      "rules": {"코스피200 구성 종목": {"n": 200}, "코스닥 시가총액 상위 150": {"n": 150}}}
+_kl = universe.rule_text("kr", {"members": [dict(m, index=True) for m in _k["members"]], "rules": _k["rules"]})
+check("이름이 숫자로 끝나면 숫자를 두 번 쓰지 않는다", "상위 150 150" not in _kl and _kl.endswith("= 350종목"), _kl)
+
 print("\n" + "=" * 54)
 if FAILURES:
     print(f"실패 {len(FAILURES)}건: {FAILURES}")

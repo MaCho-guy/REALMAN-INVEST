@@ -582,6 +582,52 @@ sys.path.insert(0, "tools")
 check("수집기와 저장소가 같은 규칙을 쓴다",
       __import__("collect").looks_failed is _health.looks_failed)
 
+print("\n=== 일목 양운·음운 — 앞 구름으로 판정 (2026-11-12 사용자 정정) ===")
+cs = chart_signals
+
+
+def _ohlc(closes):
+    return [c * 1.01 for c in closes], [c * 0.99 for c in closes], closes
+
+
+# 오래 내리다가 최근 20봉 급반등 — 오늘 자리 구름(25봉 전 계산)은 아직 음운, 앞 구름은 양운
+down_up = [100_000 * (0.997 ** i) for i in range(200)]
+down_up += [down_up[-1] * (1.012 ** i) for i in range(1, 21)]
+hh, ll, cc_ = _ohlc(down_up)
+ic = cs.ichimoku(hh, ll)
+mid = lambda n: (max(hh[-n:]) + min(ll[-n:])) / 2          # noqa: E731
+check("앞 구름의 선행스팬1 = (전환선 + 기준선) ÷ 2 — 오늘 봉으로 계산",
+      abs(ic.lead_a - (mid(9) + mid(26)) / 2) < 1e-6, f"{ic.lead_a}")
+check("앞 구름의 선행스팬2 = 52봉 고저 중간 — 오늘 봉으로 계산", abs(ic.lead_b - mid(52)) < 1e-6)
+check("오늘 자리 구름은 25봉 전에 계산된 값 (그대로)",
+      abs(ic.span_b - (max(hh[-77:-25]) + min(ll[-77:-25])) / 2) < 1e-6)
+check("급반등: 오늘 자리는 음운인데 앞 구름은 양운 → 양운으로 판정",
+      ic.here_bullish is False and ic.bullish_cloud is True, f"{ic.here_bullish} / {ic.bullish_cloud}")
+check("그 사이에 구름이 바뀌었다고 적는다", ic.twist == "음운 → 양운 전환", ic.twist)
+up_down = [50_000 * (1.003 ** i) for i in range(200)]
+up_down += [up_down[-1] * (0.988 ** i) for i in range(1, 21)]
+h2, l2, _c2 = _ohlc(up_down)
+ic2 = cs.ichimoku(h2, l2)
+check("급락: 오늘 자리는 양운인데 앞 구름은 음운 → 음운으로 판정",
+      ic2.here_bullish is True and ic2.bullish_cloud is False and ic2.twist == "양운 → 음운 전환")
+row = cs.build_row("T", "반등주", hh, ll, cc_, [1_000.0] * len(cc_))
+check("조건표의 '일목 양운' 이 앞 구름을 따른다", row.flags()["cloud"] is True)
+check("가격 위치(구름 위·안·아래)는 오늘 자리 구름 기준 그대로",
+      row.cloud_position == ic.position(cc_[-1]) and row.cloud_position in ("구름 위", "구름 안", "구름 아래"))
+check("차트의 구름은 오늘을 지나 앞 25봉까지",
+      len(row.spark_a) == len(row.spark) + cs.DISPLACEMENT
+      and abs(row.spark_a[-1] - ic.lead_a) < 1e-6 and abs(row.spark_b[-1] - ic.lead_b) < 1e-6
+      and abs(row.spark_a[len(row.spark) - 1] - ic.span_a) < 1e-6)
+chart_html = ui.render_cloud_chart(row)
+check("차트에 '오늘' 세로선이 있고 그 오른쪽에 구름이 이어진다",
+      "cl-today" in chart_html and "cl-bull" in chart_html and "cl-bear" in chart_html)
+det = ui.render_chart_detail(row, cs.CONDITIONS)
+check("상세에 앞 구름 값과 전환을 적는다", "앞 구름 선행스팬1" in det and "음운 → 양운 전환" in det
+      and "오늘 자리" in det)
+check("조건 설명이 '앞 구름' 이다", "앞 구름" in dict((k, r) for k, _n, r in cs.CONDITIONS)["cloud"])
+short = cs.ichimoku(hh[:40], ll[:40])
+check("봉이 모자라면 판정하지 않는다 (52봉 미만)", short.bullish_cloud is None)
+
 print("\n=== 분석 실행 안내 ===")
 check("화면 3분의 1 을 차지하던 노란 경고가 없다", "분석 실행 불가" not in src)
 check("한 줄 안내 + 접어 둔 설치 방법",

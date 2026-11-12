@@ -1497,6 +1497,8 @@ def build_rules() -> str:
   .dash-cloud .cl-bear {{ fill: color-mix(in srgb, var(--dash-down) 22%, transparent); }}
   .dash-cloud .cl-price {{ fill: none; stroke: var(--dash-ink); stroke-width: 1.6;
                           vector-effect: non-scaling-stroke; }}
+  .dash-cloud .cl-today {{ stroke: var(--dash-ink-muted); stroke-width: 1;
+    stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }}
   .dash-cloud-wrap {{ position: relative; }}
   .dash-cloud-wrap .cl-lab {{ position: absolute; right: 6px;
     transform: translateY(-50%); font-size: var(--fs-1); color: var(--dash-ink);

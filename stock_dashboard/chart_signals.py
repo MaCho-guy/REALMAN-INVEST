@@ -74,7 +74,7 @@ MIN_BARS = 120
 
 #: (키, 짧은 이름, 기준 설명)
 CONDITIONS = (
-    ("cloud", "일목 양운", "오늘 자리 구름: 선행스팬1 > 선행스팬2"),
+    ("cloud", "일목 양운", f"앞 구름(오늘 계산 · {DISPLACEMENT}봉 앞): 선행스팬1 > 선행스팬2"),
     ("ma", "이동평균", f"{MA_SHORT}·{MA_MID}·{MA_LONG}일 — 정배열 · 역배열 · "
                     f"{MA_SHORT}일선 돌파 (최근 {RECENT}봉)"),
     ("cci", "CCI", f"CCI({CCI_WINDOW}) · 시그널 {CCI_SIGNAL} — 과매도 진입·구간·탈출, "
@@ -316,12 +316,37 @@ class Ichimoku:
     kijun: float | None = None        # 기준선 (오늘)
     span_a: float | None = None       # 오늘 자리의 선행스팬1
     span_b: float | None = None       # 오늘 자리의 선행스팬2
+    #: **앞 구름** — 오늘 봉으로 계산해 25봉 앞에 그려지는 선행스팬 (구름의 맨 앞 끝).
+    lead_a: float | None = None
+    lead_b: float | None = None
 
     @property
     def bullish_cloud(self) -> bool | None:
+        """양운인가 — **앞 구름**에서 선행스팬1 이 위면 양운, 아니면 음운.
+
+        2026-11-12 사용자 정정: "앞자리 구름을 보는 거야. 선행스팬1 이 위에
+        있으면 양운, 반대면 음운." 전에는 오늘 자리의 구름(25봉 전에 계산된
+        값)으로 판정해서 HTS 에서 보는 것과 달랐습니다. 오늘 자리 구름은
+        '가격이 구름 위/안/아래' 를 볼 때만 씁니다.
+        """
+        if self.lead_a is None or self.lead_b is None:
+            return None
+        return self.lead_a > self.lead_b
+
+    @property
+    def here_bullish(self) -> bool | None:
+        """오늘 자리 구름의 색 (참고용 — 판정에는 쓰지 않습니다)."""
         if self.span_a is None or self.span_b is None:
             return None
         return self.span_a > self.span_b
+
+    @property
+    def twist(self) -> str:
+        """오늘 자리와 앞 구름의 색이 다르면 그 사이에 구름이 꼬인 것입니다."""
+        here, lead = self.here_bullish, self.bullish_cloud
+        if here is None or lead is None or here == lead:
+            return ""
+        return "음운 → 양운 전환" if lead else "양운 → 음운 전환"
 
     def position(self, price: float | None) -> str:
         """가격이 구름 위 / 안 / 아래."""
@@ -353,9 +378,11 @@ def ichimoku(highs: list[float], lows: list[float]) -> Ichimoku:
         return Ichimoku()
     last = n - 1
     a, b = spans_at(highs, lows, last)
+    # 앞 구름의 맨 앞 끝 = 오늘 봉으로 계산한 선행스팬 (last + 25 자리에 그려짐)
+    lead_a, lead_b = spans_at(highs, lows, last + DISPLACEMENT)
     return Ichimoku(tenkan=_midpoint(highs, lows, last, TENKAN),
                     kijun=_midpoint(highs, lows, last, KIJUN),
-                    span_a=a, span_b=b)
+                    span_a=a, span_b=b, lead_a=lead_a, lead_b=lead_b)
 
 
 # ── 2. CCI ───────────────────────────────────────────────────────────────────
@@ -558,7 +585,9 @@ def build_row(ticker: str, name: str, highs: list[float], lows: list[float],
     sk, sd = stoch_slow(highs, lows, closes)
     pdi, mdi, adx = dmi(highs, lows, closes)
     m = min(SPARK_BARS, n)
-    spans = [spans_at(highs, lows, i) for i in range(n - m, n)]
+    # 구름은 오늘을 지나 **앞 25봉**까지 그립니다 — 양운·음운을 가리는 것이
+    # 그 앞 구름이라, 차트에서 눈으로 대조할 수 있어야 합니다.
+    spans = [spans_at(highs, lows, i) for i in range(n - m, n + DISPLACEMENT)]
 
     states: dict[str, str] = {}
     sides: dict[str, str] = {}

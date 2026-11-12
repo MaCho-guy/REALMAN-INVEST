@@ -3194,9 +3194,11 @@ def render_cloud_chart(row, width: int = 640, height: int = 170) -> str:
         return ""
     pad_l, pad_r, pad_t, pad_b = 6, 62, 8, 8
     n = len(px)
+    # 구름은 오늘을 지나 앞쪽(선행 25봉)까지 이어집니다 — 가로 눈금은 구름 길이 기준
+    span_n = max(n, len(a), len(b))
 
     def X(i: int) -> float:
-        return pad_l + (width - pad_l - pad_r) * i / (n - 1)
+        return pad_l + (width - pad_l - pad_r) * i / (span_n - 1)
 
     def Y(v: float) -> float:
         return pad_t + (height - pad_t - pad_b) * (1 - (v - lo) / (hi - lo))
@@ -3213,13 +3215,17 @@ def render_cloud_chart(row, width: int = 640, height: int = 170) -> str:
     last = px[-1]
     dec = 0 if last >= 1000 else 2
     top_pct = Y(last) / height * 100.0
+    # '오늘' 세로선 — 그 오른쪽이 앞 구름입니다
+    today_x = X(n - 1)
+    today_line = (f'<line class="cl-today" x1="{today_x:.1f}" y1="{pad_t}" '
+                  f'x2="{today_x:.1f}" y2="{height - pad_b}"/>' if span_n > n else "")
     # 가격 글자는 SVG 밖에 둡니다 — SVG 를 칸 너비에 맞춰 늘리면
     # (preserveAspectRatio=none) 안의 글자도 같이 찌그러집니다.
     return ('<div class="dash-cloud-wrap">'
             f'<svg class="dash-cloud" viewBox="0 0 {width} {height}" '
             'preserveAspectRatio="none" role="img" '
             f'aria-label="{_esc(row.name)} 최근 {n}일 종가와 일목 구름">'
-            + "".join(polys)
+            + "".join(polys) + today_line
             + f'<polyline class="cl-price" points="{line}"/></svg>'
             + f'<span class="cl-lab" style="top:{top_pct:.1f}%">'
               f'{fmt_num(last, dec)}</span></div>')
@@ -3236,8 +3242,11 @@ def render_chart_detail(row, conditions) -> str:
     vol = ("" if row.vol_ratio is None else
            f" · 거래량 20일 평균의 {row.vol_ratio:.1f}배")
     vals = {
-        "cloud": ("—" if ic.span_a is None else
-                  f"선행스팬1 {n0(ic.span_a)} · 선행스팬2 {n0(ic.span_b)}"),
+        "cloud": ("—" if ic.lead_a is None or ic.lead_b is None else
+                  f"앞 구름 선행스팬1 {n0(ic.lead_a)} · 선행스팬2 {n0(ic.lead_b)}"
+                  + (f" · {ic.twist}" if ic.twist else "")
+                  + ("" if ic.span_a is None or ic.span_b is None else
+                     f" · 오늘 자리 {n0(ic.span_a)} / {n0(ic.span_b)}")),
         "ma": ("—" if row.ma20 is None else
                f"20일 {n0(row.ma20)}"
                + ("" if row.ma60 is None else f" · 60일 {n0(row.ma60)}")
@@ -3278,7 +3287,7 @@ def render_chart_detail(row, conditions) -> str:
             f'<span class="cd-rule">{_esc(rule)}</span></div>')
     legend = ('<div class="cd-legend"><span class="lg-price">종가</span>'
               '<span class="lg-bull">양운</span><span class="lg-bear">음운</span>'
-              f"<span>최근 {len(row.spark)}거래일</span></div>")
+              f"<span>최근 {len(row.spark)}거래일 · 세로선 오른쪽이 앞 구름</span></div>")
     return ('<div class="dash-cdetail">' + render_cloud_chart(row) + legend
             + "".join(lines) + "</div>")
 

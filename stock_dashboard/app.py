@@ -482,6 +482,43 @@ def _chart_ttl(market: str = "kr", use_demo: bool = False) -> float:
         return 3_600.0
 
 
+def _chart_bars_ttl(market: str = "kr", ticker: str = "", use_demo: bool = False) -> float:
+    return _chart_ttl(market, use_demo)
+
+
+@swr.cached(_chart_bars_ttl, stale=6 * 3_600)
+def load_chart_bars(market: str, ticker: str, use_demo: bool):
+    """종목 하나의 일봉(시·고·저·종·거래량·날짜) — 캔들 차트용. (묶음, 오류)
+
+    2026-11-12 "차트 연동". 표(load_chart_rows)는 50종목의 판정만 들고 있고
+    원래 봉은 버립니다 — 전 종목의 봉을 다 들고 다니면 스냅샷이 두 배가
+    됩니다. 차트는 **고른 한 종목만** 그리므로 그때 한 번 받습니다 (요청 1회,
+    장중 5분 · 그 밖에는 1시간 저장). 출처와 순서는 표와 같습니다.
+    """
+    if use_demo:
+        cands = config.chart_candidates(market)
+        ohlc, errs = demo_mod.demo_chart_ohlc(cands)
+        return (ohlc.get(ticker) or {}), errs.get(ticker, "")
+    if market == "kr":
+        data, err = naver.fetch_ohlc(ticker)
+        if data:
+            return data, ""
+        try:
+            syms = kr_screen.yahoo_symbols(ticker)
+            got, _e = yahoo.fetch_ohlc(list(syms))
+            for sym in syms:
+                if got.get(sym):
+                    return got[sym], ""
+        except Exception as exc:  # noqa: BLE001
+            return {}, f"{err or '네이버 실패'} → 야후도 실패: {type(exc).__name__}"
+        return {}, f"{err or '네이버 실패'} → 야후도 비었음"
+    try:
+        got, errs = yahoo.fetch_ohlc([ticker])
+    except Exception as exc:  # noqa: BLE001
+        return {}, f"야후 일봉 실패: {type(exc).__name__}"
+    return (got.get(ticker) or {}), (errs.get(ticker, "") if not got.get(ticker) else "")
+
+
 @swr.cached(_chart_ttl, stale=6 * 3_600)
 def load_chart_rows(market: str, use_demo: bool):
     """차트 조건 — 후보의 1년 일봉(고·저·종) → 종목별 지표 한 줄.
@@ -1794,6 +1831,68 @@ def _render_skill_buttons(code: str, name: str, cli) -> None:
 # 뉴스 · 공시 · 지표
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _chart_link(ticker: str, market: str) -> tuple[str, str]:
+    """바깥 차트로 가는 주소 — (주소, 이름)."""
+    import urllib.parse as _up
+
+    if market == "kr":
+        return (f"https://m.stock.naver.com/domestic/stock/{_up.quote(ticker)}/total",
+                "네이버 증권")
+    return f"https://finance.yahoo.com/quote/{_up.quote(ticker)}/chart", "야후 파이낸스"
+
+
+def _render_kchart_block(chosen, held, market: str, use_demo: bool) -> None:
+    """표 아래의 차트 한 장 — 종목과 기간을 고릅니다.
+
+    표의 판정과 **같은 함수**로 계산한 선을 그립니다 (chart_signals.chart_series).
+    종목을 바꿀 때만 그 종목의 봉을 한 번 받습니다.
+    """
+    rows = [r for r in chosen if r.ok][:60]
+    if not rows:
+        return
+    st.markdown(
+        ui.render_section_head("차트", "캔들 · 이동평균 · 일목 구름 · 볼린저 + 지표 패널",
+                               None),
+        unsafe_allow_html=True)
+    by = {r.ticker: r for r in rows}
+    order = [r.ticker for r in rows]
+    # 내 종목이 목록에 있으면 그것부터 보여 줍니다
+    first = next((t for t in order if t in held), order[0])
+    c1, c2 = st.columns([3, 2])
+    with c1:
+        pick = st.selectbox(
+            "차트 볼 종목", order, index=order.index(first),
+            key=f"kchart_pick_{market}",
+            format_func=lambda t: (("★ " if t in held else "") + f"{by[t].name} · {t}"
+                                   if t in by else t))
+    with c2:
+        bars = st.radio("기간 (봉)", list(chart_signals.CHART_BARS), index=1,
+                        horizontal=True, key=f"kchart_bars_{market}")
+    if pick not in by:
+        pick = first
+    if bars not in chart_signals.CHART_BARS:
+        bars = chart_signals.CHART_BARS[1]
+    try:
+        ohlc, err = load_chart_bars(market, pick, use_demo)
+    except Exception as exc:  # noqa: BLE001 - 차트가 표를 무너뜨리지 않게
+        ohlc, err = {}, f"{type(exc).__name__}"
+    if not ohlc:
+        st.markdown(ui.render_notice(
+            f"<b>{_esc_plain(by[pick].name)} 일봉을 받지 못했습니다.</b> "
+            f"{_esc_plain(err)}"), unsafe_allow_html=True)
+        return
+    series = chart_signals.chart_series(pick, by[pick].name, ohlc, int(bars))
+    link, link_name = _chart_link(pick, market)
+    st.markdown(ui.render_kchart(series, link=link, link_label=link_name),
+                unsafe_allow_html=True)
+    st.markdown(ui.render_footnote(
+        "선은 위 표의 판정과 같은 계산입니다 — 점선은 기준선(CCI ±100 · 스토캐스틱 "
+        f"{chart_signals.STOCH_OVERSOLD:g}/{chart_signals.STOCH_OVERBOUGHT:g} · −DI 30/10). "
+        "이 종목의 봉은 방금 따로 받아서, 표(최대 5분 전)와 마지막 봉 값이 조금 다를 수 "
+        "있습니다. 차트 위의 상태 이름은 이 봉으로 다시 낸 것입니다."),
+        unsafe_allow_html=True)
+
+
 def render_chart_tab(use_demo: bool, *, market: str = "kr") -> None:
     """차트 조건 — 일목 양운 · CCI · MACD · 스토캐스틱 슬로우 · −DI (일봉).
 
@@ -1906,9 +2005,10 @@ def render_chart_tab(use_demo: bool, *, market: str = "kr") -> None:
     else:
         st.markdown(ui.render_chart_table(chosen, held=held),
                     unsafe_allow_html=True)
+        _render_kchart_block(chosen, held, market, use_demo)
         for idx, row in enumerate(chosen[:12]):
             with st.expander(f"{row.name} · {row.ticker} · {row.met}/{len(keys)}",
-                             expanded=(idx == 0)):
+                             expanded=False):
                 st.markdown(ui.render_chart_detail(row, conds),
                             unsafe_allow_html=True)
 
@@ -3722,6 +3822,7 @@ FETCH_LABELS = {
     "load_sector_heat": "섹터 온도", "load_sector_names": "섹터 구성",
     "load_sector_news": "섹터 기사", "load_news": "헤드라인",
     "load_close_headlines": "마감 기사", "load_research": "리포트",
+    "load_chart_bars": "차트 봉",
     "load_semi_research": "반도체 리포트",
     "load_report_summaries": "AI 요약",
     "load_daily_brief": "전일 브리핑", "load_briefings": "브리핑 글",

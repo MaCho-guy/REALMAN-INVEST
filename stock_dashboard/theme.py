@@ -1673,6 +1673,78 @@ def build_rules() -> str:
     background: var(--dash-raised); border-radius: var(--r-pill); padding: 2px 9px;
     white-space: nowrap; }}
   .dash-digest .dg-chip b {{ color: var(--dash-accent); font-weight: 700; }}
+  /* 캔들 차트 + 지표 패널 — SVG 는 가로로 늘어나고 글자는 HTML 로 얹습니다 */
+  .dash-kchart {{ background: var(--dash-surface); border: 1px solid var(--dash-border);
+    border-radius: var(--r-card); padding: 6px 4px 6px 8px; margin: 4px 0 10px;
+    font-variant-numeric: tabular-nums; }}
+  .dash-kchart .kc-panel {{ border-bottom: 1px solid var(--dash-divider); padding-top: 3px; }}
+  .dash-kchart .kc-row {{ display: flex; }}
+  .dash-kchart .kc-plot {{ position: relative; flex: 1 1 auto; min-width: 0; overflow: hidden; }}
+  .dash-kchart .kc-plot svg {{ position: absolute; inset: 0; width: 100%; height: 100%;
+    display: block; }}
+  .dash-kchart .kc-axis {{ position: relative; flex: 0 0 54px; }}
+  .dash-kchart .kc-axis span {{ position: absolute; left: 4px; transform: translateY(-50%);
+    font-size: var(--fs-1); color: var(--dash-ink-muted); white-space: nowrap; }}
+  .dash-kchart .kc-title {{ padding: 0 4px;
+    display: flex; flex-wrap: wrap; gap: 1px 10px; align-items: baseline;
+    font-size: var(--fs-1); color: var(--dash-ink-2); line-height: 1.4; }}
+  .dash-kchart .kc-title span {{ white-space: nowrap; }}
+  .dash-kchart .kc-title b {{ color: var(--dash-ink); font-weight: 700; }}
+  .dash-kchart .kc-title i {{ display: inline-block; width: 12px; height: 0;
+    border-top: 2px solid var(--dash-ink); vertical-align: middle; margin-right: 3px; }}
+  .dash-kchart .kc-title em {{ font-style: normal; font-weight: 700; color: var(--dash-ink);
+    border: 1px solid var(--dash-ink-2); border-radius: var(--r-chip); padding: 0 5px;
+    background: var(--dash-surface); white-space: nowrap; }}
+  .dash-kchart svg line, .dash-kchart svg polyline, .dash-kchart svg rect {{
+    vector-effect: non-scaling-stroke; }}
+  .dash-kchart svg polyline {{ fill: none; stroke-linejoin: round; }}
+  .dash-kchart .kc-up line {{ stroke: var(--dash-up); stroke-width: 1; }}
+  .dash-kchart .kc-up rect, .dash-kchart rect.kc-up {{ fill: var(--dash-up); }}
+  .dash-kchart .kc-dn line {{ stroke: var(--dash-down); stroke-width: 1; }}
+  .dash-kchart .kc-dn rect, .dash-kchart rect.kc-dn {{ fill: var(--dash-down); }}
+  .dash-kchart rect.kc-vol {{ opacity: .55; }}
+  .dash-kchart .kc-bull {{ fill: color-mix(in srgb, var(--dash-up) 14%, transparent); }}
+  .dash-kchart .kc-bear {{ fill: color-mix(in srgb, var(--dash-down) 14%, transparent); }}
+  .dash-kchart .kc-sa {{ stroke: color-mix(in srgb, var(--dash-up) 55%, transparent); stroke-width: 1; }}
+  .dash-kchart .kc-sb {{ stroke: color-mix(in srgb, var(--dash-down) 55%, transparent); stroke-width: 1; }}
+  .dash-kchart polyline.kc-m1 {{ stroke: #b7791f; stroke-width: 1.5; }}
+  .dash-kchart polyline.kc-m2 {{ stroke: #2f855a; stroke-width: 1.5; }}
+  .dash-kchart polyline.kc-m3 {{ stroke: #6b46c1; stroke-width: 1.5; }}
+  .dash-kchart polyline.kc-bb {{ stroke: var(--dash-ink-muted); stroke-width: 1;
+    stroke-dasharray: 3 3; }}
+  .dash-kchart polyline.kc-l1 {{ stroke: var(--dash-ink); stroke-width: 1.6; }}
+  .dash-kchart polyline.kc-l2 {{ stroke: #b7791f; stroke-width: 1.2; }}
+  .dash-kchart polyline.kc-l3 {{ stroke: var(--dash-ink-muted); stroke-width: 1.2;
+    stroke-dasharray: 4 3; }}
+  .dash-kchart line.kc-ref {{ stroke: var(--dash-ink-2); stroke-width: 1; stroke-dasharray: 5 4;
+    opacity: .7; }}
+  .dash-kchart line.kc-zero {{ stroke: var(--dash-divider); stroke-width: 1; }}
+  .dash-kchart line.kc-today {{ stroke: var(--dash-ink-muted); stroke-width: 1;
+    stroke-dasharray: 2 3; }}
+  .dash-kchart rect.kc-fwd {{ fill: var(--dash-raised); opacity: .55; }}
+  .dash-kchart rect.kc-hist.pos {{ fill: var(--dash-ink-2); opacity: .55; }}
+  .dash-kchart rect.kc-hist.neg {{ fill: var(--dash-ink-muted); opacity: .45; }}
+  .dash-kchart .kc-title i.kc-m1 {{ border-color: #b7791f; }}
+  .dash-kchart .kc-title i.kc-m2 {{ border-color: #2f855a; }}
+  .dash-kchart .kc-title i.kc-m3 {{ border-color: #6b46c1; }}
+  .dash-kchart .kc-title i.kc-l2 {{ border-color: #b7791f; }}
+  .dash-kchart .kc-title i.kc-l3, .dash-kchart .kc-title i.kc-bb {{
+    border-top-style: dashed; border-color: var(--dash-ink-muted); }}
+  .dash-kchart .kc-title i.kc-cloud {{ height: 8px; border: 0; vertical-align: -1px;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--dash-up) 30%, transparent) 50%,
+      color-mix(in srgb, var(--dash-down) 30%, transparent) 50%); }}
+  .dash-kchart .kc-dates {{ display: flex; height: 18px; padding-right: 54px; }}
+  .dash-kchart .kc-dates span {{ position: absolute; top: 2px; transform: translateX(-50%);
+    font-size: var(--fs-1); color: var(--dash-ink-muted); white-space: nowrap; }}
+  .dash-kchart .kc-dates span.now {{ color: var(--dash-ink); font-weight: 700; }}
+  .dash-kchart .kc-foot {{ font-size: var(--fs-1); color: var(--dash-ink-muted);
+    padding: 3px 4px 0; line-height: 1.4; }}
+  @media (max-width: 640px) {{
+    .dash-kchart {{ padding-left: 4px; }}
+    .dash-kchart .kc-axis {{ flex-basis: 46px; }}
+    .dash-kchart .kc-dates {{ padding-right: 46px; }}
+    .dash-kchart .kc-title {{ gap: 0 7px; }}
+  }}
   /* 차트 조건 — 종목의 쪽 (과매도 / 과매수 / 엇갈림) */
   .dash-ctable td.ct-side {{ text-align: center; white-space: nowrap; }}
   .dash-ctable .ct-sd {{ display: inline-block; font-size: var(--fs-2); font-weight: 700;

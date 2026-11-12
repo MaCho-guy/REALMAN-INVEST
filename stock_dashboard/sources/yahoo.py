@@ -456,19 +456,31 @@ def fetch_ohlc(symbols: list[str], *, period: str = "1y"
             if hist is None or hist.empty or "Close" not in hist:
                 return sym, None, "일봉이 비어 있습니다."
             d: dict[str, list[float]] = {"high": [], "low": [], "close": [],
-                                         "volume": []}
+                                         "volume": [], "open": [], "date": []}
             vols = (hist["Volume"].tolist() if "Volume" in hist
                     else [0.0] * len(hist))
-            for hi, lo, cl, vo in zip(hist["High"].tolist(), hist["Low"].tolist(),
-                                      hist["Close"].tolist(), vols):
+            opens = (hist["Open"].tolist() if "Open" in hist
+                     else [None] * len(hist))
+            try:
+                days = [str(x.date() if hasattr(x, "date") else x)[:10] for x in hist.index]
+            except Exception:  # noqa: BLE001 - 가짜 표(테스트)에는 index 가 없습니다
+                days = [""] * len(vols)
+            if len(days) != len(vols):
+                days = [""] * len(vols)
+            for hi, lo, cl, vo, op, day in zip(hist["High"].tolist(), hist["Low"].tolist(),
+                                               hist["Close"].tolist(), vols, opens, days):
                 if cl is None or cl != cl or cl <= 0:
                     continue
                 hi = cl if (hi is None or hi != hi or hi <= 0) else hi
                 lo = cl if (lo is None or lo != lo or lo <= 0) else lo
-                d["high"].append(max(float(hi), float(cl)))
-                d["low"].append(min(float(lo), float(cl)))
-                d["close"].append(float(cl))
+                hi, lo, cl = max(float(hi), float(cl)), min(float(lo), float(cl)), float(cl)
+                d["high"].append(hi)
+                d["low"].append(lo)
+                d["close"].append(cl)
                 d["volume"].append(0.0 if (vo is None or vo != vo) else float(vo))
+                op = cl if (op is None or op != op or op <= 0) else float(op)
+                d["open"].append(min(max(op, lo), hi))      # 캔들 차트용 (2026-11-12)
+                d["date"].append(day)
             if d["close"]:
                 d["last_date"] = _last_index_date(hist)   # 문자열
             return sym, (d if d["close"] else None), (

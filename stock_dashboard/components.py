@@ -3291,6 +3291,273 @@ def render_cloud_chart(row, width: int = 640, height: int = 170) -> str:
               f'{fmt_num(last, dec)}</span></div>')
 
 
+# ── 캔들 차트 + 지표 패널 (2026-11-12 "차트 연동") ───────────────────────────
+#
+# 서버에서 SVG 로 그립니다. 그래프 라이브러리를 싣지 않아서 빠르고, 표의
+# 판정과 **같은 숫자**로 그려집니다. SVG 는 칸 너비에 맞춰 가로로 늘리므로
+# (preserveAspectRatio=none) 글자는 전부 SVG 밖 HTML 로 둡니다 — 안에 두면
+# 같이 찌그러집니다. 선 굵기는 vector-effect 로 고정합니다.
+
+_KC_W = 1000.0          # 가로 눈금 (늘어나므로 값 자체는 의미 없음)
+
+
+def _kc_x(i: float, total: int) -> float:
+    return _KC_W * (i + 0.5) / total
+
+
+def _kc_segments(vals, total: int, Y, cls: str) -> str:
+    """None 에서 끊기는 꺾은선."""
+    out, cur = [], []
+    for i, v in enumerate(vals):
+        if v is None:
+            if len(cur) > 1:
+                out.append(cur)
+            cur = []
+            continue
+        cur.append(f"{_kc_x(i, total):.1f},{Y(v):.1f}")
+    if len(cur) > 1:
+        out.append(cur)
+    return "".join(f'<polyline class="{cls}" points="{" ".join(seg)}"/>' for seg in out)
+
+
+def _kc_scale(lo: float, hi: float, height: float, pad: float = 6.0):
+    if hi <= lo:
+        hi, lo = lo + 1.0, lo - 1.0
+
+    def Y(v: float) -> float:
+        return pad + (height - 2 * pad) * (1 - (v - lo) / (hi - lo))
+    return Y
+
+
+def _kc_ticks(lo: float, hi: float, count: int = 4) -> list[float]:
+    """보기 좋은 눈금 값 (1·2·5 × 10ⁿ 간격)."""
+    import math
+
+    if hi <= lo:
+        return [lo]
+    raw = (hi - lo) / count
+    mag = 10 ** math.floor(math.log10(raw))
+    step = next((m * mag for m in (1, 2, 5, 10) if m * mag >= raw), 10 * mag)
+    first = math.ceil(lo / step) * step
+    out, v = [], first
+    while v <= hi + 1e-9:
+        out.append(round(v, 10))
+        v += step
+    return out
+
+
+def _kc_num(v: float | None, ref: float | None = None) -> str:
+    if v is None:
+        return "—"
+    ref = abs(v) if ref is None else abs(ref)
+    return fmt_num(v, 0 if ref >= 1000 else (1 if ref >= 100 else 2))
+
+
+def _kc_panel(height: int, svg: str, title: str, ticks: list[tuple[float, str]],
+              Y, cls: str = "") -> str:
+    """패널 한 장 — SVG + 왼쪽 위 제목 + 오른쪽 눈금 글자."""
+    labs = "".join(
+        f'<span style="top:{Y(v) / height * 100:.1f}%">{_esc(t)}</span>' for v, t in ticks)
+    # 제목은 그림 **위 줄**에 둡니다 — 그림에 겹치면 좁은 화면에서 두 줄로
+    # 넘어가며 선을 가립니다.
+    return (f'<div class="kc-panel {cls}"><div class="kc-title">{title}</div>'
+            f'<div class="kc-row" style="height:{height}px">'
+            f'<div class="kc-plot"><svg viewBox="0 0 {_KC_W:.0f} {height}" '
+            f'preserveAspectRatio="none" aria-hidden="true">{svg}</svg></div>'
+            f'<div class="kc-axis">{labs}</div></div></div>')
+
+
+def render_kchart(series, *, link: str = "", link_label: str = "") -> str:
+    """캔들 + 이동평균 · 일목 구름 · 볼린저, 아래에 거래량 · CCI · MACD ·
+    스토캐스틱 · DMI. series: chart_signals.ChartSeries.
+
+    기준선(CCI ±100, 스토캐스틱 30/80, −DI 30/10)을 같이 그어, 표의 상태
+    이름이 어디서 나왔는지 눈으로 맞춰 볼 수 있게 합니다.
+    """
+    import chart_signals as _cs  # noqa: PLC0415
+
+    if series is None or not series.ok:
+        why = getattr(series, "error", "") or "일봉을 받지 못했습니다."
+        return f'<div class="dash-screen-err">{_esc(why)}</div>'
+    n, fwd = series.n, series.fwd
+    total = n + fwd
+    slot = _KC_W / total
+    row = series.row
+    st = (row.states if row is not None else {}) or {}
+
+    def X(i):
+        return _kc_x(i, total)
+
+    today_x = X(n - 1) + slot / 2
+    # 오늘 뒤(앞 구름 자리)는 옅게 — 어디까지가 실제 봉인지 보이게
+    guide = (f'<rect class="kc-fwd" x="{today_x:.1f}" y="0" width="{_KC_W - today_x:.1f}" '
+             'height="100%"/>'
+             f'<line class="kc-today" x1="{today_x:.1f}" y1="0" x2="{today_x:.1f}" y2="100%"/>')
+
+    def tag(text: str) -> str:
+        return f'<em>{_esc(text)}</em>' if text else ""
+
+    def sw(cls: str, label: str, value: str) -> str:
+        return f'<span><i class="{cls}"></i>{_esc(label)} <b>{_esc(value)}</b></span>'
+
+    # ── 1. 가격 ────────────────────────────────────────────────────────────
+    H1 = 280
+    vals = [v for v in series.high + series.low if v is not None]
+    for extra in (series.ma20, series.ma60, series.ma120, series.bb_up, series.bb_lo,
+                  series.span_a, series.span_b):
+        vals += [v for v in extra if v is not None]
+    lo, hi = min(vals), max(vals)
+    padv = (hi - lo) * 0.03 or 1.0
+    lo, hi = lo - padv, hi + padv
+    Y1 = _kc_scale(lo, hi, H1, 4)
+    parts = [guide]
+    a, b = list(series.span_a), list(series.span_b)
+    for bull, s0, e0 in _cloud_runs(a, b):
+        if e0 <= s0:
+            continue
+        top = " ".join(f"{X(i):.1f},{Y1(a[i]):.1f}" for i in range(s0, e0 + 1))
+        bot = " ".join(f"{X(i):.1f},{Y1(b[i]):.1f}" for i in range(e0, s0 - 1, -1))
+        parts.append(f'<polygon class="{"kc-bull" if bull else "kc-bear"}" points="{top} {bot}"/>')
+    parts.append(_kc_segments(a, total, Y1, "kc-sa"))
+    parts.append(_kc_segments(b, total, Y1, "kc-sb"))
+    parts.append(_kc_segments(series.bb_up, total, Y1, "kc-bb"))
+    parts.append(_kc_segments(series.bb_lo, total, Y1, "kc-bb"))
+    bw = slot * 0.66
+    ref = series.close[-1]
+    for i in range(n):
+        o, h, l, c = series.open[i], series.high[i], series.low[i], series.close[i]
+        cls = "kc-up" if c >= o else "kc-dn"
+        y0, y1 = Y1(max(o, c)), Y1(min(o, c))
+        x = X(i)
+        tip = (f"{series.dates[i]} 시 {_kc_num(o, ref)} 고 {_kc_num(h, ref)} "
+               f"저 {_kc_num(l, ref)} 종 {_kc_num(c, ref)}")
+        parts.append(
+            f'<g class="{cls}"><title>{_esc(tip)}</title>'
+            f'<line x1="{x:.1f}" y1="{Y1(h):.1f}" x2="{x:.1f}" y2="{Y1(l):.1f}"/>'
+            f'<rect x="{x - bw / 2:.1f}" y="{y0:.1f}" width="{bw:.1f}" '
+            f'height="{max(y1 - y0, 0.8):.1f}"/></g>')
+    parts.append(_kc_segments(series.ma120, total, Y1, "kc-m3"))
+    parts.append(_kc_segments(series.ma60, total, Y1, "kc-m2"))
+    parts.append(_kc_segments(series.ma20, total, Y1, "kc-m1"))
+    cloud = ("" if row is None or row.ichi.bullish_cloud is None else
+             ("양운" if row.ichi.bullish_cloud else "음운"))
+    title1 = (f'<span><b>{_esc(series.name)}</b> 종가 <b>{_kc_num(ref)}</b></span>'
+              + sw("kc-m1", f"{_cs.MA_SHORT}일", _kc_num(series.ma20[-1], ref))
+              + sw("kc-m2", f"{_cs.MA_MID}일", _kc_num(series.ma60[-1], ref))
+              + sw("kc-m3", f"{_cs.MA_LONG}일", _kc_num(series.ma120[-1], ref))
+              + '<span><i class="kc-bb"></i>볼린저</span>'
+              + f'<span><i class="kc-cloud"></i>일목 구름</span>{tag(cloud)}{tag(st.get("ma", ""))}'
+              + tag(st.get("bb", "")))
+    panels = [_kc_panel(H1, "".join(parts), title1,
+                        [(v, _kc_num(v, ref)) for v in _kc_ticks(lo, hi, 5)], Y1, "kc-price")]
+
+    # ── 2. 거래량 ──────────────────────────────────────────────────────────
+    if any(v for v in series.volume):
+        H2 = 46
+        vmax = max(series.volume) or 1.0
+        Y2 = _kc_scale(0.0, vmax, H2, 3)
+        bars = [guide]
+        for i in range(n):
+            v = series.volume[i] or 0.0
+            cls = "kc-up" if series.close[i] >= series.open[i] else "kc-dn"
+            bars.append(f'<rect class="kc-vol {cls}" x="{X(i) - bw / 2:.1f}" y="{Y2(v):.1f}" '
+                        f'width="{bw:.1f}" height="{max(Y2(0) - Y2(v), 0.5):.1f}"/>')
+        ratio = "" if row is None or row.vol_ratio is None else f"20일 평균의 {row.vol_ratio:.1f}배"
+        panels.append(_kc_panel(H2, "".join(bars),
+                                f'<span>거래량 <b>{_esc(ratio)}</b></span>', [], Y2))
+
+    def refline(Y, v, cls="kc-ref"):
+        return f'<line class="{cls}" x1="0" y1="{Y(v):.1f}" x2="{_KC_W:.0f}" y2="{Y(v):.1f}"/>'
+
+    HI = 76
+    # ── 3. CCI ─────────────────────────────────────────────────────────────
+    cv = [v for v in series.cci + series.cci_sig if v is not None]
+    if cv:
+        clo, chi = min(min(cv), -160.0), max(max(cv), 160.0)
+        Yc = _kc_scale(clo, chi, HI)
+        svg = (guide + refline(Yc, _cs.CCI_OVERBOUGHT) + refline(Yc, _cs.CCI_OVERSOLD)
+               + refline(Yc, _cs.CCI_MID, "kc-zero")
+               + _kc_segments(series.cci_sig, total, Yc, "kc-l2")
+               + _kc_segments(series.cci, total, Yc, "kc-l1"))
+        t = (sw("kc-l1", f"CCI({_cs.CCI_WINDOW})", "—" if series.cci[-1] is None else f"{series.cci[-1]:+.0f}")
+             + sw("kc-l2", f"시그널 {_cs.CCI_SIGNAL}",
+                  "—" if series.cci_sig[-1] is None else f"{series.cci_sig[-1]:+.0f}")
+             + tag(st.get("cci", "")))
+        panels.append(_kc_panel(HI, svg, t, [(_cs.CCI_OVERBOUGHT, "+100"), (_cs.CCI_MID, "0"),
+                                             (_cs.CCI_OVERSOLD, "−100")], Yc))
+    # ── 4. MACD ────────────────────────────────────────────────────────────
+    mv = [v for v in series.macd + series.macd_sig + series.macd_hist if v is not None]
+    if mv:
+        m = max(abs(min(mv)), abs(max(mv))) or 1.0
+        Ym = _kc_scale(-m, m, HI)
+        svg = [guide, refline(Ym, 0.0, "kc-zero")]
+        for i, h in enumerate(series.macd_hist):
+            if h is None:
+                continue
+            y0, y1 = sorted((Ym(h), Ym(0.0)))
+            svg.append(f'<rect class="kc-hist {"pos" if h > 0 else "neg"}" x="{X(i) - bw / 2:.1f}" '
+                       f'y="{y0:.1f}" width="{bw:.1f}" height="{max(y1 - y0, 0.4):.1f}"/>')
+        svg.append(_kc_segments(series.macd_sig, total, Ym, "kc-l2"))
+        svg.append(_kc_segments(series.macd, total, Ym, "kc-l1"))
+        mref = m
+        t = (sw("kc-l1", f"MACD({_cs.MACD_FAST},{_cs.MACD_SLOW})", _kc_num(series.macd[-1], mref))
+             + sw("kc-l2", f"시그널 {_cs.MACD_SIGNAL}", _kc_num(series.macd_sig[-1], mref))
+             + f'<span>막대 = 둘의 차이 <b>{_esc(_kc_num(series.macd_hist[-1], mref))}</b></span>'
+             + tag(st.get("macd", "")))
+        panels.append(_kc_panel(HI, "".join(svg), t, [(0.0, "0")], Ym))
+    # ── 5. 스토캐스틱 ──────────────────────────────────────────────────────
+    if any(v is not None for v in series.stoch_k):
+        Ys = _kc_scale(0.0, 100.0, HI)
+        svg = (guide + refline(Ys, _cs.STOCH_OVERBOUGHT) + refline(Ys, _cs.STOCH_OVERSOLD)
+               + refline(Ys, _cs.STOCH_MID, "kc-zero")
+               + _kc_segments(series.stoch_d, total, Ys, "kc-l2")
+               + _kc_segments(series.stoch_k, total, Ys, "kc-l1"))
+        k, d = series.stoch_k[-1], series.stoch_d[-1]
+        t = (sw("kc-l1", f"스토캐스틱 슬로우({_cs.STOCH_N},{_cs.STOCH_K},{_cs.STOCH_D}) %K",
+                "—" if k is None else f"{k:.0f}")
+             + sw("kc-l2", "%D", "—" if d is None else f"{d:.0f}") + tag(st.get("stoch", "")))
+        panels.append(_kc_panel(HI, svg, t, [(_cs.STOCH_OVERBOUGHT, f"{_cs.STOCH_OVERBOUGHT:g}"),
+                                             (_cs.STOCH_MID, f"{_cs.STOCH_MID:g}"),
+                                             (_cs.STOCH_OVERSOLD, f"{_cs.STOCH_OVERSOLD:g}")], Ys))
+    # ── 6. DMI ─────────────────────────────────────────────────────────────
+    dv = [v for v in series.pdi + series.mdi + series.adx if v is not None]
+    if dv:
+        dhi = max(max(dv), 45.0)
+        Yd = _kc_scale(0.0, dhi, HI)
+        svg = (guide + "".join(refline(Yd, lv) for lv in _cs.MDI_LEVELS)
+               + _kc_segments(series.adx, total, Yd, "kc-l3")
+               + _kc_segments(series.pdi, total, Yd, "kc-l2")
+               + _kc_segments(series.mdi, total, Yd, "kc-l1"))
+
+        def n0(v):
+            return "—" if v is None else f"{v:.0f}"
+        t = (sw("kc-l1", f"−DI({_cs.DMI_WINDOW})", n0(series.mdi[-1]))
+             + sw("kc-l2", "+DI", n0(series.pdi[-1])) + sw("kc-l3", "ADX", n0(series.adx[-1]))
+             + tag(st.get("dmi", "")))
+        panels.append(_kc_panel(HI, svg, t, [(lv, f"{lv:g}") for lv in _cs.MDI_LEVELS], Yd))
+
+    # ── 날짜 눈금 — 달이 바뀌는 자리 ───────────────────────────────────────
+    marks, prev = [], ""
+    for i, day in enumerate(series.dates):
+        ym = day[:7]
+        # 왼쪽 끝과 '오늘' 글자 바로 옆의 달 표시는 겹치므로 뺍니다
+        if ym and ym != prev and 3 <= i <= n - 1 - max(6, n // 14):
+            marks.append(f'<span style="left:{X(i) / _KC_W * 100:.2f}%">{int(day[5:7])}월</span>')
+        prev = ym or prev
+    marks.append(f'<span class="now" style="left:{today_x / _KC_W * 100:.2f}%">'
+                 f'{_esc(series.dates[-1][5:].replace("-", "/")) or "오늘"}</span>')
+    more = (f'<a class="dash-inline-link" target="_blank" rel="noopener noreferrer" '
+            f'href="{_esc(link)}">{_esc(link_label or "원본 차트")} ↗</a>'
+            if link.startswith("https://") else "")
+    foot = (f'<div class="kc-foot">최근 {n}봉 · 세로 점선 오른쪽은 일목 구름이 그려지는 '
+            f'앞 {fwd}봉 자리 · 봉에 마우스를 올리면 시·고·저·종 {more}</div>')
+    return ('<div class="dash-kchart" role="img" '
+            f'aria-label="{_esc(series.name)} 일봉 차트와 지표">'
+            + "".join(panels)
+            + f'<div class="kc-dates"><div class="kc-plot">{"".join(marks)}</div></div>'
+            + foot + "</div>")
+
+
 def render_chart_detail(row, conditions) -> str:
     """종목 하나 — 구름 차트 + 조건별 상태와 값."""
     f, nt = row.flags(), row.notes()

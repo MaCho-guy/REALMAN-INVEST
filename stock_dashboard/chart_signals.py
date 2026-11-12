@@ -686,6 +686,112 @@ def build_row(ticker: str, name: str, highs: list[float], lows: list[float],
     )
 
 
+def bollinger_series(closes: list[float]) -> tuple[list, list]:
+    """볼린저 밴드 (상단, 하단) — 날마다. 판정(bollinger)과 같은 식 (20, 2σ, ÷N)."""
+    up: list = [None] * len(closes)
+    lo: list = [None] * len(closes)
+    for i in range(BB_WINDOW - 1, len(closes)):
+        win = closes[i + 1 - BB_WINDOW:i + 1]
+        mid = sum(win) / BB_WINDOW
+        sd = (sum((x - mid) ** 2 for x in win) / BB_WINDOW) ** 0.5
+        up[i], lo[i] = mid + BB_K * sd, mid - BB_K * sd
+    return up, lo
+
+
+#: 차트에서 고를 수 있는 봉 수.
+CHART_BARS = (60, 120, 250)
+
+
+@dataclass
+class ChartSeries:
+    """종목 하나의 차트에 그릴 계열 — 전부 같은 길이(n), 구름만 n + 앞 25봉.
+
+    판정(build_row)과 **같은 함수**로 계산합니다. 표에서 '과매도 탈출' 로
+    나온 종목을 차트에서 열면 CCI 선이 −100 을 넘는 자리가 그대로 보여야
+    합니다 — 차트를 따로 계산하면 그 대조가 깨집니다.
+    """
+
+    ticker: str = ""
+    name: str = ""
+    n: int = 0
+    fwd: int = DISPLACEMENT
+    dates: list = field(default_factory=list)
+    open: list = field(default_factory=list)
+    high: list = field(default_factory=list)
+    low: list = field(default_factory=list)
+    close: list = field(default_factory=list)
+    volume: list = field(default_factory=list)
+    ma20: list = field(default_factory=list)
+    ma60: list = field(default_factory=list)
+    ma120: list = field(default_factory=list)
+    bb_up: list = field(default_factory=list)
+    bb_lo: list = field(default_factory=list)
+    span_a: list = field(default_factory=list)      # 길이 n + fwd
+    span_b: list = field(default_factory=list)
+    cci: list = field(default_factory=list)
+    cci_sig: list = field(default_factory=list)
+    macd: list = field(default_factory=list)
+    macd_sig: list = field(default_factory=list)
+    macd_hist: list = field(default_factory=list)
+    stoch_k: list = field(default_factory=list)
+    stoch_d: list = field(default_factory=list)
+    pdi: list = field(default_factory=list)
+    mdi: list = field(default_factory=list)
+    adx: list = field(default_factory=list)
+    #: 같은 봉으로 낸 판정 한 줄 (표와 같은 상태 이름)
+    row: ChartRow | None = None
+    error: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return not self.error and self.n >= 2
+
+
+def chart_series(ticker: str, name: str, ohlc: dict, bars: int = 120) -> ChartSeries:
+    """일봉 묶음({high, low, close[, open, volume, date]}) → 차트 계열 (최근 bars 봉)."""
+    highs = list(ohlc.get("high") or [])
+    lows = list(ohlc.get("low") or [])
+    closes = list(ohlc.get("close") or [])
+    total = min(len(highs), len(lows), len(closes))
+    if total < 2:
+        return ChartSeries(ticker, name, error="일봉을 받지 못했습니다.")
+    highs, lows, closes = highs[-total:], lows[-total:], closes[-total:]
+
+    def tail(key: str, default):
+        vals = list(ohlc.get(key) or [])
+        return vals[-total:] if len(vals) >= total else default
+
+    opens = tail("open", [closes[i - 1] if i else closes[0] for i in range(total)])
+    opens = [min(max(o, l), h) for o, l, h in zip(opens, lows, highs)]
+    vols = tail("volume", [0.0] * total)
+    dates = tail("date", [""] * total)
+
+    cc = cci_series(highs, lows, closes)
+    cc_sig = sma_series(cc, CCI_SIGNAL)
+    line, sig, hist = macd_series(closes)
+    sk, sd = stoch_slow(highs, lows, closes)
+    pdi, mdi, adx = dmi(highs, lows, closes)
+    m20, m60, m120 = (sma_series(closes, w) for w in (MA_SHORT, MA_MID, MA_LONG))
+    bu, bl = bollinger_series(closes)
+    n = max(2, min(int(bars), total))
+    spans = [spans_at(highs, lows, i) for i in range(total - n, total + DISPLACEMENT)]
+
+    def cut(vals):
+        return list(vals[-n:])
+
+    return ChartSeries(
+        ticker=ticker, name=name, n=n, dates=cut(dates),
+        open=cut(opens), high=cut(highs), low=cut(lows), close=cut(closes),
+        volume=cut(vols), ma20=cut(m20), ma60=cut(m60), ma120=cut(m120),
+        bb_up=cut(bu), bb_lo=cut(bl),
+        span_a=[a for a, _b in spans], span_b=[b for _a, b in spans],
+        cci=cut(cc), cci_sig=cut(cc_sig), macd=cut(line), macd_sig=cut(sig),
+        macd_hist=cut(hist), stoch_k=cut(sk), stoch_d=cut(sd),
+        pdi=cut(pdi), mdi=cut(mdi), adx=cut(adx),
+        row=build_row(ticker, name, highs, lows, closes, vols),
+    )
+
+
 def build_rows(candidates, ohlc_by_ticker: dict, errors: dict | None = None
                ) -> list[ChartRow]:
     """(코드, 이름) 목록 + {코드: {"high","low","close"[,"volume"]}} → 줄 목록."""

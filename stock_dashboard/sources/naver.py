@@ -317,7 +317,8 @@ def parse_chart_ohlc(text: str) -> dict[str, list[float]]:
     """
     import re
 
-    out: dict[str, list[float]] = {"high": [], "low": [], "close": [], "volume": []}
+    out: dict[str, list[float]] = {"high": [], "low": [], "close": [], "volume": [],
+                                   "open": [], "date": []}
     for raw in re.findall(r'data="([^"]+)"', text or ""):
         parts = raw.split("|")
         if len(parts) < 6:
@@ -328,10 +329,17 @@ def parse_chart_ohlc(text: str) -> dict[str, list[float]]:
         high, low = _num(parts[2]), _num(parts[3])
         high = high if high and high > 0 else close
         low = low if low and low > 0 else close
-        out["high"].append(max(high, close))
-        out["low"].append(min(low, close))
+        high, low = max(high, close), min(low, close)
+        out["high"].append(high)
+        out["low"].append(low)
         out["close"].append(close)
         out["volume"].append(_num(parts[5]) or 0.0)
+        # 시가 · 날짜 — 캔들 차트용 (2026-11-12). 시가가 비면 종가로, 고저 밖이면 안으로.
+        opn = _num(parts[1])
+        opn = close if not opn or opn <= 0 else opn
+        out["open"].append(min(max(opn, low), high))
+        d = parts[0].strip()
+        out["date"].append(f"{d[:4]}-{d[4:6]}-{d[6:8]}" if len(d) >= 8 and d[:8].isdigit() else "")
     if out["close"]:
         out["last_date"] = last_bar_date(text)     # 문자열 — 마지막 봉이 언제 것인가
     return out

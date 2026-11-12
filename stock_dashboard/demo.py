@@ -1265,8 +1265,23 @@ def demo_chart_ohlc(candidates):
             continue
         if idx % 17 == 11:                       # 신규 상장
             hs, ls, cs, vs = hs[-70:], ls[-70:], cs[-70:], vs[-70:]
-        out[code] = {"high": hs, "low": ls, "close": cs, "volume": vs}
+        # 시가 = 전일 종가 근처 (고저 안으로), 날짜 = 오늘까지의 평일
+        ops = [min(max(cs[i - 1] if i else cs[0], ls[i]), hs[i]) for i in range(len(cs))]
+        out[code] = {"high": hs, "low": ls, "close": cs, "volume": vs,
+                     "open": ops, "date": _weekdays_back(len(cs))}
     return out, errors
+
+
+def _weekdays_back(n: int) -> list[str]:
+    """오늘까지의 평일 n 개 ('YYYY-MM-DD', 오래된 것부터)."""
+    import datetime as _dt
+
+    out, day = [], _dt.date.today()
+    while len(out) < n:
+        if day.weekday() < 5:
+            out.append(day.isoformat())
+        day -= _dt.timedelta(days=1)
+    return out[::-1]
 
 
 def demo_daily_bars(market: str, today: str | None = None):

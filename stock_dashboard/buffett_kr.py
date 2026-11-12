@@ -97,20 +97,26 @@ KR_RULES: tuple[KrAccount, ...] = (
     ),
     KrAccount(
         "long_term_debt", "장기차입금",
-        ("ifrs-full_LongtermBorrowings", "dart_LongTermBorrowingsGross"),
-        ("장기차입금", "사채", "비유동차입금", "장기성차입금"),
+        # 2026-11-12 전 종목 조사(tools/kr_account_survey.py): 장기차입금을 못 찾은
+        # 85개 회사 가운데 일부는 아래 표준ID 로 적습니다. Borrowings 는 장 · 단기를
+        # 합친 총차입이라 부채가 크게 잡힙니다 (기준에는 보수적인 쪽).
+        ("ifrs-full_LongtermBorrowings", "dart_LongTermBorrowingsGross",
+         "ifrs-full_NoncurrentPortionOfNoncurrentLoansReceived", "ifrs-full_Borrowings"),
+        ("장기차입금", "사채", "비유동차입금", "장기성차입금", "장기차입부채"),
         ("BS",),
     ),
     KrAccount(
         "short_term_debt", "단기차입금",
-        ("ifrs-full_ShorttermBorrowings",),
+        ("ifrs-full_ShorttermBorrowings",
+         "ifrs-full_CurrentBorrowingsAndCurrentPortionOfNoncurrentBorrowings",
+         "ifrs-full_CurrentLoansReceivedAndCurrentPortionOfNoncurrentLoansReceived"),
         ("단기차입금", "유동성장기부채", "유동차입금"),
         ("BS",),
     ),
     KrAccount(
         "cash", "현금및현금성자산",
-        ("ifrs-full_CashAndCashEquivalents",),
-        ("현금및현금성자산", "현금및현금성자산등"),
+        ("ifrs-full_CashAndCashEquivalents", "dart_CashAndDuefromBanks"),
+        ("현금및현금성자산", "현금및현금성자산등", "현금및예치금"),
         ("BS",),
     ),
     KrAccount(
@@ -181,7 +187,10 @@ KR_RULES_BY_KEY = {r.key: r for r in KR_RULES}
 
 #: 국내 재무를 읽는 방식이 바뀔 때마다 올립니다 (미국의 buffett.SCREEN_REV 와 따로 —
 #: 미국 쪽만 바뀌었을 때 19분짜리 DART 심사를 다시 돌리지 않으려고).
-KR_REV = 3
+#:   4 (2026-11-12): 연결재무제표가 없는 회사는 별도로 · 차입금 · 현금 표준ID 추가 ·
+#:                   통과 판정을 '판정된 기준 중 비율' 로 (감가상각비가 재무제표 본문에
+#:                   없어 주주이익 · 설비투자 기준이 대부분 판정 불가이기 때문)
+KR_REV = 4
 
 
 def find_account(accounts, rule: KrAccount):
@@ -357,6 +366,16 @@ def fetch_and_screen(stock_code: str, corp_code: str, name: str, *,
                                              fs_div=fs_div)
             batches.append((year, accounts))
         except dart.DartError as exc:
+            # 종속회사가 없어 연결재무제표를 내지 않는 회사 — 가장 최근 해에서 한 번만
+            # 별도(OFS)로 바꿔 봅니다 (2026-11-12 조사: 350개 중 19개 회사).
+            if i == 0 and fs_div == "CFS":
+                try:
+                    accounts = dart.fetch_financials(corp_code, year, "FY", fs_div="OFS")
+                    batches.append((year, accounts))
+                    fs_div = "OFS"
+                    continue
+                except dart.DartError:
+                    pass
             errors.append(f"{year}: {exc}")
 
     if not batches:

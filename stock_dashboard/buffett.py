@@ -1224,6 +1224,26 @@ def rank(screens: list[Screen]) -> list[Screen]:
     ) + [s for s in screens if not s.ok]
 
 
+def passes(screen: Screen, min_pass: int, *, by_ratio: bool = False,
+           min_known: int = 6) -> bool:
+    """품질 통과인가.
+
+    기본은 **통과 수** min_pass 이상. by_ratio 면 **판정된 기준 중 통과 비율**이
+    min_pass ÷ 전체 기준 수 이상이고, 판정된 기준이 min_known 개 이상일 때입니다.
+
+    국내는 by_ratio 로 봅니다 — DART 재무제표 본문에는 감가상각비가 거의 없어
+    (2026-11-12 조사: 348개 회사 중 267개) 주주이익 · 설비투자 두 기준이 대부분
+    판정 불가입니다. 통과 수로 재면 9개 중 7개가 '판정된 7개 전부' 가 되어, 미국과
+    같은 선이 한국에서는 훨씬 높은 선이 됩니다.
+    """
+    if not screen.ok:
+        return False
+    if not by_ratio:
+        return screen.passed_count >= min_pass
+    known = screen.known_count
+    return known >= min_known and screen.passed_count / known >= min_pass / len(CRITERIA)
+
+
 def rank_by_ratio(screens: list[Screen]) -> list[Screen]:
     """판정된 기준 중 통과 비율 내림차순 → 통과 수 내림차순 → 티커순.
 

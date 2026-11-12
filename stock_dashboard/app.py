@@ -1871,7 +1871,10 @@ def _kr_quality_block(use_demo: bool) -> None:
         return (fmap.get(t) or {}).get("c")
 
     qmin = min(config.DISCOVER_QUALITY_MIN, len(buffett.CRITERIA))
-    quality = buffett.rank_by_ratio([s_ for s_ in usable if s_.passed_count >= qmin])
+    # 국내는 통과 '수' 가 아니라 판정된 기준 중 '비율' 로 봅니다 (buffett.passes)
+    quality = buffett.rank_by_ratio(
+        [s_ for s_ in usable if buffett.passes(s_, qmin, by_ratio=True)])
+    bar = f"{qmin / len(buffett.CRITERIA) * 100:.0f}%"
     light = [s_ for s_ in quality if funnel.is_light(_fp(s_.ticker))]
     both = [s_ for s_ in light if funnel.is_oversold(_fc(s_.ticker))]
     verdicts = [c.verdict for s_ in usable for c in s_.checks]
@@ -1886,9 +1889,11 @@ def _kr_quality_block(use_demo: bool) -> None:
         f"대형주 전수 → 버핏식 품질 기준 {len(buffett.CRITERIA)}개 → 가격 → 차트"),
         unsafe_allow_html=True)
     st.markdown(ui.render_legend(
-        f"<b>품질</b> = 버핏식 기준 {len(buffett.CRITERIA)}개 중 {qmin}개 이상 통과 "
-        f"(DART 사업보고서 최근 10년 · 심사 {_when(q_made)}) · 전체 판정 가운데 "
-        f"<b>판정 불가 {unknown_pct:.0f}%</b> · <b>가격 부담 낮음</b> = 역DCF 요구 FCF 성장률 ≤ "
+        f"<b>품질</b> = 판정된 기준 가운데 {bar} 이상 통과 (9개 중 {qmin}개와 같은 비율 · "
+        f"판정된 기준 6개 이상 · DART 사업보고서 최근 10년 · 심사 {_when(q_made)}) · "
+        f"전체 판정 가운데 <b>판정 불가 {unknown_pct:.0f}%</b> — 감가상각비가 재무제표 본문에 "
+        "없는 회사가 많아 <b>주주이익 · 설비투자</b> 두 기준은 대부분 판정 불가입니다 · "
+        "<b>가격 부담 낮음</b> = 역DCF 요구 FCF 성장률 ≤ "
         f"과거 실제 성장률(할인율 8~12% 전 구간 · 연 {config.FUNNEL_HIST_GROWTH_CAP * 100:g}% 까지만 인정) · "
         f"<b>차트</b> = 과매도 쪽 · 가격 · 차트 계산 {_when(made)}"),
         unsafe_allow_html=True)
@@ -1896,7 +1901,7 @@ def _kr_quality_block(use_demo: bool) -> None:
         kr_screen.FunnelStep("후보", int(fpay.get("n_members") or len(all_screens) + len(errors))),
         kr_screen.FunnelStep("재무 받음", len(usable),
                              "못 받은 종목은 아래 '이유 보기'" if errors else ""),
-        kr_screen.FunnelStep(f"{qmin}개 이상 통과", len(quality)),
+        kr_screen.FunnelStep(f"판정 중 {bar} 이상 통과", len(quality)),
         kr_screen.FunnelStep("가격 부담 낮음", len(light)),
         kr_screen.FunnelStep("차트 과매도 쪽", len(both)),
     ], errors, title="단계별로 남은 종목"), unsafe_allow_html=True)
@@ -1917,7 +1922,7 @@ def _kr_quality_block(use_demo: bool) -> None:
             "<b>이 단계까지 남은 종목이 없습니다.</b> "
             + (f"품질 통과 {len(quality)}종목 가운데 조건을 다 만족하는 종목이 지금은 없습니다 — "
                "한 단계 앞을 보십시오." if quality else
-               f"{qmin}개 이상 통과한 종목이 없습니다.")), unsafe_allow_html=True)
+               f"판정된 기준의 {bar} 이상을 통과한 종목이 없습니다.")), unsafe_allow_html=True)
     else:
         top = shown[:config.DISCOVER_US_ROWS]
         st.markdown(ui.render_screen_table(

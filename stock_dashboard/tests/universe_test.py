@@ -837,6 +837,22 @@ stk0, hk0, _c = run("kr", kr_pay)
 check("깔때기 파일이 없으면 여섯 스크리너만 (화면은 그대로)",
       "품질 깔때기 · 한국" not in hk0 and "단계별로 남은 종목" in hk0)
 
+print("\n=== 국내 통과 판정 — 판정된 기준 중 비율 ===")
+_k77 = _mk("K1", [P] * 7 + [U, U])          # 7/7 — 감가상각비가 없는 전형
+_k67 = _mk("K2", [P] * 6 + [F] + [U, U])    # 6/7 = 86%
+_k57 = _mk("K3", [P] * 5 + [F, F] + [U, U])  # 5/7 = 71%
+_k45 = _mk("K4", [P] * 4 + [U] * 5)         # 4/4 이지만 판정이 너무 적다
+check("비율 규칙 — 7/7 · 6/7 은 통과, 5/7 은 아님, 판정 6개 미만은 아님",
+      [buffett.passes(x, 7, by_ratio=True) for x in (_k77, _k67, _k57, _k45)] == [True, True, False, False])
+check("미국은 그대로 통과 수 — 6/7 은 7개에 못 미침",
+      buffett.passes(_k77, 7) and not buffett.passes(_k67, 7))
+import buffett_kr as _bk
+check("국내 규칙 — 조사에서 나온 표준ID 가 들어 있다",
+      "ifrs-full_Borrowings" in _bk.KR_RULES_BY_KEY["long_term_debt"].ids
+      and "dart_CashAndDuefromBanks" in _bk.KR_RULES_BY_KEY["cash"].ids and _bk.KR_REV >= 4)
+check("한국 화면 — 비율로 본다고 적는다", "판정된 기준 가운데 78% 이상 통과" in hk
+      and "주주이익 · 설비투자" in hk and "판정 중 78% 이상 통과" in hk)
+
 print("\n=== 후보 한 줄 — 셈이 맞아야 한다 ===")
 _p = {"members": [{"ticker": f"A{i}", "index": True} for i in range(515)] + [{"ticker": "W", "index": False}],
       "rules": {"S&P 500 구성 종목": {"n": 503}, "나스닥100 에만 있는 종목": {"n": 15}}}

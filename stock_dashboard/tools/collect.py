@@ -580,7 +580,7 @@ def build_funnel_kr(app, out_dir: str, *, screens_fn=None, caps_fn=None, ohlc_fn
             if sc is None:
                 continue
             d = (funnel.dcf_inputs(sc)
-                 if sc.ok and sc.passed_count >= config.FUNNEL_MIN_PASS else None)
+                 if buffett.passes(sc, config.FUNNEL_MIN_PASS, by_ratio=True) else None)
             screens.append(buffett.to_summary(sc, d=d))
         q_made = int(time.time())
     t_q = time.time() - t0
@@ -619,8 +619,8 @@ def build_funnel_kr(app, out_dir: str, *, screens_fn=None, caps_fn=None, ohlc_fn
     verdicts = [c[1] for r in ok for c in r.get("c") or []]
     return {"n": len(ok), "members": len(members), "errors": len(errors), "reused": bool(reuse),
             "unknown": verdicts.count("unknown"), "verdicts": len(verdicts),
-            "pass7": sum(1 for r in ok if sum(1 for c in r["c"] if c[1] == "pass")
-                         >= config.DISCOVER_QUALITY_MIN),
+            "pass7": sum(1 for r in ok if buffett.passes(
+                buffett.from_summary(r), config.DISCOVER_QUALITY_MIN, by_ratio=True)),
             "todo": len(rows), "caps": sum(1 for r in rows if r["p"].get("cap")),
             "bars": sum(1 for r in rows if not r["c"].get("e")),
             "priced": sum(1 for r in rows if funnel.price_known(r["p"])),
@@ -677,7 +677,7 @@ def build_universe(app, out_dir: str, markets=("us", "kr")) -> dict:
         else:
             print(f"  한국 깔때기: 후보 {k['members']} → 재무 받음 {k['n']} (못 받음 {k['errors']}"
                   f"{' · 지난 판정 재사용' if k['reused'] else ''}) · 판정 불가 "
-                  f"{k['unknown']}/{k['verdicts']} · 7개 이상 통과 {k['pass7']} · "
+                  f"{k['unknown']}/{k['verdicts']} · 품질 통과(판정 중 7/9 이상) {k['pass7']} · "
                   f"가격 판정 {k['priced']}/{k['todo']} (부담 낮음 {k['light']}) · "
                   f"차트 과매도 쪽 {k['os']} · {k['sec']:.0f}초 (품질 {k['sec_q']:.0f}초) · "
                   f"{k['bytes'] / 1024:.0f} KB")

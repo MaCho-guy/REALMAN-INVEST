@@ -3155,13 +3155,31 @@ def _cc_cell(met, main: str, note: str = "") -> str:
             f'{_esc(main)}{sub}</td>')
 
 
+def _side_chip(row) -> str:
+    """종목의 쪽 — 과매도 / 과매수 / 엇갈림, 그리고 몇 개 지표가 그쪽인지.
+
+    색으로 칠하지 않습니다 (좋고 나쁨이 아니라 상태). 글자와 테두리 모양으로
+    가릅니다.
+    """
+    import chart_signals as _cs  # noqa: PLC0415
+
+    side = getattr(row, "side", "")
+    if not side:
+        return '<span class="ct-sd none">—</span>'
+    n_os, n_ob = row.side_votes
+    count = {"os": f"{n_os}/3", "ob": f"{n_ob}/3", "mixed": f"{n_os}:{n_ob}"}[side]
+    return (f'<span class="ct-sd {side}">{_cs.SIDE_NAMES[side]}'
+            f'<i>{count}</i></span>')
+
+
 def render_chart_table(rows, limit: int = 30, held=()) -> str:
     """종목 × 조건. 칸마다 **상태 이름**과 값을 적습니다. held 에 든 종목
     (보유·관심)은 이름 앞에 ★ 를 붙입니다.
 
     해당하는 칸은 채워진 점과 옅은 바탕으로 표시합니다. 과매도·과매수를
     오름·내림 색으로 칠하지 않습니다 — 좋고 나쁨이 아니라 상태입니다.
-    쪽은 글자로 구분합니다 (상태 이름에 '과매도' / '과매수' 가 들어 있음).
+    쪽은 글자로 구분합니다 — '쪽' 칸에 종목의 쪽과, 세 지표(CCI · 스토캐스틱 ·
+    볼린저) 가운데 몇 개가 그쪽인지 적습니다.
     """
     rows = list(rows or [])[:limit]
     if not rows:
@@ -3185,6 +3203,7 @@ def render_chart_table(rows, limit: int = 30, held=()) -> str:
             f"<tr><td class='ht-rank'>{i}</td>"
             f"<td class='ht-name'>{star}<b>{_esc(r.name)}</b><span>{_esc(r.ticker)}</span></td>"
             f"<td class='ct-met'><span class='ct-dots'>{dots}</span>{r.met}/{len(f)}</td>"
+            f"<td class='ct-side'>{_side_chip(r)}</td>"
             + _cc_cell(f["cloud"], cloud, nt["cloud"])
             + _cc_cell(f["ma"], ma, nt["ma"])
             + _cc_cell(f["cci"], cci, nt["cci"])
@@ -3195,6 +3214,7 @@ def render_chart_table(rows, limit: int = 30, held=()) -> str:
             + "</tr>")
     return ('<div class="dash-htable-wrap"><table class="dash-htable dash-ctable">'
             "<thead><tr><th class='ht-rank'>#</th><th>종목</th><th>해당</th>"
+            "<th title='CCI · 스토캐스틱 · 볼린저 %B 로 가른 쪽'>쪽</th>"
             "<th>일목</th><th>이동평균</th><th>CCI(13)</th><th>MACD<br>시그널 대비</th>"
             "<th>스토캐스틱<br>%K / %D</th><th>볼린저<br>%B</th><th>−DI</th></tr></thead>"
             f"<tbody>{''.join(body)}</tbody></table></div>")

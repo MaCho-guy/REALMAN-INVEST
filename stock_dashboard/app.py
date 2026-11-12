@@ -1855,8 +1855,8 @@ def render_chart_tab(use_demo: bool, *, market: str = "kr") -> None:
     side = st.radio("쪽", list(side_names), horizontal=True,
                     key=f"chart_side_{market}",
                     format_func=lambda k: side_names[k],
-                    help="CCI · MACD · 스토캐스틱을 과매도 쪽 상태만 / "
-                         "과매수 쪽 상태만 보도록 좁힙니다.")
+                    help="CCI · 스토캐스틱 · 볼린저 %B 로 가릅니다 (표의 '쪽' 칸). "
+                         "MACD 는 방향 지표라 쪽을 가르는 데 쓰지 않습니다.")
     if side not in side_names:
         side = ""
 
@@ -1864,6 +1864,21 @@ def render_chart_tab(use_demo: bool, *, market: str = "kr") -> None:
     held = {i.symbol for i in config.SECTION_WATCHLIST.instruments
             if config.in_market(i, market)}
     only_held = st.toggle("내 종목만", value=False, key=f"chart_held_{market}")
+
+    # 쪽이 어떻게 갈렸는지 — 고르기 전에 숫자로 보여 줍니다
+    tally = {"os": 0, "ob": 0, "mixed": 0, "": 0}
+    for r in ok_rows:
+        tally[r.side] = tally.get(r.side, 0) + 1
+    st.markdown(ui.render_footnote(
+        f"<b>쪽 분류</b> — 과매도 {tally['os']} · 과매수 {tally['ob']} · "
+        f"엇갈림 {tally['mixed']} · 어느 쪽도 아님 {tally['']} (계산된 {len(ok_rows)}종목). "
+        f"기준: CCI {chart_signals.CCI_OVERSOLD:g} / +{chart_signals.CCI_OVERBOUGHT:g}, "
+        f"스토캐스틱 %K {chart_signals.STOCH_OVERSOLD:g} / {chart_signals.STOCH_OVERBOUGHT:g}, "
+        f"볼린저 %B {chart_signals.BB_NEAR:g} / {1 - chart_signals.BB_NEAR:g}. "
+        "셋 중 하나라도 그쪽 상태이고 반대쪽이 없으면 그쪽입니다. "
+        "'탈출' 은 기준선을 나온 지 3봉 이내이고 아직 가운데 선"
+        f"(CCI {chart_signals.CCI_MID:g} · %K {chart_signals.STOCH_MID:g})을 넘지 않은 때까지만 셉니다."),
+        unsafe_allow_html=True)
 
     chosen = chart_signals.select(rows, required, side)
     if only_held:

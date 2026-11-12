@@ -52,11 +52,14 @@ TENKAN, KIJUN, SENKOU_B = 9, 26, 52
 DISPLACEMENT = 25
 CCI_WINDOW, CCI_SIGNAL = 13, 9
 CCI_OVERSOLD, CCI_OVERBOUGHT, CCI_NEAR = -100.0, 100.0, 80.0
+#: 2026-11-12 추가 — '탈출' 은 가운데 선을 넘기 전까지만, '근접' 은 양쪽 모두.
+CCI_MID, CCI_NEAR_LOW = 0.0, -80.0
 MACD_FAST, MACD_SLOW, MACD_SIGNAL = 12, 26, 9
 #: 사용자 지정 (2026-11-11): 스토캐스틱 슬로우 12, 5, 5
 STOCH_N, STOCH_K, STOCH_D = 12, 5, 5
 #: 사용자 지정 (2026-11-11): 과매수 80 · 과매도 30
 STOCH_OVERSOLD, STOCH_OVERBOUGHT, STOCH_NEAR = 30.0, 80.0, 70.0
+STOCH_MID, STOCH_NEAR_LOW = 50.0, 40.0
 #: 이동평균 (단순). 정배열 = 종가 > 20 > 60 > 120
 MA_SHORT, MA_MID, MA_LONG = 20, 60, 120
 #: 볼린저 밴드 (20, 2σ). '근접' = %B 0.1 이하 / 0.9 이상.
@@ -77,17 +80,23 @@ CONDITIONS = (
     ("cloud", "일목 양운", f"앞 구름(오늘 계산 · {DISPLACEMENT}봉 앞): 선행스팬1 > 선행스팬2"),
     ("ma", "이동평균", f"{MA_SHORT}·{MA_MID}·{MA_LONG}일 — 정배열 · 역배열 · "
                     f"{MA_SHORT}일선 돌파 (최근 {RECENT}봉)"),
-    ("cci", "CCI", f"CCI({CCI_WINDOW}) · 시그널 {CCI_SIGNAL} — 과매도 진입·구간·탈출, "
-                   "과매수 근접"),
-    ("macd", "MACD", "시그널 교차 — 하향 돌파 · 아래 · 좁혀짐 · 상향 돌파"),
-    ("stoch", "스토캐스틱", f"슬로우({STOCH_N},{STOCH_K},{STOCH_D}) — 과매도 진입·구간·"
-                        "탈출, 과매수 근접"),
+    ("cci", "CCI", f"CCI({CCI_WINDOW}) · 시그널 {CCI_SIGNAL} — 과매도 {CCI_OVERSOLD:g} 이하 · "
+                   f"과매수 +{CCI_OVERBOUGHT:g} 이상 (근접 · 진입 · 구간 · 탈출 시도 · 탈출)"),
+    ("macd", "MACD", "시그널 교차 — 하향 돌파 · 아래 · 좁혀짐 · 상향 돌파 "
+                     "(과매도·과매수를 가르는 데는 쓰지 않음)"),
+    ("stoch", "스토캐스틱", f"슬로우({STOCH_N},{STOCH_K},{STOCH_D}) — 과매도 {STOCH_OVERSOLD:g} 이하 · "
+                        f"과매수 {STOCH_OVERBOUGHT:g} 이상 (근접 · 진입 · 구간 · 탈출 시도 · 탈출)"),
     ("bb", "볼린저", f"밴드({BB_WINDOW}, {BB_K:g}σ) — 하단 이탈·근접, 상단 돌파·근접, 밴드 수축"),
     ("dmi", "−DI 하향", f"−DI({DMI_WINDOW}) 가 30 또는 10 을 아래로 (최근 {RECENT}봉)"),
 )
 CONDITION_KEYS = tuple(k for k, _n, _r in CONDITIONS)
-#: 과매도 쪽 / 과매수 쪽으로 나뉘는 지표
-SIDED = ("cci", "macd", "stoch", "bb")
+#: 과매도 쪽 / 과매수 쪽을 가르는 지표 — **수준(값의 높낮이)으로 재는 것만**.
+#: 2026-11-12 "과매도 과매수가 제대로 분류 안 된다": MACD 의 '시그널 위·아래' 를
+#: 쪽으로 세는 바람에, CCI −126 · 스토캐스틱 17 인 종목이 MACD 하나 때문에
+#: '과매수 쪽' 목록에 올라왔습니다. MACD 는 방향을 재는 지표라 과매도·과매수의
+#: 기준선이 없습니다 — 상태 이름은 그대로 두되 쪽에서는 뺍니다.
+SIDED = ("cci", "stoch", "bb")
+SIDE_NAMES = {"os": "과매도", "ob": "과매수", "mixed": "엇갈림", "": ""}
 SIDES = (("", "전체"), ("os", "과매도 쪽"), ("ob", "과매수 쪽"))
 
 
@@ -153,35 +162,62 @@ def crossed_up(series: list, level: float, within: int = RECENT) -> bool:
 
 
 def zone_state(vals: list, sig: list, low: float, high: float,
-               near: float) -> tuple[str, str]:
+               near: float, mid: float | None = None,
+               near_low: float | None = None) -> tuple[str, str]:
     """진동 지표의 지금 상태 → (이름, 쪽). 쪽은 'os'(과매도) / 'ob'(과매수) / ''.
 
-    과매도 쪽:  진입(최근에 들어옴) · 구간(안에서 내려가는 중) ·
-               탈출 시도(안에서 오르거나 시그널 위) · 탈출(최근에 나옴)
-    과매수 쪽:  근접(near 이상에서 오르는 중) · 진입 · 구간
+    양쪽이 같은 틀입니다 (low·high 는 기준선, mid 는 가운데 선):
+
+      과매도 쪽                              과매수 쪽
+      근접     near_low 이하에서 내리는 중     near 이상에서 오르는 중
+      진입     최근 3봉 안에 low 아래로        최근 3봉 안에 high 위로
+      구간     low 아래에서 머무름             high 위에서 머무름
+      탈출 시도  low 아래에서 전일보다 오름     high 위에서 전일보다 내림
+      탈출     최근 3봉 안에 low 위로 나왔고    최근 3봉 안에 high 아래로 나왔고
+              아직 mid 아래                   아직 mid 위
+
+    2026-11-12 고친 것 (실제 화면에서 본 오분류):
+      · '탈출' 에 끝이 없었습니다. 3봉 전에 −100 을 넘었으면 지금 CCI 가 +64 여도
+        '과매도 탈출' 이었습니다. 가운데 선을 넘으면 더는 그쪽 상태가 아닙니다.
+      · '탈출 시도' 를 '전일보다 올랐거나 **시그널 위**' 로 봤습니다. 시그널은
+        늦게 따라오므로, 계속 내리는 중에도 시그널 위일 수 있습니다. 값이
+        실제로 돌아섰을 때(전일 대비)만 셉니다.
+      · 과매수 쪽에는 근접·진입·구간만 있었습니다. 같은 틀로 맞췄습니다.
+    sig 는 화면 표시용으로만 받습니다 (판정에는 쓰지 않음).
     """
     if len(vals) < 2 or vals[-1] is None or vals[-2] is None:
         return "", ""
     cur, prev = vals[-1], vals[-2]
-    sg = sig[-1] if sig else None
+    mid = (low + high) / 2.0 if mid is None else mid
     if cur <= low:
-        if cur > prev or (sg is not None and cur > sg):
+        if cur > prev:
             return "과매도 탈출 시도", "os"
         if crossed_down(vals, low):
             return "과매도 진입", "os"
         return "과매도 구간", "os"
-    if crossed_up(vals, low):
-        return "과매도 탈출", "os"
     if cur >= high:
-        return ("과매수 진입" if crossed_up(vals, high - 1e-12)
-                else "과매수 구간"), "ob"
+        if cur < prev:
+            return "과매수 이탈 시도", "ob"
+        if crossed_up(vals, high - 1e-12):
+            return "과매수 진입", "ob"
+        return "과매수 구간", "ob"
+    if cur < mid and crossed_up(vals, low):
+        return "과매도 탈출", "os"
+    if cur > mid and crossed_down(vals, high - 1e-12):
+        return "과매수 이탈", "ob"
     if cur >= near and cur > prev:
         return "과매수 근접", "ob"
+    if near_low is not None and cur <= near_low and cur < prev:
+        return "과매도 근접", "os"
     return "", ""
 
 
 def macd_state(hist: list[float]) -> tuple[str, str]:
-    """MACD 에 같은 틀 — 기준선 대신 시그널선 교차 (히스토그램의 부호)."""
+    """MACD 의 지금 상태 — 시그널선 교차 (히스토그램의 부호). 쪽은 늘 ''.
+
+    MACD 에는 과매도·과매수 기준선이 없습니다. '시그널 아래' 는 방향이지
+    수준이 아니라서 쪽(os/ob)으로 세지 않습니다 (SIDED 주석 참고).
+    """
     if len(hist) < 2:
         return "", ""
     h, hp = hist[-1], hist[-2]
@@ -189,14 +225,14 @@ def macd_state(hist: list[float]) -> tuple[str, str]:
         return "", ""
     if h <= 0:
         if h > hp:
-            return "시그널 아래 · 좁혀짐", "os"
+            return "시그널 아래 · 좁혀짐", ""
         if crossed_down(hist, 0.0):
-            return "시그널 하향 돌파", "os"
-        return "시그널 아래", "os"
+            return "시그널 하향 돌파", ""
+        return "시그널 아래", ""
     if crossed_up(hist, 0.0):
-        return "시그널 상향 돌파", "os"
+        return "시그널 상향 돌파", ""
     if h < hp:
-        return "시그널 위 · 좁혀짐", "ob"
+        return "시그널 위 · 좁혀짐", ""
     return "", ""
 
 
@@ -524,6 +560,27 @@ class ChartRow:
         return self.price / self.ma20 * 100.0
 
     @property
+    def side(self) -> str:
+        """종목의 쪽 — 'os' 과매도 / 'ob' 과매수 / 'mixed' 엇갈림 / '' 어느 쪽도 아님.
+
+        수준으로 재는 세 지표(CCI · 스토캐스틱 · 볼린저 %B)만 봅니다. 하나라도
+        과매도 쪽 상태이고 과매수 쪽 상태가 없으면 과매도, 그 반대면 과매수,
+        둘 다 있으면 엇갈림입니다.
+        """
+        got = {self.sides.get(k) for k in SIDED} - {"", None}
+        if got == {"os"}:
+            return "os"
+        if got == {"ob"}:
+            return "ob"
+        return "mixed" if got else ""
+
+    @property
+    def side_votes(self) -> tuple[int, int]:
+        """(과매도 쪽 지표 수, 과매수 쪽 지표 수) — 세 지표 가운데."""
+        vals = [self.sides.get(k) for k in SIDED]
+        return vals.count("os"), vals.count("ob")
+
+    @property
     def vol_up(self) -> bool:
         return self.vol_ratio is not None and self.vol_ratio >= VOL_UP
 
@@ -592,10 +649,10 @@ def build_row(ticker: str, name: str, highs: list[float], lows: list[float],
     states: dict[str, str] = {}
     sides: dict[str, str] = {}
     states["cci"], sides["cci"] = zone_state(
-        cc, cc_sig, CCI_OVERSOLD, CCI_OVERBOUGHT, CCI_NEAR)
+        cc, cc_sig, CCI_OVERSOLD, CCI_OVERBOUGHT, CCI_NEAR, CCI_MID, CCI_NEAR_LOW)
     states["macd"], sides["macd"] = macd_state(hist)
     states["stoch"], sides["stoch"] = zone_state(
-        sk, sd, STOCH_OVERSOLD, STOCH_OVERBOUGHT, STOCH_NEAR)
+        sk, sd, STOCH_OVERSOLD, STOCH_OVERBOUGHT, STOCH_NEAR, STOCH_MID, STOCH_NEAR_LOW)
     states["dmi"], sides["dmi"] = mdi_state(mdi), ""
     states["ma"], (m20, m60, m120) = ma_state(closes)
     sides["ma"] = ""
@@ -657,10 +714,11 @@ def select(rows: list[ChartRow], required: tuple[str, ...] = (),
            side: str = "") -> list[ChartRow]:
     """required 조건에 **모두** 해당하는 종목. 비어 있으면 계산된 전 종목.
 
-    side 를 주면('os' / 'ob') 고른 진동 지표(CCI·MACD·스토캐스틱)가 그 쪽
+    side 를 주면('os' / 'ob') 고른 수준 지표(CCI·스토캐스틱·볼린저)가 그 쪽
     상태여야 합니다 — 'CCI 과매도 + 스토캐스틱 과매수' 가 한 줄에 섞이지
-    않게. 조건을 안 골랐으면 그 쪽 상태가 하나라도 있는 종목만 남깁니다.
-    정렬: 해당 수 많은 순 → CCI 낮은 순 (과매수 쪽이면 높은 순).
+    않게. 조건을 안 골랐으면 **종목의 쪽**(ChartRow.side)이 그 쪽인 것만
+    남깁니다 — 엇갈린 종목은 빠집니다. MACD 는 쪽을 가르지 않습니다.
+    정렬: 쪽을 골랐으면 그 쪽 지표 수 → CCI 깊은 순, 아니면 해당 수 → CCI.
     """
     out = []
     for r in rows:
@@ -674,9 +732,16 @@ def select(rows: list[ChartRow], required: tuple[str, ...] = (),
             if picked:
                 if any(r.sides.get(k) != side for k in picked):
                     continue
-            elif not any(r.sides.get(k) == side for k in SIDED):
+            elif r.side != side:
+                # 조건을 안 골랐으면 종목의 쪽으로 — 엇갈린 종목은 어느 쪽에도 안 넣습니다
                 continue
         out.append(r)
-    sign = -1.0 if side == "ob" else 1.0
-    out.sort(key=lambda r: (-r.met, sign * (r.cci if r.cci is not None else 0.0)))
+    if side:
+        # 쪽을 골랐으면 그 쪽 지표가 많은 순 → CCI 가 더 깊은 순
+        sign = -1.0 if side == "ob" else 1.0
+        idx = 1 if side == "ob" else 0
+        out.sort(key=lambda r: (-r.side_votes[idx],
+                                sign * (r.cci if r.cci is not None else 0.0)))
+    else:
+        out.sort(key=lambda r: (-r.met, r.cci if r.cci is not None else 0.0))
     return out

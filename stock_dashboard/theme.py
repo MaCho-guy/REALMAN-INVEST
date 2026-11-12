@@ -1673,6 +1673,18 @@ def build_rules() -> str:
     background: var(--dash-raised); border-radius: var(--r-pill); padding: 2px 9px;
     white-space: nowrap; }}
   .dash-digest .dg-chip b {{ color: var(--dash-accent); font-weight: 700; }}
+  /* 차트 조건 — 종목의 쪽 (과매도 / 과매수 / 엇갈림) */
+  .dash-ctable td.ct-side {{ text-align: center; white-space: nowrap; }}
+  .dash-ctable .ct-sd {{ display: inline-block; font-size: var(--fs-2); font-weight: 700;
+    color: var(--dash-ink); border: 1.5px solid var(--dash-ink-2);
+    border-radius: var(--r-chip); padding: 0 6px; line-height: 1.5; }}
+  .dash-ctable .ct-sd.ob {{ background: var(--dash-ink); color: var(--dash-surface);
+    border-color: var(--dash-ink); }}
+  .dash-ctable .ct-sd.mixed {{ border-style: dashed; font-weight: 600;
+    color: var(--dash-ink-2); }}
+  .dash-ctable .ct-sd.none {{ border: 0; color: var(--dash-ink-muted); font-weight: 400; }}
+  .dash-ctable .ct-sd i {{ font-style: normal; font-weight: 500; margin-left: 4px;
+    font-size: var(--fs-1); opacity: .8; }}
   /* 기준표 — 이름 · 통과 조건(숫자) · 출처 */
   .dash-criteria {{ background: var(--dash-surface); border: 1px solid var(--dash-border);
     border-radius: var(--r-card); padding: 10px 13px; margin: 4px 0 10px; }}

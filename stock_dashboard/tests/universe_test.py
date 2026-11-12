@@ -921,6 +921,26 @@ check("상한이 걸리면 근거 줄에 적는다 · 금융업은 사유를 적
       "15%까지만 인정" in ui.render_verdict(v_cap) and "가격 판정 안 함" in ui.render_verdict(v_fin2)
       and "금융업" in ui.render_verdict(v_fin2) and "예전 규칙" not in ui.render_verdict(v_light))
 
+print("\n=== 밸류에이션 카드 — 판정만 먼저, 나머지는 '자세히' ===")
+_c2 = ui.render_verdict(v_moved, prompt="질문 본문")
+_top, _folded = _c2.split('<details class="dash-more', 1)
+check("먼저 보이는 것: 위치 · 판정 줄 · 근거 · 주의 문구",
+      "dash-verdict-pos" in _top and "dash-vhead" in _top and "가격 경계" in _top
+      and "dash-verdict-cav" in _top)
+check("접힌 것: 판단 요약 · 다음에 확인할 것 · Claude 질문 (지우지 않고 접기만)",
+      "다음에 확인할 것" in _folded and "질문 본문" in _folded and "사업의 질" in _folded
+      and "다음에 확인할 것" not in _top and "질문 본문" not in _top)
+check("render_more — 빈 내용이면 그리지 않고, 제목은 글자로만",
+      ui.render_more("제목", "") == "" and "&lt;b&gt;" in ui.render_more("<b>", "<i>x</i>")
+      and "<i>x</i>" in ui.render_more("<b>", "<i>x</i>"))
+check("접는 제목이 없는 화면에서는 종목 이름을 카드에 적는다",
+      "dash-verdict-tkr" in ui.render_verdict(v_moved, show_name=True)
+      and "dash-verdict-tkr" not in _c2)
+check("밸류에이션 탭 — 판단을 먼저 그리고 기준 9개 · 역DCF · 지표는 접는다",
+      app_src.count('ui.render_more("자세히 — 사업의 질') == 2
+      and 'ui.render_more("자세히 — 가격 (역DCF 숫자 · 밸류에이션 지표)"' in app_src
+      and "ui.render_price_block(price" in app_src)
+
 print("\n=== 후보 한 줄 — 셈이 맞아야 한다 ===")
 _p = {"members": [{"ticker": f"A{i}", "index": True} for i in range(515)] + [{"ticker": "W", "index": False}],
       "rules": {"S&P 500 구성 종목": {"n": 503}, "나스닥100 에만 있는 종목": {"n": 15}}}

@@ -1255,13 +1255,13 @@ def _render_screen_body(triples: list, *, min_pass: int, show_source: bool,
         unsafe_allow_html=True,
     )
     for screen, result, verdict_obj in shortlist:
+        # 판정과 근거를 먼저, 나머지는 '자세히' 로 접습니다 (지우지 않음 — 2026-11-12)
         st.markdown(
-            ui.render_screen(screen, show_source=show_source),
-            unsafe_allow_html=True,
-        )
-        st.markdown(ui.render_dcf_cells(result), unsafe_allow_html=True)
-        st.markdown(
-            ui.render_verdict(verdict_obj, prompt=vd.prompt_for(verdict_obj, screen)),
+            ui.render_verdict(verdict_obj, prompt=vd.prompt_for(verdict_obj, screen),
+                              show_name=True)
+            + ui.render_more("자세히 — 사업의 질 (기준별 숫자와 근거)",
+                             ui.render_screen(screen, show_source=show_source))
+            + ui.render_more("자세히 — 가격 (역DCF 숫자)", ui.render_dcf_cells(result)),
             unsafe_allow_html=True,
         )
     if not shortlist:
@@ -4121,19 +4121,18 @@ def render_valuation_tab(data: dict[str, dict[str, Quote]], fx,
         # 첫 종목만 펼쳐 둡니다 — 전부 접혀 있으면 빈 화면처럼 보이고,
         # 전부 펼치면 접는 의미가 없습니다.
         with st.expander(label, expanded=(idx == 0)):
-            st.markdown(
-                ui.render_screen(screen, show_source=show_source),
-                unsafe_allow_html=True,
-            )
-            st.markdown(ui.render_dcf_cells(result), unsafe_allow_html=True)
-            st.markdown(
-                ui.render_price_block(price, show_source=show_source,
-                                      metrics_meta=vl.METRICS),
-                unsafe_allow_html=True,
-            )
+            # 판정과 근거를 먼저, 나머지는 '자세히' 로 접습니다 (지우지 않음).
+            # 2026-11-12 폰 확인: 종목 하나가 폰 두 화면을 넘고, 판단 요약이 맨 아래
+            # 있어 "복잡하고 가시성이 떨어진다" 고 했습니다.
             st.markdown(
                 ui.render_verdict(verdict_obj,
-                                  prompt=vd.prompt_for(verdict_obj, screen)),
+                                  prompt=vd.prompt_for(verdict_obj, screen))
+                + ui.render_more("자세히 — 사업의 질 (기준별 숫자와 근거)",
+                                 ui.render_screen(screen, show_source=show_source))
+                + ui.render_more("자세히 — 가격 (역DCF 숫자 · 밸류에이션 지표)",
+                                 ui.render_dcf_cells(result)
+                                 + ui.render_price_block(price, show_source=show_source,
+                                                         metrics_meta=vl.METRICS)),
                 unsafe_allow_html=True,
             )
 

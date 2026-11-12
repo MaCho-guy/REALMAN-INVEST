@@ -1329,8 +1329,27 @@ def render_dcf_cells(result) -> str:
     return f'<div class="dash-dcf-grid">{inner}</div>'
 
 
-def render_verdict(v, *, prompt: str = "", show_next: bool = True) -> str:
-    """판단 재료 — 사분면 위치와 다음에 확인할 것. 결론은 쓰지 않습니다."""
+def render_more(summary: str, inner_html: str, *, cls: str = "") -> str:
+    """'자세히' 로 접어 두는 칸 — 눌러야 펼쳐집니다. 내용은 지우지 않고 접기만 합니다.
+
+    2026-11-12 폰 확인 "밸류에이션 탭이 너무 복잡하다": 종목 하나가 폰 두 화면을
+    넘었습니다. 판정과 근거만 먼저 보이고 나머지는 이 칸 안에 둡니다.
+    inner_html 은 이미 만들어진 HTML 입니다 (여기서 다시 바꾸지 않습니다).
+    """
+    if not inner_html:
+        return ""
+    return (f'<details class="dash-more {cls}"><summary>{_esc(summary)}</summary>'
+            f'<div class="dash-more-body">{inner_html}</div></details>')
+
+
+def render_verdict(v, *, prompt: str = "", show_next: bool = True,
+                   show_name: bool = False) -> str:
+    """판단 재료 — 사분면 위치와 다음에 확인할 것. 결론은 쓰지 않습니다.
+
+    먼저 보이는 것은 위치 · 판정 줄 · 근거 · 주의 문구뿐이고, 긴 글(판단 요약 ·
+    다음에 확인할 것 · Claude 질문)은 '자세히' 안에 접혀 있습니다.
+    show_name 이면 맨 위에 종목 이름을 적습니다 (접는 제목이 따로 없는 화면용).
+    """
     from verdict import QUADRANT_MEANING, QUADRANT_TITLE, summary_lines
 
     cls = f"q{v.quadrant}" if v.quadrant in (1, 2, 3) else ""
@@ -1363,12 +1382,19 @@ def render_verdict(v, *, prompt: str = "", show_next: bool = True) -> str:
             f'<div class="dash-missing-cmd">{_esc(prompt)}</div></details>'
         )
 
-    return (
-        f'<div class="dash-verdict {cls}">'
-        f'<div class="dash-verdict-pos">{_esc(QUADRANT_TITLE[v.quadrant])}</div>'
-        f"{_verdict_head(v)}"
+    name = ""
+    if show_name:
+        nm = getattr(v, "name", "") or ""
+        name = (f'<div class="dash-verdict-tkr">{_esc(v.ticker)}'
+                + (f"<span>{_esc(nm[:30])}</span>" if nm and nm != v.ticker else "") + "</div>")
+    more = render_more(
+        "자세히 — 판단 요약 · 다음에 확인할 것 · Claude 질문",
         f'<div class="dash-verdict-line">{_md_bold(QUADRANT_MEANING[v.quadrant])}</div>'
-        f"{body_html}{cav}{nxt}{prompt_block}</div>"
+        f"{body_html}{nxt}{prompt_block}")
+    return (
+        f'<div class="dash-verdict {cls}">{name}'
+        f'<div class="dash-verdict-pos">{_esc(QUADRANT_TITLE[v.quadrant])}</div>'
+        f"{_verdict_head(v)}{cav}{more}</div>"
     )
 
 

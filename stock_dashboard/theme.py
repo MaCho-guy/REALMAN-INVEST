@@ -1766,6 +1766,16 @@ def build_rules() -> str:
     color: var(--dash-ink); font-variant-numeric: tabular-nums; }}
   .dash-qmap .qv {{ display: block; font-size: var(--fs-3); color: var(--dash-ink-2);
     line-height: 1.45; overflow-wrap: anywhere; }}
+  /* '자세히' 로 접어 두는 칸 */
+  details.dash-more {{ border-top: 1px solid var(--dash-divider); margin-top: 6px; }}
+  details.dash-more > summary {{ cursor: pointer; padding: 8px 0 6px; font-size: var(--fs-3);
+    font-weight: 600; color: var(--dash-ink-2); }}
+  details.dash-more[open] > summary {{ color: var(--dash-ink); }}
+  .dash-more-body {{ padding: 2px 0 6px; }}
+  .dash-verdict-tkr {{ font-size: var(--fs-5); font-weight: 700; color: var(--dash-ink);
+    margin-bottom: 2px; }}
+  .dash-verdict-tkr span {{ font-size: var(--fs-2); font-weight: 500;
+    color: var(--dash-ink-muted); margin-left: 7px; }}
   /* 판단 카드 맨 위 — 품질 · 가격 판정과 근거 */
   .dash-vhead {{ display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: baseline;
     margin: 4px 0 6px; }}

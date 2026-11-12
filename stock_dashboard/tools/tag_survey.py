@@ -130,6 +130,10 @@ def main() -> int:
     print(f"조사 대상 {len(todo)}종목 · 규칙 {rules}")
 
     n_ok = 0
+    verdicts = collections.Counter()
+    unknown_by = collections.Counter()
+    unknown_why = collections.defaultdict(collections.Counter)
+    inferred = collections.Counter()
     miss = collections.Counter()
     none_at_all = collections.Counter()
     merge = collections.Counter()
@@ -143,12 +147,28 @@ def main() -> int:
         got, errs = edgar_facts.fetch_many(batch, config.EDGAR_USER_AGENT, keep=None)
         errors.update(errs)
         for ticker, facts in got.items():
+            old_cik = config.EDGAR_CIK_PREVIOUS.get(ticker)
+            if old_cik and int(old_cik) != batch[ticker]:
+                older, _e = edgar_facts.fetch_many({ticker: int(old_cik)},
+                                                   config.EDGAR_USER_AGENT, keep=None)
+                facts = edgar_facts.merge_facts(facts, older.get(ticker)) or facts
+                print(f"  {ticker}: 예전 등록번호 {old_cik} 합침 (현재 {batch[ticker]})")
             r = survey_one(facts)
             if not r["rows"]:
                 empties.append(f"{ticker}: {describe_empty(facts)}")
                 continue
             n_ok += 1
             year_hist[r["rows"]] += 1
+            sc = buffett.screen_company(ticker, facts, th=config.screen_thresholds())
+            for c in sc.checks:
+                verdicts[c.verdict] += 1
+                if c.verdict == "unknown":
+                    unknown_by[c.criterion.key] += 1
+                    unknown_why[c.criterion.key][re.sub(r"\d+(\.\d+)?", "N", c.detail)[:60]] += 1
+                if c.warning and "추정" in c.warning:
+                    inferred[c.criterion.key] += 1
+                if "낸 이자" in c.detail:
+                    inferred["interest_paid 대체"] += 1
             for key, n in r["gaps"].items():
                 gaps[key] += n
             for key, tags in r["missing"].items():
@@ -170,6 +190,12 @@ def main() -> int:
         print("  연도 없음 —", line[:600])
     for t, e in list(errors.items())[:10]:
         print("  못 받음 —", t, e[:120])
+    total_v = sum(verdicts.values()) or 1
+    print(f"\n판정 — 통과 {verdicts['pass']} · 미달 {verdicts['fail']} · 판정 불가 {verdicts['unknown']}"
+          f" ({verdicts['unknown'] / total_v:.1%})")
+    for key, n in unknown_by.most_common():
+        print(f"  판정 불가 [{key}] {n}: " + " / ".join(f"{m}× {w}" for w, m in unknown_why[key].most_common(3)))
+    print("  추정 · 대체로 채운 판정:", dict(inferred))
     print("\n계정별 — 최근 연도에 빈 회사 수 / 후보를 합치기만 해도 채워지는 수 / 비슷한 태그도 없는 수")
     for key, n in miss.most_common():
         print(f"\n[{key}] 최근 연도 빔 {n} · 합치면 채움 {merge[key]} · 비슷한 태그 없음 {none_at_all[key]}"

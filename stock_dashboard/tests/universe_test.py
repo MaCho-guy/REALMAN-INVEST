@@ -329,6 +329,16 @@ try:
                                         ticker_map_fn=lambda ua: {}, min_keep=10)
         check("지난번에 목록 하나를 못 받았으면 새 파일이어도 다시 한다",
               not r3b.get("kept") and len(batches) > before)
+        oldrev = json.loads(pathlib.Path(out, "universe_us.json").read_text(encoding="utf-8"))
+        check("파일에 재무 읽는 방식의 판(screen_rev)을 적는다",
+              oldrev.get("screen_rev") == buffett.SCREEN_REV)
+        oldrev["screen_rev"] = buffett.SCREEN_REV - 1
+        pathlib.Path(out, "universe_us.json").write_text(json.dumps(oldrev), encoding="utf-8")
+        before = len(batches)
+        r3c = collect.build_universe_us(None, out, members_fn=members_fn, facts_fn=facts_fn,
+                                        ticker_map_fn=lambda ua: {}, min_keep=10)
+        check("읽는 방식이 바뀌었으면 새 파일이어도 다시 심사한다",
+              not r3c.get("kept") and len(batches) > before)
 
         def boom():
             raise universe_src.UniverseError("표에서 40종목만")

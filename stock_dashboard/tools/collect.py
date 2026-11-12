@@ -358,7 +358,9 @@ def build_universe_us(app, out_dir: str, *, members_fn=None, ticker_map_fn=None,
     # 지난번에 목록 하나를 못 받았으면(나스닥100 실패 등) 새 파일이어도 다시 합니다
     failed_rule = any(str((info or {}).get("how", "")).startswith("실패")
                       for info in (prev.get("rules") or {}).values())
-    if (not force and not failed_rule and prev and age is not None
+    # 재무 읽는 방식이 바뀌었으면(buffett.SCREEN_REV) 새 파일이어도 다시 합니다
+    stale_rev = prev.get("screen_rev") != buffett.SCREEN_REV
+    if (not force and not failed_rule and not stale_rev and prev and age is not None
             and age < config.UNIVERSE_US_MAX_AGE_HOURS
             and len(prev.get("screens") or []) >= (
                 universe.MIN_SP500 // 2 if min_keep is None else min_keep)):
@@ -402,6 +404,15 @@ def build_universe_us(app, out_dir: str, *, members_fn=None, ticker_map_fn=None,
         errors.update({t: str(e)[:160] for t, e in errs.items()})
         for m in batch:
             facts = facts_map.get(m["ticker"])
+            old_cik = getattr(config, "EDGAR_CIK_PREVIOUS", {}).get(m["ticker"])
+            if old_cik and int(old_cik) != m["cik"]:
+                # 등록번호가 바뀐 회사 — 예전 번호의 10년치를 합칩니다
+                older, _oerr = fetch({m["ticker"]: int(old_cik)})
+                merged_facts = edgar_facts.merge_facts(facts, older.get(m["ticker"]))
+                if merged_facts is not None and merged_facts is not facts:
+                    facts = merged_facts
+                    errors.pop(m["ticker"], None)
+                    print(f"  {m['ticker']}: 예전 등록번호 {old_cik} 의 재무를 합쳤습니다")
             if facts is None:
                 continue
             try:
@@ -419,7 +430,8 @@ def build_universe_us(app, out_dir: str, *, members_fn=None, ticker_map_fn=None,
     members_out = [{k: v for k, v in m.items() if k in ("ticker", "name", "sector", "index")}
                    for m in merged if m["ticker"] not in dup]
     size_b = _write_out(out_dir, name, universe.dump({
-        "rules": rules, "members": members_out, "screens": screens, "errors": errors}))
+        "rules": rules, "members": members_out, "screens": screens, "errors": errors,
+        "screen_rev": buffett.SCREEN_REV}))
     return {"n": len(screens), "members": len(members_out), "errors": len(errors),
             "sec": time.time() - t0, "bytes": size_b, "rules": rules}
 

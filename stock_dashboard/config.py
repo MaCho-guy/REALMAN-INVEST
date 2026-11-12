@@ -84,6 +84,12 @@ EDGAR_USER_AGENT = os.environ.get(
 #: 매핑은 https://www.sec.gov/files/company_tickers.json 에서 확인할 수 있습니다.
 EDGAR_CIK_OVERRIDES: dict[str, int] = {}
 
+#: 티커 → **예전** CIK. 지주사 전환 · 본사 이전으로 SEC 등록번호가 새로 나온 회사는
+#: 새 번호에 최근 분기만 있어 10년 심사를 못 합니다 — 예전 번호의 재무를 합칩니다.
+#: 2026-11-12 조사: XOM 의 현재 번호에는 2026년 분기 8건뿐이었습니다 (연간 0건).
+#: 34088 은 엑슨모빌이 오래 써 온 번호입니다. 현재 번호와 같으면 아무 일도 하지 않습니다.
+EDGAR_CIK_PREVIOUS: dict[str, int] = {"XOM": 34088}
+
 #: 종목당 가져올 공시 건수
 EDGAR_FILING_LIMIT = 12
 

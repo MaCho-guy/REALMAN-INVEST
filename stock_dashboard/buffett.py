@@ -40,10 +40,17 @@ TAGS: dict[str, tuple[str, ...]] = {
         "Revenues",
         "RevenueFromContractWithCustomerIncludingAssessedTax",
         "SalesRevenueNet",
+        # 2026-11-12 전 종목 조사: 은행 · 유틸리티가 쓰는 매출 태그
+        "RevenuesNetOfInterestExpense",
+        "RegulatedAndUnregulatedOperatingRevenue",
     ),
     "gross_profit": ("GrossProfit",),
     "cost_of_revenue": (
         "CostOfGoodsAndServicesSold", "CostOfRevenue", "CostOfSales",
+        "CostOfGoodsSold",
+        # 감가상각을 뺀 매출원가 — 마진이 조금 높게 나오지만 이 기준이 보는 것은
+        # 마진의 '흔들림' 이라 쓸 수 있습니다 (조사에서 20개 회사)
+        "CostOfGoodsAndServiceExcludingDepreciationDepletionAndAmortization",
     ),
     "equity": (
         "StockholdersEquity",
@@ -54,6 +61,16 @@ TAGS: dict[str, tuple[str, ...]] = {
     "long_term_debt": (
         "LongTermDebtNoncurrent", "LongTermDebt",
         "LongTermDebtAndCapitalLeaseObligations",
+        # 아래는 2026-11-12 전 종목 조사에서 '장기부채가 빈 회사' 가 실제로 쓰던
+        # 태그입니다. 유동성 장기부채가 섞인 것도 있어 부채가 조금 크게 잡힙니다
+        # (기준에는 보수적인 쪽). 순수 비유동 태그가 있으면 그쪽이 먼저 쓰입니다.
+        "LongTermDebtAndCapitalLeaseObligationsIncludingCurrentMaturities",
+        "DebtAndCapitalLeaseObligations",
+        "DebtLongtermAndShorttermCombinedAmount",
+        "LongTermNotesPayable", "SeniorNotes", "ConvertibleNotesPayableNoncurrent",
+        "ConvertibleDebtNoncurrent", "OtherLongTermDebtNoncurrent",
+        "UnsecuredDebt", "SecuredDebt", "LongTermLineOfCredit",
+        "NotesPayable", "ConvertibleNotesPayable", "DebtInstrumentCarryingAmount",
     ),
     "dep_amort": (
         "DepreciationDepletionAndAmortization",
@@ -64,6 +81,11 @@ TAGS: dict[str, tuple[str, ...]] = {
     "capex": (
         "PaymentsToAcquirePropertyPlantAndEquipment",
         "PaymentsToAcquireProductiveAssets",
+        "PaymentsToAcquireOtherPropertyPlantAndEquipment",
+        "PaymentsToAcquireOilAndGasPropertyAndEquipment",
+        "PaymentsToAcquireMachineryAndEquipment",
+        "PaymentsForCapitalImprovements",
+        "PaymentsToAcquireOtherProductiveAssets",
     ),
     "operating_cash_flow": (
         "NetCashProvidedByUsedInOperatingActivities",
@@ -99,18 +121,32 @@ TAGS: dict[str, tuple[str, ...]] = {
     "operating_income": (
         "OperatingIncomeLoss",
         "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments",
     ),
     "interest_expense": (
         "InterestExpense",
+        "InterestExpenseNonoperating",     # 조사: 최근 연도에 184개 회사가 이 태그
         "InterestExpenseDebt",
         "InterestAndDebtExpense",
-        "InterestExpenseNonoperating",
+        "InterestExpenseOperating",
+        "InterestExpenseBorrowings",
+        "InterestExpenseLongTermDebt",
     ),
+    # 실제 낸 이자(현금흐름표 보충 공시). 이자비용을 손익계산서에 따로 적지 않는
+    # 회사가 많아(조사: 265개 회사가 이 태그만 있음) 이자보상배율의 **대체값**으로
+    # 씁니다 — 쓸 때는 화면에 그렇게 적습니다.
+    "interest_paid": ("InterestPaidNet", "InterestPaid"),
+    # 이자수익 − 이자비용 (순액). 이자비용 자체로는 쓰지 않고, **마이너스면 빚이
+    # 있다는 증거**로만 씁니다 (무차입 추정을 막는 용도).
+    "interest_net": ("InterestIncomeExpenseNonoperatingNet", "InterestIncomeExpenseNet"),
     "tax_expense": ("IncomeTaxExpenseBenefit",),
     "pretax_income": (
         "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
         "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments",
     ),
+    # 세전이익을 국내 · 해외로만 나눠 적는 회사 — 둘을 더해 세전이익으로 씁니다
+    "pretax_domestic": ("IncomeLossFromContinuingOperationsBeforeIncomeTaxesDomestic",),
+    "pretax_foreign": ("IncomeLossFromContinuingOperationsBeforeIncomeTaxesForeign",),
 }
 
 #: companyfacts 에서 보관할 태그 전체 (응답이 커서 추려냅니다)
@@ -135,6 +171,8 @@ TAG_LABELS: dict[str, str] = {
     "sga": "판매관리비", "rnd": "연구개발비",
     "assets": "총자산", "liabilities": "총부채",
     "dep_amort": "감가상각비", "tax_expense": "법인세비용",
+    "interest_paid": "실제 낸 이자", "interest_net": "순이자(이자수익 − 이자비용)",
+    "pretax_domestic": "세전이익(국내)", "pretax_foreign": "세전이익(해외)",
 }
 
 
@@ -146,7 +184,10 @@ def tag_label(key: str) -> str:
 FLOW_KEYS = ("net_income", "revenue", "gross_profit", "cost_of_revenue",
              "dep_amort", "capex", "operating_cash_flow",
              "operating_income", "interest_expense", "tax_expense",
-             "pretax_income")
+             "pretax_income", "interest_paid", "pretax_domestic", "pretax_foreign",
+             "interest_net")
+#: 다른 계정을 채우는 데만 쓰는 보조 계정 — 없어도 '못 찾은 계정' 에 올리지 않습니다
+AUX_KEYS = ("interest_paid", "pretax_domestic", "pretax_foreign", "interest_net")
 STOCK_KEYS = ("equity", "assets", "liabilities", "long_term_debt",
               "retained_earnings", "cash", "short_term_investments",
               "long_term_investments", "short_term_debt")
@@ -185,6 +226,11 @@ class YearRow:
     interest_expense: float | None = None
     tax_expense: float | None = None
     pretax_income: float | None = None
+    #: 보조 — 이자비용이 없을 때의 대체값 · 세전이익을 나눠 적는 회사
+    interest_paid: float | None = None
+    pretax_domestic: float | None = None
+    pretax_foreign: float | None = None
+    interest_net: float | None = None
 
     # ── 파생 지표 ────────────────────────────────────────────────────────────
     @property
@@ -328,16 +374,46 @@ class YearRow:
         냅니다. 업종 차이를 덜 타는 기준입니다.
         """
         ebit = self.operating_income
-        exp = self.interest_expense
+        exp = self.interest_cost
         if ebit is None or exp is None:
             return None
-        exp = abs(exp)
-        if exp <= 0:
-            # 이자비용이 0 이면 배수가 무한대입니다. 숫자로 적을 수 없어
-            # 따로 큰 값을 돌려주지 않고 None 으로 둡니다 — '무차입' 은
-            # 부채 기준이 이미 잡아냅니다.
-            return None
         return ebit / exp
+
+    @property
+    def interest_cost(self) -> float | None:
+        """이자보상배율의 분모 — 이자비용, 없으면 실제 낸 이자. 0 이하면 None.
+
+        이자비용이 0 이면 배수가 무한대라 숫자로 적지 않습니다 ('무차입' 은
+        no_debt_disclosed 로 따로 봅니다).
+        """
+        for v in (self.interest_expense, self.interest_paid):
+            if v is not None and abs(v) > 0:
+                return abs(v)
+        return None
+
+    @property
+    def interest_basis(self) -> str:
+        """'expense' · 'paid'(대체값) · ''(없음) — 화면에 무엇으로 셌는지 적으려고."""
+        if self.interest_expense is not None and abs(self.interest_expense) > 0:
+            return "expense"
+        if self.interest_paid is not None and abs(self.interest_paid) > 0:
+            return "paid"
+        return ""
+
+    @property
+    def no_debt_disclosed(self) -> bool:
+        """차입금 · 이자 관련 계정이 **하나도** 없거나 전부 0 인가.
+
+        장기부채 후보 17개 · 단기차입 3개 · 이자비용 7개 · 낸 이자 2개 태그를 다
+        봤는데도 없다는 뜻입니다. 미국 전수 심사에서 이 경우를 '무차입' 으로
+        봅니다 (ANET · CPRT · DECK 처럼 실제로 빚이 없는 회사가 부채 기준에서
+        '판정 불가' 가 되던 것 — 2026-11-12 조사에서 38개 회사).
+        """
+        if self.interest_net is not None and self.interest_net < 0:
+            return False                 # 순이자가 마이너스 — 어딘가 빚이 있습니다
+        return all(v is None or abs(v) == 0 for v in (
+            self.long_term_debt, self.short_term_debt,
+            self.interest_expense, self.interest_paid))
 
     @property
     def fcf_conversion(self) -> float | None:
@@ -533,6 +609,11 @@ class Check:
         return self.verdict in ("pass", "fail")
 
 
+#: 무차입으로 '추정' 했을 때 붙이는 경고 — 추정임을 숨기지 않습니다.
+NO_DEBT_WARNING = ("차입금 · 이자 관련 계정을 하나도 찾지 못해 무차입으로 추정했습니다. "
+                   "드문 계정 이름을 쓰는 회사라면 틀릴 수 있습니다 — 공시에서 확인하십시오.")
+
+
 @dataclass
 class Thresholds:
     """기준선. 전부 config 에서 바꿀 수 있습니다."""
@@ -566,6 +647,10 @@ class Screen:
     checks: list[Check] = field(default_factory=list)
     error: str = ""
     missing_tags: list[str] = field(default_factory=list)
+    #: 차입금 · 이자 계정이 하나도 없을 때 '무차입' 으로 볼지. 태그 후보를 넓게
+    #: 확인한 미국(SEC) 심사에서만 켭니다 — 국내(DART)는 계정 이름 체계가 달라
+    #: '못 읽음' 과 '없음' 을 구분할 근거가 없습니다.
+    infer_no_debt: bool = False
 
     @property
     def ok(self) -> bool:
@@ -708,7 +793,25 @@ def check_capex_light(screen: Screen, th: Thresholds) -> Check:
 def check_low_debt(screen: Screen, th: Thresholds) -> Check:
     crit = CRITERIA_BY_KEY["low_debt"]
     latest = screen.latest
-    if latest is None or latest.debt_to_equity is None:
+    if latest is None:
+        return Check(crit, "unknown", detail="장기부채 또는 자본 미공시")
+    if latest.debt_to_equity is None:
+        if (screen.infer_no_debt and latest.long_term_debt is None
+                and latest.no_debt_disclosed and latest.equity and latest.equity > 0):
+            return Check(crit, "pass", value=0.0, value_label="무차입",
+                         detail="차입금 · 이자 관련 공시가 없음 — 무차입으로 봄",
+                         warning=NO_DEBT_WARNING)
+        years = latest.debt_years
+        if (latest.long_term_debt is not None and latest.equity is not None
+                and latest.equity <= 0 and years is not None):
+            # 자본이 마이너스(자사주 매입 · 누적 적자)면 부채/자본은 못 쓰지만,
+            # '순이익 몇 년치로 갚나' 로는 판정할 수 있습니다.
+            return Check(crit, "pass" if years <= th.debt_years_max else "fail",
+                         value=years, value_label=f"{years:,.1f}년",
+                         detail=f"자본이 마이너스라 부채/자본은 못 씀 — 장기부채가 순이익 "
+                                f"{years:,.1f}년치 (기준 {th.debt_years_max:g}년 이하)",
+                         warning="자본이 마이너스입니다 (자사주 매입 또는 누적 적자). "
+                                 "부채/자본 대신 순이익 대비로만 봤습니다.")
         return Check(crit, "unknown", detail="장기부채 또는 자본 미공시")
     de = latest.debt_to_equity
     years = latest.debt_years
@@ -725,6 +828,11 @@ def check_stable_margin(screen: Screen, th: Thresholds) -> Check:
     crit = CRITERIA_BY_KEY["stable_margin"]
     series = screen.series("gross_margin")
     if len(series) < th.min_years:
+        if not series and len(screen.years) >= th.min_years:
+            # 못 읽은 것이 아니라 그 회사가 매출원가를 따로 적지 않는 경우
+            return Check(crit, "unknown",
+                         detail="매출원가를 따로 공시하지 않는 회사 (금융 · 리츠 · 일부 "
+                                "서비스업) — 이 기준은 해당 없음")
         return Check(crit, "unknown",
                      detail=f"매출총이익률 산출 가능 연도 {len(series)}개")
     values = [v for _y, v in series]
@@ -783,14 +891,21 @@ def check_interest_cover(screen: Screen, th: Thresholds) -> Check:
     latest = screen.latest
     cover = latest.interest_coverage if latest is not None else None
     if cover is None:
+        if (screen.infer_no_debt and latest is not None and latest.no_debt_disclosed
+                and latest.operating_income is not None):
+            return Check(crit, "pass", value_label="무차입",
+                         detail="차입금 · 이자 관련 공시가 없음 — 낼 이자가 없는 것으로 봄",
+                         warning=NO_DEBT_WARNING)
         return Check(crit, "unknown",
                      detail="영업이익 또는 이자비용 미공시 (무차입이면 "
                             "부채 기준에서 이미 통과합니다)")
+    paid = latest.interest_basis == "paid"
     return Check(
         crit, "pass" if cover >= th.interest_cover_min else "fail",
         value=cover, value_label=f"{cover:,.1f}배",
-        detail=f"영업이익이 이자비용의 {cover:,.1f}배 "
-               f"(기준 {th.interest_cover_min:g}배 이상)",
+        detail=(f"영업이익이 {'실제 낸 이자' if paid else '이자비용'}의 {cover:,.1f}배 "
+                f"(기준 {th.interest_cover_min:g}배 이상)"
+                + (" · 이자비용을 따로 공시하지 않아 현금흐름표의 '낸 이자' 로 계산" if paid else "")),
     )
 
 
@@ -881,6 +996,59 @@ def run_checks(screen: Screen, th: Thresholds | None = None) -> Screen:
 # companyfacts → 연도별 숫자
 # ──────────────────────────────────────────────────────────────────────────────
 
+#: 재무를 읽는 방식이 바뀔 때마다 올립니다. 전수 심사 파일에 같이 적어 두고,
+#: 숫자가 다르면 수집기가 '아직 새 파일' 이어도 다시 심사합니다.
+#:   2 (2026-11-12): 후보 태그를 연도별로 합침 · 회계연도 말만 축으로 · 낸 이자 대체 ·
+#:                   무차입 추정 · 자본 마이너스 부채 판정 · 조사에서 나온 태그 추가
+SCREEN_REV = 2
+
+#: 연간 보고서 양식 — 이 양식으로 낸 12개월 구간의 끝이 회계연도 말입니다
+ANNUAL_FORMS = ("10-K", "20-F", "40-F")
+
+
+def fiscal_year_ends(annual: list) -> set[str] | None:
+    """12개월 구간들 가운데 **회계연도 말**로 끝나는 종료일의 집합.
+
+    연간 보고서(10-K 등)로 낸 구간의 끝을 회계연도 말로 봅니다. 가장 최근
+    회계연도 말과 달력상 ±15일 안에 끝나는 구간도 받습니다 (52 · 53주 회계연도는
+    해마다 며칠씩 움직이고, 과거 연도를 8-K 로 다시 낸 경우 양식이 10-K 가
+    아닙니다). 연간 보고서 양식이 하나도 없으면 가를 근거가 없어 None(전부 허용).
+    """
+    k_ends = {f.end for f in annual
+              if str(getattr(f, "form", "") or "").upper().startswith(ANNUAL_FORMS)}
+    if not k_ends:
+        return None
+
+    def doy(end: str) -> int | None:
+        try:
+            return dt.date.fromisoformat(end).timetuple().tm_yday
+        except ValueError:
+            return None
+
+    anchor = doy(max(k_ends))
+    out = set(k_ends)
+    if anchor is not None:
+        for f in annual:
+            d = doy(f.end)
+            if d is None:
+                continue
+            gap = abs(d - anchor)
+            if min(gap, 366 - gap) <= 15:
+                out.add(f.end)
+    return out
+
+
+def _annual(facts, tags) -> list:
+    """후보 태그를 연도별로 합친 연간 값 (합치는 메서드가 없는 옛 객체면 첫 태그 하나)."""
+    fn = getattr(facts, "annual_merged", None)
+    return fn(tags) if fn else facts.annual(tags)[1]
+
+
+def _instants(facts, tags) -> list:
+    fn = getattr(facts, "instants_merged", None)
+    return fn(tags) if fn else facts.instants(tags)[1]
+
+
 def build_years(facts, *, years: int = 10,
                 today: dt.date | None = None) -> tuple[list[YearRow], list[str]]:
     """companyfacts 에서 최근 years 개 회계연도를 뽑습니다.
@@ -892,24 +1060,35 @@ def build_years(facts, *, years: int = 10,
 
     # 1) 흐름 계정의 연간 구간을 모아 연도 축을 만듭니다
     flows: dict[str, dict[str, float]] = {}
+    flow_facts: dict[str, list] = {}
     for key in FLOW_KEYS:
-        tag, annual = facts.annual(TAGS[key])
+        annual = _annual(facts, TAGS[key])
         if not annual:
-            missing.append(key)
+            if key not in AUX_KEYS:
+                missing.append(key)
             continue
         flows[key] = {f.end: f.val for f in annual}
+        flow_facts[key] = annual
 
     # 순이익 또는 매출의 연도말 날짜를 축으로 씁니다
-    axis_source = flows.get("net_income") or flows.get("revenue") or {}
+    axis_key = "net_income" if flows.get("net_income") else "revenue"
+    axis_source = flows.get(axis_key) or {}
     if not axis_source:
         return [], missing or ["net_income", "revenue"]
 
-    ends = sorted(axis_source.keys())[-years:]
+    # 12개월 길이라고 다 회계연도가 아닙니다. 분기보고서에 '최근 12개월' 을 같이
+    # 적는 회사(아마존 · 유틸리티 다수)는 3 · 6 · 9월 말로 끝나는 12개월 구간이
+    # 섞여 들어와, 최근 10개 '연도' 가 실제로는 2~3년치 분기 말이 되고 다른 계정은
+    # 그 날짜에 값이 없어 줄줄이 '판정 불가' 가 됐습니다 (2026-11-12 조사).
+    fye = fiscal_year_ends(flow_facts.get(axis_key) or [])
+    ends = sorted(e for e in axis_source if fye is None or e in fye)[-years:]
+    if not ends:
+        return [], missing or ["net_income", "revenue"]
 
     # 2) 저량 계정의 시점값 — 연도말과 가장 가까운 것 (±7일)
     stocks: dict[str, list] = {}
     for key in STOCK_KEYS:
-        tag, instants = facts.instants(TAGS[key])
+        instants = _instants(facts, TAGS[key])
         if not instants:
             missing.append(key)
             continue
@@ -946,6 +1125,14 @@ def build_years(facts, *, years: int = 10,
             value = instant_at(key, end)
             if value is not None:
                 setattr(row, key, value)
+        # 세전이익을 국내 · 해외로만 나눠 적는 회사 — 둘을 더합니다
+        if (row.pretax_income is None and row.pretax_domestic is not None
+                and row.pretax_foreign is not None):
+            row.pretax_income = row.pretax_domestic + row.pretax_foreign
+        # 영업이익을 따로 적지 않는 회사 — 세전이익으로 대신합니다 (TAGS 의
+        # operating_income 둘째 후보와 같은 대체. 이자를 뺀 뒤의 숫자라 보수적입니다)
+        if row.operating_income is None and row.pretax_income is not None:
+            row.operating_income = row.pretax_income
         rows.append(row)
 
     return rows, sorted(set(missing))
@@ -956,7 +1143,7 @@ def screen_company(ticker: str, facts, *, years: int = 10,
     """한 기업을 스크리닝합니다."""
     rows, missing = build_years(facts, years=years)
     screen = Screen(ticker=ticker, name=getattr(facts, "entity_name", "") or ticker,
-                    years=rows, missing_tags=missing)
+                    years=rows, missing_tags=missing, infer_no_debt=True)
     if not rows:
         screen.error = (
             "연간 재무 데이터를 찾지 못했습니다 "

@@ -82,6 +82,45 @@ class CompanyFacts:
         tag, facts = self.get(tags)
         return tag, [f for f in facts if f.is_instant]
 
+    # ── 후보 태그를 기간별로 합치기 ─────────────────────────────────────────
+    # get() 은 '값이 하나라도 있는 첫 태그' 하나만 돌려줍니다. 회사가 중간에
+    # 태그를 바꾸면(InterestExpense → InterestExpenseNonoperating, Revenues →
+    # RevenueFromContractWithCustomer…) 옛 태그에는 옛 연도만 남아 있어 **최근
+    # 연도가 통째로 비었습니다** — 2026-11-12 전수 심사에서 판정의 33% 가
+    # '판정 불가' 였던 가장 큰 이유입니다. 아래 둘은 기간(종료일)마다 후보를
+    # 순서대로 보고 **먼저 값이 있는 태그**를 씁니다.
+
+    def _merged(self, tags: tuple[str, ...], pick) -> list[Fact]:
+        by_end: dict[str, Fact] = {}
+        for tag in tags:                      # 앞에 있는 후보가 우선
+            for f in self.by_tag.get(tag) or ():
+                if pick(f) and f.end not in by_end:
+                    by_end[f.end] = f
+        return [by_end[k] for k in sorted(by_end)]
+
+    def annual_merged(self, tags: tuple[str, ...]) -> list[Fact]:
+        """연간 구간 — 종료일마다 후보 순서로 먼저 있는 태그의 값."""
+        return self._merged(tags, lambda f: f.is_annual)
+
+    def instants_merged(self, tags: tuple[str, ...]) -> list[Fact]:
+        """시점값 — 종료일마다 후보 순서로 먼저 있는 태그의 값."""
+        return self._merged(tags, lambda f: f.is_instant)
+
+
+def merge_facts(primary: CompanyFacts | None, older: CompanyFacts | None) -> CompanyFacts | None:
+    """같은 회사의 두 등록번호(CIK)에 나뉜 재무를 하나로 — 지주사 전환 · 본사 이전으로
+    등록번호가 바뀐 회사는 새 번호에 최근 분기만, 옛 번호에 지난 10년이 있습니다.
+
+    같은 기간이 양쪽에 있으면 제출일이 늦은 쪽을 씁니다 (dedupe 와 같은 규칙).
+    """
+    if primary is None or older is None:
+        return primary or older
+    by_tag = {tag: list(rows) for tag, rows in older.by_tag.items()}
+    for tag, rows in primary.by_tag.items():
+        by_tag[tag] = dedupe(by_tag.get(tag, []) + list(rows))
+    return CompanyFacts(cik=primary.cik, entity_name=primary.entity_name or older.entity_name,
+                        by_tag=by_tag, total_tags=max(primary.total_tags, older.total_tags))
+
 
 def _throttle() -> None:
     """요청 **시작 시점**을 MIN_INTERVAL 간격으로 벌립니다.

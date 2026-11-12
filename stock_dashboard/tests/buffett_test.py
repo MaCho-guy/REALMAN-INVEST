@@ -646,6 +646,139 @@ for _k in ("operating_income", "interest_expense", "tax_expense",
           "없으면 국내 종목만 판정 불가가 늘어 불리해집니다")
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+print("\n=== 판정 불가 줄이기 (2026-11-12 전 종목 조사) ===")
+from sources.edgar_xbrl import Fact as _Fact
+from sources.edgar_facts import CompanyFacts as _CF
+
+
+def _fa(tag, year, val, *, form="10-K", start=None, end=None):
+    return _Fact(start=start or f"{year}-01-01", end=end or f"{year}-12-31", val=float(val),
+                 form=form, fy=year, fp="FY", filed=f"{year + 1}-02-01", accn="a", tag=tag)
+
+
+def _fi(tag, year, val, end=None):
+    return _Fact(start=None, end=end or f"{year}-12-31", val=float(val), form="10-K",
+                 fy=year, fp="FY", filed=f"{year + 1}-02-01", accn="a", tag=tag)
+
+
+def _company(extra=None, drop=()):
+    yrs = range(2016, 2026)
+    by = {
+        "NetIncomeLoss": [_fa("NetIncomeLoss", y, 200) for y in yrs],
+        "Revenues": [_fa("Revenues", y, 1000) for y in yrs],
+        "GrossProfit": [_fa("GrossProfit", y, 600) for y in yrs],
+        "DepreciationDepletionAndAmortization": [_fa("DepreciationDepletionAndAmortization", y, 100) for y in yrs],
+        "PaymentsToAcquirePropertyPlantAndEquipment": [_fa("PaymentsToAcquirePropertyPlantAndEquipment", y, 60) for y in yrs],
+        "NetCashProvidedByUsedInOperatingActivities": [_fa("NetCashProvidedByUsedInOperatingActivities", y, 315) for y in yrs],
+        "OperatingIncomeLoss": [_fa("OperatingIncomeLoss", y, 260) for y in yrs],
+        "IncomeTaxExpenseBenefit": [_fa("IncomeTaxExpenseBenefit", y, 55) for y in yrs],
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest":
+            [_fa("IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest", y, 251) for y in yrs],
+        "StockholdersEquity": [_fi("StockholdersEquity", y, 800) for y in yrs],
+        "LongTermDebtNoncurrent": [_fi("LongTermDebtNoncurrent", y, 200) for y in yrs],
+        "InterestExpense": [_fa("InterestExpense", y, 9) for y in yrs],
+        "CashAndCashEquivalentsAtCarryingValue": [_fi("CashAndCashEquivalentsAtCarryingValue", y, 280) for y in yrs],
+    }
+    for k in drop:
+        by.pop(k)
+    by.update(extra or {})
+    return _CF(cik=1, entity_name="T", by_tag=by, total_tags=len(by))
+
+
+def _verdict(screen, key):
+    return next(c for c in screen.checks if c.criterion.key == key)
+
+
+base_screen = buffett.screen_company("T", _company())
+check("바탕 픽스처는 전부 통과", base_screen.passed_count == len(buffett.CRITERIA),
+      base_screen.score_label)
+
+# 1) 회사가 중간에 태그를 바꾼 경우 — 옛 태그에는 옛 연도만 있다
+switched = _company(extra={
+    "InterestExpense": [_fa("InterestExpense", y, 9) for y in range(2016, 2022)],
+    "InterestExpenseNonoperating": [_fa("InterestExpenseNonoperating", y, 9) for y in range(2022, 2026)]})
+sw = buffett.screen_company("T", switched)
+check("태그를 바꾼 회사 — 최근 연도 이자비용을 읽는다 (전에는 판정 불가)",
+      sw.latest.interest_expense == 9 and _verdict(sw, "interest_cover").verdict == "pass",
+      _verdict(sw, "interest_cover").detail)
+check("합칠 때 앞 후보가 우선 — 같은 해에 둘 다 있으면 첫 태그",
+      [f.val for f in _company(extra={
+          "InterestExpenseNonoperating": [_fa("InterestExpenseNonoperating", 2025, 99)]})
+       .annual_merged(buffett.TAGS["interest_expense"])][-1] == 9)
+
+# 2) '최근 12개월' 구간이 섞인 회사 (아마존 · 유틸리티)
+ttm = _company(extra={"NetIncomeLoss": [_fa("NetIncomeLoss", y, 200) for y in range(2016, 2026)] + [
+    _fa("NetIncomeLoss", 2025, 210, form="10-Q", start=f"{y}-{m}", end=e)
+    for y, m, e in (("2024", "04-01", "2025-03-31"), ("2024", "07-01", "2025-06-30"),
+                    ("2024", "10-01", "2025-09-30"), ("2025", "04-01", "2026-03-31"),
+                    ("2025", "07-01", "2026-06-30"), ("2025", "10-01", "2026-09-30"))]})
+tt = buffett.screen_company("T", ttm)
+check("회계연도 말만 연도 축으로 — 12개월짜리 분기 말 구간은 뺀다",
+      [r.end for r in tt.years] == [f"{y}-12-31" for y in range(2016, 2026)]
+      and tt.passed_count == len(buffett.CRITERIA), str([r.end for r in tt.years][-4:]))
+w53 = [_fa("NetIncomeLoss", y, 1, end=e) for y, e in ((2023, "2023-12-30"), (2024, "2024-12-28"))]
+w53.append(_fa("NetIncomeLoss", 2025, 1, form="8-K", end="2026-01-03"))
+check("52 · 53주 회계연도 · 8-K 로 다시 낸 연도도 받는다",
+      buffett.fiscal_year_ends(w53) == {"2023-12-30", "2024-12-28", "2026-01-03"})
+check("연간 보고서 양식이 없으면 가르지 않는다 (None)",
+      buffett.fiscal_year_ends([_fa("NetIncomeLoss", 2025, 1, form="")]) is None)
+
+# 3) 이자비용을 따로 안 적는 회사 — 현금흐름표의 '낸 이자'
+paid = buffett.screen_company("T", _company(
+    drop=("InterestExpense",),
+    extra={"InterestPaidNet": [_fa("InterestPaidNet", y, 10) for y in range(2016, 2026)]}))
+c_paid = _verdict(paid, "interest_cover")
+check("낸 이자로 대신 계산하고 그렇게 적는다",
+      c_paid.verdict == "pass" and "낸 이자" in c_paid.detail and near(c_paid.value, 26.0),
+      c_paid.detail)
+
+# 4) 빚이 없는 회사 — 부채 · 이자 계정이 아예 없다
+nodebt_facts = _company(drop=("InterestExpense", "LongTermDebtNoncurrent"))
+nd = buffett.screen_company("T", nodebt_facts)
+check("무차입 — 부채 · 이자보상 기준을 통과로 보되 추정이라고 경고",
+      _verdict(nd, "low_debt").verdict == "pass" and _verdict(nd, "interest_cover").verdict == "pass"
+      and "추정" in _verdict(nd, "low_debt").warning and _verdict(nd, "low_debt").value_label == "무차입")
+neg = buffett.screen_company("T", _company(
+    drop=("InterestExpense", "LongTermDebtNoncurrent"),
+    extra={"InterestIncomeExpenseNet": [_fa("InterestIncomeExpenseNet", y, -30) for y in range(2016, 2026)]}))
+check("순이자가 마이너스면 무차입으로 보지 않는다 (판정 불가 유지)",
+      _verdict(neg, "low_debt").verdict == "unknown" and _verdict(neg, "interest_cover").verdict == "unknown")
+kr_like = buffett.Screen(ticker="K", years=nd.years)
+buffett.run_checks(kr_like)
+check("무차입 추정은 미국(SEC) 심사에서만 — 다른 경로는 판정 불가 그대로",
+      _verdict(kr_like, "low_debt").verdict == "unknown")
+
+# 5) 자본이 마이너스인 회사 (자사주 매입)
+negeq = buffett.screen_company("T", _company(extra={
+    "StockholdersEquity": [_fi("StockholdersEquity", y, -100) for y in range(2016, 2026)]}))
+c_neg = _verdict(negeq, "low_debt")
+check("자본이 마이너스 — 순이익 몇 년치로 판정 (전에는 판정 불가)",
+      c_neg.verdict == "pass" and "마이너스" in c_neg.detail and near(c_neg.value, 1.0), c_neg.detail)
+heavy = buffett.screen_company("T", _company(extra={
+    "StockholdersEquity": [_fi("StockholdersEquity", y, -100) for y in range(2016, 2026)],
+    "LongTermDebtNoncurrent": [_fi("LongTermDebtNoncurrent", y, 2000) for y in range(2016, 2026)]}))
+check("자본이 마이너스이고 빚이 순이익 10년치면 미달", _verdict(heavy, "low_debt").verdict == "fail")
+
+# 6) 세전이익을 국내 · 해외로만 적는 회사 / 매출원가가 없는 회사
+split = buffett.screen_company("T", _company(
+    drop=("IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",),
+    extra={"IncomeLossFromContinuingOperationsBeforeIncomeTaxesDomestic":
+               [_fa("IncomeLossFromContinuingOperationsBeforeIncomeTaxesDomestic", y, 151) for y in range(2016, 2026)],
+           "IncomeLossFromContinuingOperationsBeforeIncomeTaxesForeign":
+               [_fa("IncomeLossFromContinuingOperationsBeforeIncomeTaxesForeign", y, 100) for y in range(2016, 2026)]}))
+check("세전이익 = 국내 + 해외", split.latest.pretax_income == 251
+      and "pretax_domestic" not in split.missing_tags and _verdict(split, "roic").verdict == "pass")
+bank = buffett.screen_company("T", _company(drop=("GrossProfit",)))
+check("매출원가를 안 적는 회사 — '해당 없음' 이라고 적는다 (통과로 세지 않음)",
+      _verdict(bank, "stable_margin").verdict == "unknown"
+      and "해당 없음" in _verdict(bank, "stable_margin").detail)
+check("조사에서 나온 태그가 후보에 있다",
+      "InterestExpenseNonoperating" in buffett.TAGS["interest_expense"]
+      and "RevenuesNetOfInterestExpense" in buffett.TAGS["revenue"]
+      and "InterestPaidNet" in buffett.KEEP_TAGS
+      and "LongTermDebtAndCapitalLeaseObligationsIncludingCurrentMaturities" in buffett.TAGS["long_term_debt"])
+
 print("\n" + "=" * 56)
 if FAILURES:
     print(f"실패 {len(FAILURES)}건: {', '.join(FAILURES)}")

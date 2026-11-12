@@ -418,7 +418,7 @@ check("수집기가 전수 심사를 돈다 (실패해도 스냅샷은 올라감
 check("워크플로 — 지난 전수 심사 파일을 꺼내 둔다",
       "universe_us.json universe_kr.json" in wf and 'git show "FETCH_HEAD:$f"' in wf
       and wf.index('git show "FETCH_HEAD:$f"') < wf.index("tools/collect.py --out"))
-check("워크플로 — 시간 한도를 늘림", "timeout-minutes: 45" in wf)
+check("워크플로 — 시간 한도를 늘림 (주 1회 한국 심사 33분)", "timeout-minutes: 70" in wf)
 
 print("\n=== 화면 — 전수 심사 결과로 그린다 ===")
 _names = ("_discover_us", "_discover_kr", "_universe_or_none", "_universe_line",

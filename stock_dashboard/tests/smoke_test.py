@@ -701,7 +701,8 @@ print("\n=== 요약 — 발굴은 일부러 뺐습니다 ===")
 check_true("발굴은 항상 조용함", _s2.rows[3].level == "quiet")
 check_true("책상 작업이라고 적음", "책상" in _s2.rows[3].headline,
            _s2.rows[3].headline)
-check_true("이유를 설명", "휴대폰" in _s2.rows[3].detail,
+# 2026-11-12: 후보가 지수 구성 종목 전수로 바뀌어 '미리 심사해 둔 결과' 라고 적습니다
+check_true("이유를 설명", "미리 심사" in _s2.rows[3].detail,
            _s2.rows[3].detail[:40])
 
 print("\n=== 요약 렌더링 ===")

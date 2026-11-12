@@ -238,10 +238,12 @@ def build(*, urgent=None, soon=None, holdings_total: int = 0,
     second = (row_sector(sector_rows) if market == "kr"
               else row_sentiment(fg, vix_state))
     discover_note = (
-        "국내 50종목 변동성 수축·신고가·전통 밸류 스크리닝. 일봉 1년치를 "
-        "받아와야 해서 휴대폰에서는 느립니다." if market == "kr" else
-        "미국 68종목 버핏식 품질 스크리닝과 역DCF 는 10년 재무를 받아와야 "
-        "해서 휴대폰에서는 느립니다.")
+        # 2026-11-12: 후보가 손으로 고른 목록에서 지수 구성 종목 전수로 바뀌었고,
+        # 심사는 아침 수집기가 미리 합니다 (universe.py) — 화면에서 기다리지 않습니다.
+        "국내 대형주 약 350종목(코스피 + 코스닥)을 여섯 스크리너로 거릅니다. "
+        "아침 · 장 마감 뒤에 미리 심사해 둔 결과입니다." if market == "kr" else
+        "미국 S&P 500 등 약 500종목을 버핏식 품질 기준으로 거릅니다. 하루 한 번 "
+        "미리 심사해 둔 결과입니다.")
     return Summary(rows=[
         row_holdings(urgent or [], soon or [], holdings_total),
         second,

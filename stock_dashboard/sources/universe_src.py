@@ -17,7 +17,16 @@ import universe
 from . import naver
 
 SP500_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-NDX_URL = "https://en.wikipedia.org/wiki/Nasdaq-100"
+#: 나스닥100 구성 종목 표는 2026-11 현재 지수 문서가 아니라 **목록 문서**에 있습니다
+#: (지수 문서에는 표가 없습니다 — 2026-11-12 진단으로 확인). 옮겨질 때를 대비해
+#: 둘 다 차례로 봅니다.
+NDX_URLS = ("https://en.wikipedia.org/wiki/List_of_NASDAQ-100_companies",
+            "https://en.wikipedia.org/wiki/Nasdaq-100")
+#: 나스닥100 표의 업종은 ICB 분류라 이름이 조금 다릅니다 — S&P 500 의 GICS 이름으로 맞춥니다
+#: (업종 필터에 '정보기술' 이 두 번 나오지 않게). 분류 체계가 달라 완전히 같지는 않습니다.
+ICB_TO_GICS = {"Technology": "Information Technology",
+               "Telecommunications": "Communication Services",
+               "Basic Materials": "Materials"}
 INDEX_URL = "https://m.stock.naver.com/api/index/{code}/enrollStocks?page={page}&pageSize={size}"
 CAP_URL = "https://m.stock.naver.com/api/stocks/marketValue/{market}?page={page}&pageSize={size}"
 PAGE_SIZE = 100
@@ -61,13 +70,19 @@ def fetch_us_members(get=None) -> tuple[list[dict], dict]:
         m["index"] = True
     rules = {"S&P 500 구성 종목": {"n": len(sp), "how": "index"}}
     have = {m["ticker"] for m in sp}
-    try:
-        ndx = fetch_index_table(NDX_URL, universe.MIN_NDX, "나스닥100", get)
-    except Exception as exc:  # noqa: BLE001
-        rules["나스닥100 (목록을 못 받아 제외)"] = {
-            "n": 0, "how": f"실패: {type(exc).__name__}: {str(exc)[:90]}"}
+    ndx: list[dict] = []
+    why = ""
+    for url in NDX_URLS:
+        try:
+            ndx = fetch_index_table(url, universe.MIN_NDX, "나스닥100", get)
+            break
+        except Exception as exc:  # noqa: BLE001
+            why = f"{type(exc).__name__}: {str(exc)[:90]}"
+    if not ndx:
+        rules["나스닥100 (목록을 못 받아 제외)"] = {"n": 0, "how": f"실패: {why}"}
         return sp, rules
-    added = [dict(m, index=True) for m in ndx if m["ticker"] not in have]
+    added = [dict(m, index=True, sector=ICB_TO_GICS.get(m.get("sector", ""), m.get("sector", "")))
+             for m in ndx if m["ticker"] not in have]
     rules["나스닥100 에만 있는 종목"] = {"n": len(added), "how": "index",
                                   "total": len(ndx)}
     return sp + added, rules

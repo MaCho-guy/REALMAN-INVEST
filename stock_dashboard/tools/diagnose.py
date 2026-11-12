@@ -1164,7 +1164,8 @@ def diagnose_universe_sources() -> None:
 
     try:
         import universe as _un
-        r = _rq.get("https://en.wikipedia.org/wiki/Nasdaq-100", headers=ua, timeout=15)
+        r = _rq.get("https://en.wikipedia.org/wiki/List_of_NASDAQ-100_companies",
+                    headers=ua, timeout=15)
         got = _un.parse_index_table(r.text)
         print(f"\n나스닥100: HTTP {r.status_code} · {len(r.text):,}자 · id=constituents "
               f"{'있음' if 'id=\"constituents\"' in r.text else '없음'} · 읽은 종목 {len(got)}")

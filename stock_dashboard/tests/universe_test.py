@@ -112,8 +112,14 @@ def us_get(ndx_ok=True, sp_n=500):
             return Resp(big_table(sp_n))
         if not ndx_ok:
             return Resp("", status=500)
-        return Resp('<table id="constituents"><tr><th>Ticker</th><th>Company</th></tr>'
-                    + "".join(f"<tr><td>{t}</td><td>n</td></tr>"
+        if url.endswith("/Nasdaq-100"):
+            # 지수 문서에는 구성 종목 표가 없다 (2026-11-12 실제) — 연도별 표뿐
+            return Resp('<table class="wikitable"><tr><th>Year</th><th>Closing level</th></tr>'
+                        "<tr><td>2025</td><td>1</td></tr></table>")
+        # 목록 문서 — 실제 칸 순서: Ticker · Company · ISIN · ICB Industry · ICB Subsector
+        return Resp('<table class="wikitable sortable"><tr><th>Ticker</th><th>Company</th>'
+                    "<th>ISIN</th><th>ICB Industry</th><th>ICB Subsector</th></tr>"
+                    + "".join(f"<tr><td>{t}</td><td>n</td><td>US0</td><td>Technology</td><td>x</td></tr>"
                               for t in [f"T{i}" for i in range(90)] + ["NQ1", "NQ2"]) + "</table>")
     return get
 
@@ -122,6 +128,9 @@ members, rules = universe_src.fetch_us_members(us_get())
 check("S&P 500 + 나스닥100 에만 있는 종목", len(members) == 502
       and rules["S&P 500 구성 종목"]["n"] == 500
       and rules["나스닥100 에만 있는 종목"]["n"] == 2 and all(m["index"] for m in members))
+check("나스닥100 은 목록 문서에서 읽고, 업종 이름을 S&P 500 쪽에 맞춘다",
+      [m["sector"] for m in members if m["ticker"] in ("NQ1", "NQ2")] == ["Information Technology"] * 2
+      and universe_src.NDX_URLS[0].endswith("List_of_NASDAQ-100_companies"))
 members, rules = universe_src.fetch_us_members(us_get(ndx_ok=False))
 check("나스닥100 을 못 받으면 빼고 가되 그렇게 적는다", len(members) == 500
       and any("못 받아 제외" in k for k in rules))
@@ -480,9 +489,10 @@ def run(market, payload, **kw):
         c = list(config.screen_kr_candidates())
         return demo_mod.demo_kr_vol_profiles(c)
 
+    import html as _h
     ns = {"st": st, "ui": ui, "config": config, "buffett": buffett, "kr_screen": kr_screen,
           "universe": universe, "dt": dt, "KST": ZoneInfo("Asia/Seoul"),
-          "_esc_plain": lambda t: str(t).replace("<", "&lt;"),
+          "_esc_plain": lambda t: _h.escape(str(t), quote=True),
           "load_universe": load_universe, "_soft_main": soft_main, "load_screens": None,
           "load_kr_vol_profiles": kr_vol,
           "load_kr_value_rows": lambda use_demo: demo_mod.demo_kr_value_rows(
@@ -500,6 +510,7 @@ st_, html, calls = run("us", us_payload())
 check("파일이 있으면 그 결과로 — 직접 받지 않는다", calls["fallback"] == 0 and "dash-sctable" in html)
 check("후보를 어떻게 정했는지 화면에 (꺼도 보이는 줄)",
       'class="dash-legend"' in html and "S&amp;P 500 구성 종목 120 + 나스닥100 에만 있는 종목 1 + 관심종목 1 = 122종목" in html
+      and "&amp;amp;" not in html
       and "심사 " in html and "위키백과" in html, "")
 check("단계별로 남은 종목 — 후보 → 재무 받음 → 통과", "단계별로 남은 종목" in html
       and ">122<" in html and ">120<" in html and "빠진 종목 2개" in html)

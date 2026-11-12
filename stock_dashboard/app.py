@@ -1617,7 +1617,8 @@ def _universe_line(market: str, payload: dict) -> str:
     when = (dt.datetime.fromtimestamp(made, KST).strftime("%m/%d %H:%M") if made else "?")
     src = ("위키백과의 지수 구성 종목 표 · 재무는 SEC EDGAR" if market == "us"
            else "네이버 증권의 지수 구성 종목 · 시가총액 순위")
-    return (f"<b>후보</b> — {_esc_plain(universe.rule_text(market, payload))} "
+    # render_legend 가 글자를 한 번 바꿔 줍니다 — 여기서 또 바꾸면 'S&amp;P' 로 보입니다
+    return (f"<b>후보</b> — {universe.rule_text(market, payload)} "
             f"· 심사 {when} · 목록 출처: {src}")
 
 
@@ -1644,7 +1645,7 @@ def _discover_us(use_demo: bool) -> None:
     st.markdown(
         ui.render_section_head(
             "종목 발굴 · 미국",
-            (f"S&P 500 + 나스닥100 전수 심사 → 버핏식 품질 기준 {len(buffett.CRITERIA)}개"
+            (f"지수 구성 종목 전수 심사 → 버핏식 품질 기준 {len(buffett.CRITERIA)}개"
              if from_file else
              f"버핏식 품질 기준 {len(buffett.CRITERIA)}개 — 읽을 목록을 줄입니다")),
         unsafe_allow_html=True,
@@ -1774,7 +1775,7 @@ def _discover_kr(use_demo: bool) -> None:
     st.markdown(
         ui.render_section_head(
             "종목 발굴 · 한국",
-            ("코스피200 + 코스닥150 전수 심사 → 여섯 스크리너" if from_file else
+            ("대형주 350종목 전수 심사 → 여섯 스크리너" if from_file else
              "변동성 × 신고가 × 전통 밸류 — 국내는 재무만으로 안 걸러집니다")),
         unsafe_allow_html=True,
     )

@@ -508,6 +508,75 @@ check("탭 이름 · 디스패치 · 미리 받기 · 받은 시각 이름표",
 check("화면이 전문을 싣지 않는다고 적는다", "전문은 증권사의 저작물이라 싣지 않고" in src)
 check("목표주가의 평균을 내지 않는다고 적는다", "평균을 내어 하나의 숫자로 만들지 않습니다" in src)
 
+print("\n=== 새로 받기가 실패해도 좋은 값을 덮지 않는다 (2026-11-12 시장 공시) ===")
+import time as _time  # noqa: E402
+
+mode = {"v": "good", "n": 0}
+
+
+def _filings():
+    mode["n"] += 1
+    if mode["v"] == "good":
+        return ([{"corp": "삼성전자"}, {"corp": "SK하이닉스"}], "")
+    return ([], "DartError: DART 요청 실패 (list.json): 연결 시간 초과")
+
+
+filings_fn = swr.cached(0.05, stale=30, disk=False)(_filings)
+check("처음에는 받은 값", filings_fn()[1] == "")
+got_at = filings_fn.age()
+mode["v"] = "timeout"
+_time.sleep(0.08)
+filings_fn()                                   # 묵은 값을 주고 뒤에서 새로 받음 → 실패
+_dl = _time.time() + 2
+while swr.busy() and _time.time() < _dl:
+    _time.sleep(0.01)
+val = filings_fn()
+check("뒤에서 받기가 실패해도 직전 값이 남는다", val[1] == "" and len(val[0]) == 2, str(val))
+check("받은 시각은 바뀌지 않는다 (실패한 시도를 '받았다' 고 적지 않음)",
+      filings_fn.age() >= 0.08, f"{filings_fn.age():.2f}초")
+entry = swr._store[filings_fn.key((), {})]
+check("왜 유지했는지 적어 둔다", "직전 값을 유지" in entry.error and "연결 시간 초과" in entry.error, entry.error)
+n_before = mode["n"]
+filings_fn(), filings_fn()
+_time.sleep(0.05)
+check("실패한 뒤에는 쉬었다가 다시 받는다 (부를 때마다 두드리지 않음)", mode["n"] == n_before, f"{mode['n']} vs {n_before}")
+
+first_fail = swr.cached(600, stale=3_600, disk=False)(lambda: ([], "요청 실패"))
+first_fail.name = "t_first_fail"
+first_fail()
+e2 = swr._store[first_fail.key((), {})]
+check("처음부터 실패한 값은 받아 두되 금방 다시 받는다 (ttl 10분 → 2분 30초)",
+      e2.failed and first_fail._ttl_of(e2) == 150.0, f"{e2.failed} · {first_fail._ttl_of(e2)}")
+ok_val = swr.cached(600, disk=False)(lambda: {"a": [1, 2]})
+ok_val.name = "t_ok_val"
+ok_val()
+check("멀쩡한 값은 원래 ttl", not swr._store[ok_val.key((), {})].failed)
+plain = swr.cached(600, disk=False)(lambda: "글자 하나")
+plain.name = "t_plain"
+plain()
+check("글자·숫자 하나짜리 값은 실패로 보지 않는다", not swr._store[plain.key((), {})].failed)
+
+mode2 = {"v": "good"}
+old_keep = swr.KEEP_GOOD_MAX
+aged = swr.cached(0.05, stale=30, disk=False)(lambda: ({"a": [1]}, "") if mode2["v"] == "good" else ({}, "실패"))
+aged.name = "t_aged"
+aged()
+mode2["v"] = "bad"
+swr.KEEP_GOOD_MAX = 0.01                       # 직전 값이 너무 오래된 경우
+_time.sleep(0.08)
+aged()
+_dl = _time.time() + 2
+while swr.busy() and _time.time() < _dl:
+    _time.sleep(0.01)
+check("직전 값이 너무 오래됐으면 그만 붙들고 실패를 보여준다", aged()[1] == "실패", str(aged()))
+swr.KEEP_GOOD_MAX = old_keep
+
+import health as _health  # noqa: E402
+
+sys.path.insert(0, "tools")
+check("수집기와 저장소가 같은 규칙을 쓴다",
+      __import__("collect").looks_failed is _health.looks_failed)
+
 print("\n=== 분석 실행 안내 ===")
 check("화면 3분의 1 을 차지하던 노란 경고가 없다", "분석 실행 불가" not in src)
 check("한 줄 안내 + 접어 둔 설치 방법",

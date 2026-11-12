@@ -81,6 +81,33 @@ RETRY_AFTER = 60.0
 BACKGROUND_WORKERS = 8
 
 
+#: keep 을 정하지 않은 받기에 공통 규칙(실패가 좋은 값을 덮지 않음)을 쓸지.
+AUTO_KEEP = True
+#: 직전 값을 이 나이까지만 붙듭니다. 넘으면 실패를 그대로 보여줍니다.
+KEEP_GOOD_MAX = 2 * 86_400.0
+#: 실패 모양의 값은 이 시간만 '새것' 으로 칩니다 (그 뒤엔 다시 받음).
+FAILED_TTL = 120.0
+
+
+def _looks_failed(value) -> bool:
+    # 글자·숫자 하나짜리 값은 모양으로 판단할 수 없습니다 — 실패로 보지 않습니다
+    if value is None or isinstance(value, (str, bytes, int, float, bool)):
+        return False
+    try:
+        import health  # noqa: PLC0415
+        return bool(health.looks_failed(value))
+    except Exception:  # noqa: BLE001 - 판단을 못 하면 실패로 보지 않습니다
+        return False
+
+
+def _first_error(value) -> str:
+    try:
+        import health  # noqa: PLC0415
+        return str(health.first_error(value) or "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def _scrub(text: str) -> str:
     """오류 문구에서 인증키를 지웁니다 (sources.safe 가 없으면 그대로)."""
     try:
@@ -97,6 +124,7 @@ class _Entry:
     ok: bool = False              # 값이 있는가
     refreshing: bool = False
     error: str = ""               # 마지막 새로 받기 실패
+    failed: bool = False          # 지금 든 값이 실패 모양인가 (금방 다시 받음)
     retry_at: float = 0.0         # 실패 뒤 이 시각 전에는 다시 안 받음
     lock: threading.Lock = field(default_factory=threading.Lock)
     #: 뒤에서 받기가 끝나면 켜집니다 (wait_fresh 가 이걸 기다립니다)
@@ -365,6 +393,13 @@ class Cached:
         except Exception:  # noqa: BLE001
             return 3_600.0
 
+    def _ttl_of(self, e: "_Entry", args: tuple = ()) -> float:
+        """이 항목에 적용할 ttl — 실패 모양의 값이면 짧게."""
+        ttl = self.ttl_for(args)
+        if getattr(e, "failed", False):
+            return min(ttl, max(FAILED_TTL, ttl * 0.25))
+        return ttl
+
     # ── 키 ────────────────────────────────────────────────────────────────
     def key(self, args: tuple, kwargs: dict) -> str:
         return f"{self._prefix()}{args!r}|{sorted(kwargs.items())!r}"
@@ -392,16 +427,36 @@ class Cached:
                     return
             except Exception:  # noqa: BLE001
                 pass
+        # keep 을 따로 정하지 않은 받기에는 **공통 규칙**을 씁니다: 새로 받은
+        # 값이 실패 모양이고 직전 값은 멀쩡하면, 직전 값을 그대로 둡니다.
+        # 받은 시각(e.at)은 건드리지 않습니다 — 화면의 '받은 시각' 이 거짓말을
+        # 하면 안 됩니다. 다시 받는 간격은 retry_at 이 맡습니다.
+        # 직전 값이 KEEP_GOOD_MAX 보다 오래됐으면 그만 붙들고 실패를 보여줍니다.
+        failed = False
+        if self.keep is None and AUTO_KEEP:
+            failed = _looks_failed(value)
+            if (failed and e.ok and time.time() - e.at < KEEP_GOOD_MAX
+                    and not _looks_failed(e.value)):
+                e.error = _scrub("새로 받기 실패 — 직전 값을 유지: "
+                                 + (_first_error(value) or "받은 것이 비어 있음"))[:300]
+                e.retry_at = time.time() + self._backoff(args)
+                return
         e.value, e.at, e.ok, e.error = value, time.time(), True, ""
-        if self.disk:
+        # 실패 모양의 값은 받아 두되 **금방 다시** 받습니다 (ttl 을 다 채우지 않음)
+        e.failed = failed
+        if self.disk and not failed:
             _disk_save(key, e.at, value)
+
+    def _backoff(self, args: tuple = ()) -> float:
+        """실패한 뒤 다시 받기까지 쉬는 시간 — ttl 의 4분의 1, 1~15분 사이."""
+        return max(RETRY_AFTER, min(self.ttl_for(args) * 0.25, 900.0))
 
     def _window(self) -> float:
         """이 나이까지는 저장된 값을 (묵었어도) 바로 줍니다."""
         return max(self.stale, HARD_STALE)
 
     def _background(self, key: str, args, kwargs, e: _Entry) -> None:
-        ttl = self.ttl_for(args)
+        ttl = self._ttl_of(e, args)
 
         def run():
             try:
@@ -410,7 +465,7 @@ class Cached:
                         before = e.at
                         self._fetch(key, args, kwargs, e)
                         if e.at == before:                 # 못 받았음 — 잠시 쉼
-                            e.retry_at = time.time() + RETRY_AFTER
+                            e.retry_at = max(e.retry_at, time.time() + RETRY_AFTER)
             except Exception:  # noqa: BLE001
                 e.retry_at = time.time() + RETRY_AFTER
             finally:
@@ -435,7 +490,7 @@ class Cached:
                 with e.lock:
                     if not e.ok:
                         e.value, e.at, e.ok = got[0], got[1], True
-        ttl = self.ttl_for(args)
+        ttl = self._ttl_of(e, args)
         if e.ok:
             age = time.time() - e.at
             if age < ttl:
@@ -482,7 +537,7 @@ class Cached:
                         e.value, e.at, e.ok = got[0], got[1], True
         if e.ok and time.time() - e.at < window:
             age = time.time() - e.at
-            if age >= self.ttl_for(args):
+            if age >= self._ttl_of(e, args):
                 if not e.refreshing and time.time() >= e.retry_at:
                     self._background(key, args, kwargs, e)
                 _note_stale(self.name, age)

@@ -1132,6 +1132,120 @@ def diagnose_research_detail() -> None:
                     print(f"    {key}: {show(val, 160)!r}")
 
 
+def ichimoku_trace(dates, highs, lows, closes, offsets=(25, 26)) -> list[str]:
+    """일목 구름 계산을 줄글로 풉니다 — HTS 와 한 칸씩 맞춰 볼 수 있게.
+
+    dates/highs/lows/closes: 오래된 것부터. 돌려주는 것은 찍을 줄들.
+    '오늘 자리 구름' 은 offset 봉 전에 계산한 값입니다. 그 봉의 날짜와, 9·26·52봉
+    구간의 최고가·최저가(와 그 날짜)를 적습니다.
+    """
+    n = len(closes)
+    lines: list[str] = []
+
+    def window(end: int, size: int):
+        lo = end - size + 1
+        if lo < 0 or end >= n:
+            return None
+        hh = max(range(lo, end + 1), key=lambda i: highs[i])
+        ll = min(range(lo, end + 1), key=lambda i: lows[i])
+        return hh, ll, (highs[hh] + lows[ll]) / 2.0
+
+    def at(src: int):
+        t, k, b = window(src, 9), window(src, 26), window(src, 52)
+        if not (t and k and b):
+            return None
+        return t, k, b, (t[2] + k[2]) / 2.0, b[2]
+
+    def name(a: float, b: float) -> str:
+        return "양운" if a > b else ("음운" if a < b else "같음")
+
+    lines.append(f"  봉 {n}개 · 마지막 봉 {dates[-1]} 고 {highs[-1]:,.0f} 저 {lows[-1]:,.0f} "
+                 f"종 {closes[-1]:,.0f}")
+    for off in offsets:
+        src = n - 1 - off
+        got = at(src)
+        lines.append(f"  ── 오늘 자리 구름 (이동 {off}봉 → {dates[src] if src >= 0 else '?'} 봉에서 계산)")
+        if not got:
+            lines.append("     봉이 모자랍니다")
+            continue
+        t, k, b, sa, sb = got
+        for label, w in (("전환선  9봉", t), ("기준선 26봉", k), ("선행2  52봉", b)):
+            lines.append(f"     {label}: 최고 {highs[w[0]]:,.0f} ({dates[w[0]]}) · "
+                         f"최저 {lows[w[1]]:,.0f} ({dates[w[1]]}) → 중간 {w[2]:,.0f}")
+        lines.append(f"     선행스팬1 {sa:,.0f} · 선행스팬2 {sb:,.0f} → {name(sa, sb)}")
+    got = at(n - 1)
+    if got:
+        t, k, b, sa, sb = got
+        lines.append(f"  ── 앞 구름 끝 (오늘 {dates[-1]} 봉으로 계산)")
+        for label, w in (("전환선  9봉", t), ("기준선 26봉", k), ("선행2  52봉", b)):
+            lines.append(f"     {label}: 최고 {highs[w[0]]:,.0f} ({dates[w[0]]}) · "
+                         f"최저 {lows[w[1]]:,.0f} ({dates[w[1]]}) → 중간 {w[2]:,.0f}")
+        lines.append(f"     선행스팬1 {sa:,.0f} · 선행스팬2 {sb:,.0f} → {name(sa, sb)}")
+    # 계산한 날짜별 구름 색 — 어디서 바뀌는지 (최근 60봉)
+    lines.append("  ── 계산한 봉별 구름 (그 봉에서 계산한 값은 25~26봉 뒤 자리에 그려집니다)")
+    prev, run_start = None, None
+    for src in range(max(51, n - 60), n):
+        got = at(src)
+        if not got:
+            continue
+        cur = name(got[3], got[4])
+        if cur != prev:
+            if prev is not None:
+                lines.append(f"     {dates[run_start]} ~ {dates[src - 1]} 계산분: {prev}")
+            prev, run_start = cur, src
+    if prev is not None:
+        lines.append(f"     {dates[run_start]} ~ {dates[n - 1]} 계산분: {prev}")
+    return lines
+
+
+def diagnose_ichimoku() -> None:
+    """일목 구름 — 삼성전자·SK하이닉스의 실제 일봉과 계산 과정을 찍습니다.
+
+    HTS 와 양운/음운이 다르게 보일 때 어느 칸이 다른지 찾는 용도입니다.
+    (HTS 에서 같은 날짜의 고가·저가, 선행스팬 값을 맞춰 보십시오.)
+    """
+    import re as _re
+
+    import requests as _rq
+    from sources import naver as _nv
+
+    head("일목 구름 계산 확인")
+    for code, label in (("005930", "삼성전자"), ("000660", "SK하이닉스")):
+        print(f"\n{label} ({code})")
+        try:
+            resp = _rq.get(_nv.CHART_URL.format(code=code, count=300),
+                           headers=_nv.HEADERS, timeout=_nv.TIMEOUT)
+            resp.raise_for_status()
+        except Exception as exc:  # noqa: BLE001
+            print(f"  네이버 일봉 실패: {type(exc).__name__}")
+            continue
+        dates, highs, lows, closes = [], [], [], []
+        for raw in _re.findall(r'data="([^"]+)"', resp.text or ""):
+            parts = raw.split("|")
+            if len(parts) < 6:
+                continue
+            try:
+                h, l, c = float(parts[2]), float(parts[3]), float(parts[4])
+            except ValueError:
+                continue
+            if c <= 0:
+                continue
+            dates.append(f"{parts[0][4:6]}/{parts[0][6:8]}")
+            highs.append(max(h if h > 0 else c, c))
+            lows.append(min(l if l > 0 else c, c))
+            closes.append(c)
+        if len(closes) < 80:
+            print(f"  봉이 {len(closes)}개뿐입니다")
+            continue
+        for line in ichimoku_trace(dates, highs, lows, closes):
+            print(line)
+        print("  ── 최근 80봉 (날짜 고가 저가 종가)")
+        rows = [f"{d} {h:,.0f} {l:,.0f} {c:,.0f}"
+                for d, h, l, c in zip(dates[-80:], highs[-80:], lows[-80:], closes[-80:])]
+        for i in range(0, len(rows), 2):
+            print("     " + "   |   ".join(rows[i:i + 2]))
+
+
 def diagnose_research() -> None:
     """네이버 증권 리서치 목록 — 받아지는지, 줄이 제대로 읽히는지."""
     import requests as _rq

@@ -2783,6 +2783,10 @@ def render_diag_panel() -> None:
         ("research2", "리서치 종목·상세 확인", "diagnose_research_detail",
          "종목 리포트 목록(삼성전자)과 리포트 상세가 어떤 모양으로 오는지. "
          "반도체 리포트 화면의 근거 확인용."),
+        ("ichimoku", "일목 구름 계산 확인", "diagnose_ichimoku",
+         "삼성전자·SK하이닉스의 실제 일봉과 구름 계산 과정(9·26·52봉 최고·최저와 "
+         "그 날짜)을 찍습니다. HTS 와 양운/음운이 다를 때 어느 칸이 다른지 "
+         "맞춰 보는 용도."),
         ("krcode", "국내 종목코드 대조", "diagnose_kr_codes",
          "config 의 6자리 코드가 실제로 그 회사인지 DART corpCode.xml 로 "
          "맞춰봅니다. 코드가 틀리면 **다른 회사 재무를 조용히 가져옵니다.** "

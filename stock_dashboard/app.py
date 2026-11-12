@@ -2836,6 +2836,31 @@ def render_briefing_section(use_demo: bool, *, readings=None,
                 _render_briefing_body(bf)
 
 
+def _macro_context(readings: list, data: dict, use_demo: bool) -> list:
+    """경제지표 줄에 '다음 발표일' 과 '지금 시세' 를 붙입니다 (있는 것만).
+
+    발표 일정은 **기다리지 않습니다** — 저장된 것이 있으면 쓰고, 없으면 이번
+    화면은 '월 1회 발표' 로 적고 뒤에서 받습니다. 곁가지 때문에 표가 늦게
+    뜨면 안 됩니다.
+    """
+    next_releases: dict = {}
+    try:
+        got = load_release_dates.peek(use_demo, fred.key_fingerprint())
+        if got and got[0]:
+            next_releases = calendar_events.next_release_dates(got[0])
+    except Exception:  # noqa: BLE001
+        next_releases = {}
+    live: dict = {}
+    wanted = {r.spec.live_symbol for r in readings if getattr(r.spec, "live_symbol", "")}
+    for bucket in (data or {}).values():
+        for sym in wanted:
+            q = bucket.get(sym) if isinstance(bucket, dict) else None
+            if q is not None and getattr(q, "ok", False) and sym not in live:
+                live[sym] = (q.price, q.change)
+    return macro_mod.attach_context(readings, next_releases=next_releases,
+                                    live_quotes=live)
+
+
 def render_macro_tab(data: dict[str, dict[str, Quote]], fx, use_demo: bool,
                      *, market: str = "all") -> None:
     """매크로 — 확인할 것 → 시세 → 심리 → 통계 순서.
@@ -2858,6 +2883,7 @@ def render_macro_tab(data: dict[str, dict[str, Quote]], fx, use_demo: bool,
     # 통계는 2)와 5)가 같이 쓰므로 먼저 한 번 읽습니다 (캐시됨).
     series_map, errors = load_macro(use_demo, fred.key_fingerprint())
     readings = macro_mod.build_readings(config.macro_series(), series_map, errors)
+    readings = _macro_context(readings, data, use_demo)
     triggers = macro_mod.evaluate_all(readings)
     hit_keys = {t.reading.spec.key for t in triggers}
 
@@ -3024,7 +3050,7 @@ def render_macro_tab(data: dict[str, dict[str, Quote]], fx, use_demo: bool,
     st.markdown(
         ui.render_section_head(
             "경제지표 (FRED)",
-            "발표 지연이 있는 통계 — 위 시세 표와 성격이 다릅니다",
+            "발표 주기가 있는 통계 — 실시간 시세는 위 표",
             len(readings),
         ),
         unsafe_allow_html=True,
@@ -3032,8 +3058,11 @@ def render_macro_tab(data: dict[str, dict[str, Quote]], fx, use_demo: bool,
     st.markdown(
         ui.render_footnote(
             "위 표는 <b>시장가격</b>(실시간), 아래는 <b>통계</b>입니다. "
-            "통계는 발표가 2~6주 늦으므로 줄마다 <b>관측 시점과 지연일수</b>를 "
-            "함께 적었습니다 — 어제 숫자로 착각하면 판단이 틀립니다. "
+            "통계는 정해진 날에만 새 값이 나옵니다 — CPI·고용은 <b>한 달에 한 번</b>, "
+            "실업수당은 주 1회. 그래서 줄마다 <b>몇 월분인지</b>와 <b>다음 발표일</b>을 "
+            "적었습니다 (예: 11월 중순에 보는 CPI 는 9월분이 최신일 수 있습니다). "
+            "FRED 의 일별 금리는 다음 영업일에 올라오므로, 10년물은 "
+            "<b>지금 시세</b>를 값 아래에 함께 적습니다. "
             "지수 계열(산업생산·PPI)은 기준연도가 바뀌어 레벨 비교가 불가능하므로 "
             "<b>전년 동기 대비</b>만 표시합니다."
         ),
@@ -3297,6 +3326,64 @@ SOFT_LABELS = {
     "load_daily_brief": "전일 브리핑", "load_release_dates": "발표 일정",
     "load_screens": "미국 재무 심사", "load_kr_screens": "국내 재무 심사",
 }
+
+
+#: '받은 시각' 줄에 쓸 이름 — **모든** 받기 함수. 화면에 보이는 순서이기도 합니다.
+#: 여기 없는 함수는 줄에 나오지 않으므로, 새 받기를 만들면 여기도 적습니다
+#: (테스트가 빠진 것을 잡습니다).
+FETCH_LABELS = {
+    "load_all": "시세",
+    "load_fundamentals": "밸류에이션 지표", "load_market_caps": "시가총액",
+    "load_chart_rows": "차트 일봉",
+    "load_macro": "경제지표(FRED)", "load_inflation": "물가", "load_liquidity": "유동성",
+    "load_kr_macro": "한국 지표", "load_kr_exports": "수출 통계",
+    "load_release_dates": "발표 일정",
+    "load_feargreed": "공포탐욕", "load_vix": "VIX",
+    "load_filings": "미국 공시", "load_dart_disclosures": "국내 공시",
+    "load_market_filings": "시장 공시", "load_corp_codes": "DART 고유번호",
+    "load_kr_companies": "기업 개황",
+    "load_inventory_trends": "국내 재고", "load_us_inventory_trends": "미국 재고",
+    "load_screens": "미국 재무 심사", "load_kr_screens": "국내 재무 심사",
+    "load_kr_value_rows": "국내 가치 지표", "load_kr_vol_profiles": "국내 변동성",
+    "load_kr_flows": "수급", "load_kr_quarters": "분기 실적",
+    "load_us_earnings": "미국 실적", "load_dividends": "배당",
+    "load_sector_heat": "섹터 온도", "load_sector_names": "섹터 구성",
+    "load_sector_news": "섹터 기사", "load_news": "헤드라인",
+    "load_close_headlines": "마감 기사", "load_research": "리포트",
+    "load_daily_brief": "전일 브리핑", "load_briefings": "브리핑 글",
+}
+
+#: 이 나이를 넘긴 값은 '몇 시간 전' 을 함께 적고 굵게 보입니다.
+FETCH_OLD_SEC = 3_600
+
+
+def _fetched_line(times: dict, now: float | None = None) -> str:
+    """'받은 시각' 한 줄 (HTML). times: swr.served_times() — 없으면 빈 문자열.
+
+    2026-11-12 "모든 지표 언제 받았는지 시간표기". 화면의 값은 출처마다 받은
+    때가 다릅니다 (시세는 1분 전, 재무 심사는 아침 스냅샷). 무엇이 언제
+    것인지 화면마다 맨 위에 적습니다. 같은 출처를 여러 번 받았으면 **가장
+    오래된** 시각을 적습니다 — 실제보다 새것처럼 보이지 않게.
+    """
+    now = time.time() if now is None else now
+    today = dt.datetime.fromtimestamp(now, KST).date()
+    chips = []
+    for name, label in FETCH_LABELS.items():
+        if name not in times:
+            continue
+        oldest, _newest = times[name]
+        when = dt.datetime.fromtimestamp(oldest, KST)
+        clock = (f"{when:%H:%M}" if when.date() == today
+                 else f"{when.month}/{when.day:02d} {when:%H:%M}")
+        age = max(0.0, now - oldest)
+        if age >= FETCH_OLD_SEC:
+            chips.append(f'<span class="old">{label} {clock} '
+                         f'<i>{_age_text(age)} 전</i></span>')
+        else:
+            chips.append(f"<span>{label} {clock}</span>")
+    if not chips:
+        return ""
+    return ('<div class="dash-times"><b>받은 시각</b>' + "".join(chips) + "</div>")
 
 
 def _soft(loader, *args, default):
@@ -4151,6 +4238,8 @@ def _section_jobs(section: str, market: str, use_demo: bool) -> dict:
             "매크로": lambda: load_macro(use_demo, ffp),
             "공포탐욕": lambda: load_feargreed(use_demo),
             "VIX": lambda: load_vix(use_demo),
+            # 경제지표 줄의 '다음 발표 11/13' 에 씁니다 (화면은 기다리지 않음)
+            "발표 일정": lambda: load_release_dates(use_demo, ffp),
         })
     elif section == "valuation":
         jobs.update({
@@ -4510,6 +4599,9 @@ def render_body(opts: dict) -> None:
         if opts["demo"]:
             st.markdown(ui.render_demo_banner(), unsafe_allow_html=True)
 
+        # 이 화면의 값들을 언제 받았는지 적을 자리 — 다 그린 뒤에 채웁니다
+        times_slot = st.empty()
+
         with st.spinner(SECTION_LOADING.get(active, "불러오는 중…")):
             if active == "summary":
                 render_summary_tab(data, fx, opts["demo"], market=market)
@@ -4548,6 +4640,13 @@ def render_body(opts: dict) -> None:
 
     # 무엇이 느린지 **숫자로** 남깁니다. "느리다" 를 고치려면 어디가
     # 느린지부터 알아야 합니다.
+    if not opts["demo"]:
+        try:
+            fetched = _fetched_line(swr.served_times())
+            if fetched:
+                times_slot.markdown(fetched, unsafe_allow_html=True)
+        except Exception:  # noqa: BLE001 - 곁가지가 화면을 막으면 안 됩니다
+            pass
     stale = swr.stale_served()
     oldest, pending = swr.stale_report()
     line = log.summary_line()

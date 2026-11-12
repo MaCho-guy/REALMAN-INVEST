@@ -398,6 +398,14 @@ class MacroSeries:
     #: 신호가 났을 때 검색할 뉴스 질의 (한국어). 비우면 뉴스를 붙이지 않습니다.
     news_query: str = ""
 
+    #: 같은 것을 **지금 시세**로 볼 수 있는 야후 심볼 (있을 때만). FRED 의
+    #: 일별 금리는 다음 영업일에야 올라오므로, 화면에는 이 시세를 함께
+    #: 적습니다. 임계값 판정은 그대로 FRED 값으로 합니다.
+    live_symbol: str = ""
+    #: 이 통계가 속한 FRED 발표 묶음 번호 (calendar_events.FRED_RELEASES).
+    #: 있으면 '다음 발표 11/13' 을 적습니다.
+    release_id: int | None = None
+
     # ── 임계값 — 전부 None 이면 신호를 내지 않고 표시만 합니다 ──────────────
     #: 표시값(mode 기준)이 이 값을 넘으면 신호
     level_above: float | None = None
@@ -421,6 +429,7 @@ MACRO_SERIES: tuple[MacroSeries, ...] = (
     MacroSeries(
         "ust10", "미국 10년 국채 금리", "DGS10", "rates", "%",
         mode="level", decimals=2, period_days=1, verified=True,
+        live_symbol="^TNX",
         why="할인율의 기준입니다. O(리츠)는 금리와 역방향으로 움직이고, "
             "QQQ 같은 성장주 묶음은 듀레이션이 길어 금리 상승에 더 민감합니다.",
         change_abs=0.50, change_periods=20,
@@ -476,6 +485,7 @@ MACRO_SERIES: tuple[MacroSeries, ...] = (
     MacroSeries(
         "cpi", "CPI (전년대비)", "CPIAUCSL", "inflation", "%",
         mode="yoy", decimals=1, period_days=30, verified=True,
+        release_id=10,
         why="헤드라인 물가입니다. 에너지·식품이 섞여 변동이 큽니다.",
         change_abs=0.3,
         news_query="미국 소비자물가지수 CPI",
@@ -483,12 +493,14 @@ MACRO_SERIES: tuple[MacroSeries, ...] = (
     MacroSeries(
         "core_cpi", "코어 CPI (전년대비)", "CPILFESL", "inflation", "%",
         mode="yoy", decimals=1, period_days=30, verified=True,
+        release_id=10,
         why="에너지·식품을 뺀 추세 물가입니다. 헤드라인보다 금리 경로에 더 영향을 줍니다.",
         change_abs=0.3,
     ),
     MacroSeries(
         "core_pce", "코어 PCE (전년대비)", "PCEPILFE", "inflation", "%",
         mode="yoy", decimals=1, period_days=30, verified=True,
+        release_id=54,
         why="**연준이 공식 목표(2%)로 삼는 지표**입니다. CPI 보다 늦게 나오지만 "
             "정책 판단에는 이쪽이 쓰입니다.",
         level_above=2.5, change_abs=0.2,
@@ -514,6 +526,7 @@ MACRO_SERIES: tuple[MacroSeries, ...] = (
     MacroSeries(
         "unrate", "실업률", "UNRATE", "labor", "%",
         mode="level", decimals=1, period_days=30, verified=True,
+        release_id=50,
         why="저점 대비 0.3%p 이상 상승은 과거 침체 국면의 공통 패턴이었습니다 "
             "(Sahm rule 의 근사). 3개월 변화로 봅니다.",
         change_abs=0.3, change_periods=3,
@@ -522,6 +535,7 @@ MACRO_SERIES: tuple[MacroSeries, ...] = (
     MacroSeries(
         "payrolls", "비농업 고용 (전월 대비)", "PAYEMS", "labor", "천명",
         mode="diff", decimals=0, period_days=30, verified=True,
+        release_id=50,
         why="월간 고용 증감입니다. 마이너스 전환은 명확한 경기 신호입니다.",
         level_below=0.0,
         news_query="미국 비농업 고용 지표",
@@ -542,6 +556,7 @@ MACRO_SERIES: tuple[MacroSeries, ...] = (
     MacroSeries(
         "semi_ppi", "반도체 생산자물가 (전년대비)", "PCU334413334413", "semi", "%",
         mode="yoy", decimals=1, period_days=30, verified=True,
+        release_id=46,
         why="반도체·관련소자 제조업 **출하 가격**입니다. "
             "레이어 1(가격)의 대리 지표 — DRAM 현물가의 대체는 못 되지만, "
             "키 없이 얻을 수 있는 유일한 공적 가격 계열입니다. "

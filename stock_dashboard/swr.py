@@ -122,6 +122,27 @@ _stale_ages: dict[str, float] = {}
 _pending_names: list[str] = []
 _stale_lock = threading.Lock()
 
+#: 이번 화면을 그리면서 **쓴 값들의 받은 시각** — 화면에 '언제 받은 값인지'
+#: 적는 데 씁니다. 화면을 그리는 스레드에만 기록합니다 (스레드별 저장):
+#: 뒤에서 도는 미리 받기가 섞이면 이 화면에 없는 것까지 적히기 때문입니다.
+_tl = threading.local()
+
+
+def _note_served(name: str, at: float) -> None:
+    served = getattr(_tl, "served", None)
+    if served is not None and at:
+        served.setdefault(name, []).append(at)
+
+
+def served_times() -> dict[str, tuple[float, float]]:
+    """{함수 이름: (가장 오래된 받은 시각, 가장 최근 받은 시각)} — 이번 화면에서 쓴 것만.
+
+    reset_stale_served() 를 부른 스레드에서만 값이 있습니다.
+    """
+    served = getattr(_tl, "served", None) or {}
+    return {name: (min(ats), max(ats)) for name, ats in served.items() if ats}
+
+
 
 def _entry(key: str) -> _Entry:
     with _store_lock:
@@ -267,6 +288,7 @@ def stale_served() -> list[str]:
 
 
 def reset_stale_served() -> None:
+    _tl.served = {}
     with _stale_lock:
         _stale_names.clear()
         _stale_ages.clear()
@@ -408,6 +430,7 @@ class Cached:
         if e.ok:
             age = time.time() - e.at
             if age < ttl:
+                _note_served(self.name, e.at)
                 return e.value
             if age < window:
                 if not e.refreshing and time.time() >= e.retry_at:
@@ -420,13 +443,16 @@ class Cached:
                     if left > 0:
                         e.done.wait(left)
                     if time.time() - e.at < ttl:
+                        _note_served(self.name, e.at)
                         return e.value
                 _note_stale(self.name, time.time() - e.at)
+                _note_served(self.name, e.at)
                 return e.value
         # 값이 없거나 너무 오래됨 — 기다려서 받습니다 (같은 키는 한 번만)
         with e.lock:
             if not e.ok or time.time() - e.at >= window:
                 self._fetch(key, args, kwargs, e)
+            _note_served(self.name, e.at)
             return e.value
 
     def peek(self, *args, **kwargs):
@@ -451,6 +477,7 @@ class Cached:
                 if not e.refreshing and time.time() >= e.retry_at:
                     self._background(key, args, kwargs, e)
                 _note_stale(self.name, age)
+            _note_served(self.name, e.at)
             return e.value
         with _stale_lock:
             _pending_names.append(self.name)

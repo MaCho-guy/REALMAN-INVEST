@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import datetime as dt
 import os
+import pathlib
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -673,9 +674,11 @@ _now_ms = int(_dt4.datetime.now(_dt4.timezone.utc).timestamp() * 1000)
 _now_s = int(_now_ms / 1000)
 
 # 타임스탬프 형식을 단정하지 않습니다 — CNN 문서가 없어 바뀔 수 있습니다
-check("밀리초 타임스탬프", fgm._date_from(_now_ms) == _dt4.date.today(),
+# 자정 무렵에는 서버 날짜와 UTC 날짜가 하루 다릅니다 — 둘 다 받아들입니다
+_ok_days = {_dt4.date.today(), _dt4.datetime.now(_dt4.timezone.utc).date()}
+check("밀리초 타임스탬프", fgm._date_from(_now_ms) in _ok_days,
       str(fgm._date_from(_now_ms)))
-check("초 타임스탬프도 처리", fgm._date_from(_now_s) == _dt4.date.today(),
+check("초 타임스탬프도 처리", fgm._date_from(_now_s) in _ok_days,
       str(fgm._date_from(_now_s)))
 check("ISO 날짜 문자열", fgm._date_from("2026-11-07") == _dt4.date(2026, 11, 7))
 check("ISO 일시 문자열",
@@ -846,11 +849,24 @@ print("\n=== FRED 키 형식 검사 ===")
 _saved_key = os.environ.pop("FRED_API_KEY", None)
 check("키가 없으면 그 사실을 말한다", "설정되지 않았" in _fr7.key_problem())
 os.environ["FRED_API_KEY"] = "abc"
-check("짧은 키를 잡는다", "32자" in _fr7.key_problem(), _fr7.key_problem())
+check("짧은 키를 잡는다", "모자랍니다" in _fr7.key_problem(), _fr7.key_problem())
+check("짧은 건 따옴표 탓이 아니라고 말한다",
+      "잘렸다" in _fr7.key_problem(),
+      "따옴표가 섞이면 오히려 길어집니다 — 엉뚱한 데를 보게 하면 안 됩니다")
+os.environ["FRED_API_KEY"] = '"' + "a" * 32 + '"'
+check("긴 키는 따옴표를 지목한다", "깁니다" in _fr7.key_problem(),
+      _fr7.key_problem())
+check("섞인 문자를 보여준다", "'\"'" in _fr7.key_problem(),
+      _fr7.key_problem())
 os.environ["FRED_API_KEY"] = "A" * 32
 check("대문자를 잡는다", "대문자" in _fr7.key_problem(), _fr7.key_problem())
 os.environ["FRED_API_KEY"] = '"' + "a" * 30 + '"'
 check("따옴표가 섞인 키를 잡는다", bool(_fr7.key_problem()))
+_diag_src = pathlib.Path("tools/diagnose.py").read_text(encoding="utf-8")
+check("진단이 키 모양을 가려서 보여준다", "모양:" in _diag_src,
+      "길이만으로는 어디가 잘렸는지 감이 안 옵니다")
+check("발급 페이지를 알려준다",
+      "fredaccount.stlouisfed.org/apikeys" in _diag_src)
 os.environ["FRED_API_KEY"] = "a1" * 16
 check("정상 키는 통과", _fr7.key_problem() == "", _fr7.key_problem())
 if _saved_key is None:
@@ -858,6 +874,84 @@ if _saved_key is None:
 else:
     os.environ["FRED_API_KEY"] = _saved_key
 
+
+print("\n=== 언제 것인가 · 다음에 언제 나오나 (2026-11-12 '72일 전') ===")
+import calendar_events as _ce  # noqa: E402
+import components as _ui  # noqa: E402
+
+_today = dt.date(2026, 11, 12)
+_cpi_spec = spec(key="cpi", name="CPI", series_id="CPIAUCSL", mode="yoy",
+                 period_days=30, release_id=10)
+_cpi = macro.build_reading(
+    _cpi_spec,
+    monthly("CPIAUCSL", "2024-09-01", [100 + i * 0.3 for i in range(25)]),   # 마지막 = 2026-09
+    "", _today)
+check("FRED 는 9월 통계를 9월 1일자로 적는다 → 72일 전", _cpi.lag_days == 72, str(_cpi.lag_days))
+check("화면에는 '9월분' 이라고 적는다", _cpi.period_label == "9월분", _cpi.period_label)
+check("다음 발표일을 모르면 주기를 적는다", _cpi.cadence_label == "월 1회 발표")
+_payload = {"release_dates": [
+    {"release_id": 10, "release_name": "Consumer Price Index", "date": "2026-10-14"},
+    {"release_id": 10, "release_name": "Consumer Price Index", "date": "2026-12-10"},
+    {"release_id": 10, "release_name": "Consumer Price Index", "date": "2026-11-13"},
+    {"release_id": 50, "release_name": "Employment Situation", "date": "2026-11-12"},
+    {"release_id": "x", "date": "2026-11-20"}, {"release_id": 46, "date": "없음"}, "쓰레기",
+]}
+_next = _ce.next_release_dates(_payload, _today)
+check("오늘 이후 가장 가까운 발표일을 고른다",
+      _next == {10: dt.date(2026, 11, 13), 50: dt.date(2026, 11, 12)}, str(_next))
+check("응답이 이상하면 빈 묶음", _ce.next_release_dates(None) == {} and _ce.next_release_dates([]) == {})
+macro.attach_context([_cpi], next_releases=_next)
+check("다음 발표일을 붙이면 그 날짜", _cpi.cadence_label == "다음 발표 11/13", _cpi.cadence_label)
+_jobs = macro.build_reading(
+    spec(key="unrate", name="실업률", series_id="UNRATE", period_days=30, release_id=50),
+    monthly("UNRATE", "2025-09-01", [4.0 + i * 0.01 for i in range(13)]), "", _today)
+macro.attach_context([_jobs], next_releases=_next)
+check("발표일이 오늘이면 '오늘 발표'", _jobs.cadence_label == "오늘 발표", _jobs.cadence_label)
+_wk = macro.build_reading(
+    spec(key="claims", name="실업수당", series_id="ICSA", period_days=7),
+    series_of("ICSA", [("2026-10-24", 220), ("2026-10-31", 225), ("2026-11-07", 230)]), "", _today)
+check("주간 통계", _wk.period_label == "11/07 주간" and _wk.cadence_label == "주 1회 발표",
+      f"{_wk.period_label} · {_wk.cadence_label}")
+_d10_spec = spec(key="ust10", name="미국 10년 국채 금리", series_id="DGS10", unit="%",
+                 period_days=1, live_symbol="^TNX", change_abs=0.5, change_periods=2)
+_d10 = macro.build_reading(
+    _d10_spec, series_of("DGS10", [("2026-11-05", 4.10), ("2026-11-06", 4.12), ("2026-11-09", 4.15)]),
+    "", _today)
+check("일별 금리 — 휴일이 끼면 3일 전이 최신", _d10.lag_days == 3
+      and _d10.period_label == "11/09 종가" and _d10.cadence_label == "다음 영업일 공개",
+      f"{_d10.period_label} · {_d10.cadence_label}")
+check("지금 시세가 없으면 적지 않는다", _d10.live_label == "")
+_before = [(t.reading.spec.key, t.rule) for t in macro.evaluate_all([_d10])]
+macro.attach_context([_d10], live_quotes={"^TNX": (4.95, 0.80), "^IRX": (4.0, None)})
+check("지금 시세를 붙인다", _d10.live_label == "지금 4.95%", _d10.live_label)
+check("임계값 판정은 FRED 값 그대로 (장중 시세로 신호를 바꾸지 않음)",
+      _d10.value == 4.15
+      and [(t.reading.spec.key, t.rule) for t in macro.evaluate_all([_d10])] == _before)
+macro.attach_context([_d10], live_quotes={"^TNX": None})
+check("시세가 비면 직전 값을 지우지 않고 넘어간다", _d10.live_value == 4.95)
+_old = macro.build_reading(
+    _cpi_spec, monthly("CPIAUCSL", "2023-12-01", [100 + i * 0.3 for i in range(25)]), "",
+    dt.date(2026, 1, 20))
+check("해가 다르면 연도를 적는다", _old.period_label == "2025년 12월분", _old.period_label)
+_html = _ui.render_macro_table(
+    [("g", "묶음", "부제")], {"g": [_cpi, _d10, _wk]}, set())
+check("표에 'N일 전' 이 없다", "일 전" not in _html)
+check("표에 몇 월분 · 다음 발표 · 지금 시세가 있다",
+      "9월분" in _html and "다음 발표 11/13" in _html and "지금 4.95%" in _html)
+_stale = macro.build_reading(
+    _cpi_spec, monthly("CPIAUCSL", "2024-03-01", [100 + i * 0.3 for i in range(25)]), "", _today)
+check("정말 늦은 것은 '발표 지연' 으로 따로 적는다",
+      _stale.stale and "발표 지연" in _ui.render_macro_table([("g", "묶음", "")], {"g": [_stale]}, set()))
+_card = _ui.render_macro_card(_d10)
+check("카드에도", "지금 4.95%" in _card and "11/09 종가" in _card and "일 전" not in _card)
+check("실제 설정 — 10년물에 지금 시세, CPI·고용·PCE 에 발표 번호",
+      config.macro_series_by_key("ust10").live_symbol == "^TNX"
+      and config.macro_series_by_key("cpi").release_id == 10
+      and config.macro_series_by_key("payrolls").release_id == 50
+      and config.macro_series_by_key("core_pce").release_id == 54)
+_valid = {rid for rid, *_ in _ce.FRED_RELEASES}
+check("발표 번호는 일정표가 아는 번호만",
+      all(s.release_id in _valid for s in config.MACRO_SERIES if s.release_id is not None))
 
 print("\n" + "=" * 56)
 if FAILURES:

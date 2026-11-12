@@ -49,6 +49,14 @@ class Reading:
     #: 수집 실패 사유
     error: str = ""
 
+    #: 다음 발표일 (FRED 발표 일정에서 — 있을 때만)
+    next_release: dt.date | None = None
+    #: 같은 것의 **지금 시세** (spec.live_symbol 이 있을 때만) 와 직전 종가 대비
+    live_value: float | None = None
+    live_change: float | None = None
+    #: 화면을 그리는 날 (시점 문구 계산용 — 테스트에서 고정)
+    today: dt.date | None = None
+
     @property
     def ok(self) -> bool:
         return self.error == "" and self.value is not None
@@ -72,6 +80,49 @@ class Reading:
             return ""
         unit = "%p" if self.spec.mode == "yoy" or self.spec.unit == "%" else ""
         return f"{'+' if self.delta > 0 else ''}{self.delta:,.{self.spec.decimals}f}{unit}"
+
+    @property
+    def period_label(self) -> str:
+        """이 값이 **언제 것인가** — '9월분' · '11/01 주간' · '11/09 종가'.
+
+        전에는 'N일 전' 이라고 적었습니다. 월간 통계에서 그 숫자는 '우리가
+        늦게 받았다' 가 아니라 **통계의 기준 달이 그만큼 전** 이라는 뜻인데
+        (FRED 는 9월 CPI 를 9월 1일자로 적습니다 → 11월 12일에 '72일 전'),
+        화면에서는 데이터가 묵은 것처럼 읽혔습니다 (2026-11-12).
+        """
+        d = self.observed_at
+        if d is None:
+            return "—"
+        today = self.today or dt.date.today()
+        year = "" if d.year == today.year else f"{d.year}년 "
+        if self.spec.period_days >= 28:
+            return f"{year}{d.month}월분"
+        if self.spec.period_days >= 7:
+            return f"{year}{d.month}/{d.day:02d} 주간"
+        return f"{year}{d.month}/{d.day:02d} 종가"
+
+    @property
+    def cadence_label(self) -> str:
+        """얼마나 자주 새 값이 나오는가 — 다음 발표일을 알면 그 날짜."""
+        today = self.today or dt.date.today()
+        nxt = self.next_release
+        if nxt is not None and nxt >= today:
+            if nxt == today:
+                return "오늘 발표"
+            return f"다음 발표 {nxt.month}/{nxt.day:02d}"
+        if self.spec.period_days >= 28:
+            return "월 1회 발표"
+        if self.spec.period_days >= 7:
+            return "주 1회 발표"
+        return "다음 영업일 공개"
+
+    @property
+    def live_label(self) -> str:
+        """'지금 4.25%' — 지금 시세가 붙어 있을 때만."""
+        if self.live_value is None:
+            return ""
+        unit = self.spec.unit or ""
+        return f"지금 {self.live_value:,.{self.spec.decimals}f}{unit}"
 
     @property
     def observed_label(self) -> str:
@@ -158,6 +209,7 @@ def build_reading(spec: MacroSeries, series: Series | None,
         value=value,
         observed_at=observed,
         lag_days=lag,
+        today=today,
         history=history,
         window_delta=_window_delta(spec, series, history),
     )
@@ -410,3 +462,26 @@ def prompt_for(trigger: Trigger) -> str:
         "매수/매도 추천이나 목표주가는 필요 없습니다. 판단 재료만 정리해 주십시오.",
     ]
     return "\n".join(lines)
+
+
+def attach_context(readings: list[Reading], *, next_releases: dict | None = None,
+                   live_quotes: dict | None = None) -> list[Reading]:
+    """다음 발표일과 지금 시세를 붙입니다 (있는 것만). 읽기 자체는 바꾸지 않습니다.
+
+    next_releases: {FRED 발표 번호: 날짜}
+    live_quotes:   {야후 심볼: (지금 값, 직전 종가 대비 변화 또는 None)}
+    임계값 판정은 여전히 FRED 값(value)으로 합니다 — 장중 시세로 신호가
+    켜졌다 꺼졌다 하지 않게.
+    """
+    next_releases = next_releases or {}
+    live_quotes = live_quotes or {}
+    for r in readings:
+        rid = getattr(r.spec, "release_id", None)
+        if rid is not None and rid in next_releases:
+            r.next_release = next_releases[rid]
+        sym = getattr(r.spec, "live_symbol", "")
+        if sym and sym in live_quotes and live_quotes[sym] is not None:
+            value, change = live_quotes[sym]
+            if value is not None:
+                r.live_value, r.live_change = float(value), change
+    return readings

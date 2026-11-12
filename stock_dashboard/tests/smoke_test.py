@@ -161,7 +161,8 @@ table = ui.render_valuation_table(
 )
 check_true("PER 값 표기", "35.20" in table)
 check_true("비율 ×100 표기", "36.20%" in table)
-check_true("결측은 em dash", 'class="na">—' in table)
+import re as _re_na  # noqa: E402
+check_true("결측은 em dash", bool(_re_na.search(r'class="na"[^>]*>—', table)))
 check_true("열 머리에 이름+심볼", "Microsoft" in table and "005930.KS" in table)
 
 print("\n=== 카드 링크 생성 ===")
@@ -398,7 +399,7 @@ import discover as _disc  # noqa: E402
 _tabs = dict(config.tab_labels())
 # 2026-11-11: 시장이 최상위 축이 되면서 탭이 '시장마다 다른 목록' 이
 # 됐습니다. 전체 목록은 두 시장의 합집합이고, 시장마다 보이는 게 다릅니다.
-check_true("전체 탭 9개", len(_tabs) == 9, f"{len(_tabs)}개: {list(_tabs)}")
+check_true("전체 탭 14개 (수급·실적 서프라이즈 추가)", len(_tabs) == 14, f"{len(_tabs)}개: {list(_tabs)}")
 for _need in ("summary", "holdings", "discover", "valuation", "sector_heat",
               "kr_flows", "macro", "us_flows", "cycle"):
     check_true(f"탭 '{_need}' 이 있다", _need in _tabs, str(list(_tabs)))
@@ -1042,7 +1043,7 @@ check_true("매크로 탭이 브리핑을 그린다",
            "매크로 탭 상단 호출이 보이지 않습니다")
 check_true("브리핑이 시세 섹션보다 먼저",
            _macro_body.index("render_briefing_section(use_demo)")
-           < _macro_body.index("render_section(section, data, fx)"),
+           < _macro_body.index("ui.render_quote_table("),
            "숫자보다 사람이 쓴 글이 먼저 와야 합니다")
 check_true("브리핑이 공포탐욕보다 먼저",
            _macro_body.index("render_briefing_section(use_demo)")
@@ -1080,12 +1081,16 @@ import theme as _th2  # noqa: E402
 
 for _mode in ("light",):
     _css = _th2.build_css("kr")
-    _need = (".dash-bf {", ".dash-bf-line {", ".dash-price {",
+    _need = (".dash-bf {", ".dash-bf-line {", ".dash-pricecond {",
              ".dash-price-metrics {", ".dash-bf-stale {")
     _miss = [n for n in _need if n not in _css]
     check_true(f"{_mode} 모드에 새 CSS 가 들어 있다", not _miss, str(_miss))
     check_true(f"{_mode} 모드에 이스케이프 안 된 중괄호 없음",
                "{{" not in _css and "}}" not in _css)
+
+check_true("시세 카드 숫자와 가격 조건 상자가 이름을 나눠 쓴다",
+           _css.count(".dash-price {") == 1,
+           "같은 이름이면 모든 시세 카드 숫자에 회색 상자가 씌워집니다")
 
 print("\n=== 두 점수를 합치지 않는가 (화면) ===")
 import value as _vl2  # noqa: E402
@@ -1269,7 +1274,11 @@ check_true("임계값 도달이 경제지표 헤더보다 먼저",
            "헤더와 그 내용 사이에 다른 섹션이 끼면 '14개 항목' 아래가 빕니다")
 check_true("경제지표 헤더 다음에 바로 그룹이 온다",
            _macro_body.index("경제지표 (FRED)")
-           < _macro_body.index("render_macro_group"))
+           < _macro_body.index("render_macro_table"))
+check_true("임계값 도달이 시세 표보다 먼저 (확인할 것이 맨 위)",
+           _macro_body.index("임계값 도달") < _macro_body.index("ui.render_quote_table("))
+check_true("매크로 시세를 카드 격자로 그리지 않는다",
+           "render_section(section, data, fx)" not in _macro_body)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1372,7 +1381,7 @@ with _tf.TemporaryDirectory() as _d:
                "dash-build-note" in ui_mod.render_build_warning(_r4))
 
 check_true("앱이 시작할 때 검사한다",
-           "buildstamp.verify(BASE_DIR)" in _app_src
+           "buildstamp.verify" in _app_src and "_check(BASE_DIR)" in _app_src
            and "render_build_warning" in _app_src)
 check_true("검사 실패가 앱을 막지 않는다",
            "except Exception:  # noqa: BLE001 - 검사가 앱을 막으면 안 됩니다"
@@ -1402,7 +1411,8 @@ else:
 for _fn in ("load_dart_disclosures", "load_inventory_trends",
             "load_kr_screens"):
     check_true(f"{_fn} 이 지문을 캐시 키로 받는다",
-               f"{_fn}(use_demo, dart.key_fingerprint())" in _app_src,
+               f"{_fn}(use_demo, dart.key_fingerprint())" in _app_src
+               or f"{_fn}, use_demo, dart.key_fingerprint()," in _app_src,
                "없으면 키를 넣어도 실패한 결과가 TTL 동안 남습니다")
 check_true("캐시를 수동으로 비울 수 있다",
            "st.cache_data.clear()" in _app_src)
@@ -1676,7 +1686,7 @@ for _f in ("app.py", "theme.py", "tools/preview.py"):
               and ("나이트" in ln or "data-mode" in ln)]
     check_true(f"{_f} 에 테마 전환 UI 가 없다", not _lines, str(_lines[:2]))
 check_true("build_css 가 모드를 받지 않는다",
-           "def build_css(convention: str)" in
+           "def build_css(convention: str, stack: bool = True)" in
            pathlib.Path("theme.py").read_text(encoding="utf-8"))
 
 print("\n=== 한국·미국 시장 분리 ===")

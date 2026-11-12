@@ -176,11 +176,15 @@ loaders = ["load_all", "load_filings", "load_dart_disclosures",
            "load_inventory_trends", "load_us_inventory_trends", "load_macro",
            "load_sector_heat", "load_feargreed", "load_vix", "load_sector_news",
            "load_market_filings", "load_kr_macro", "load_inflation",
-           "load_liquidity", "load_kr_exports", "load_screens", "load_kr_screens"]
+           "load_liquidity", "load_kr_exports", "load_screens", "load_kr_screens",
+           "load_kr_vol_profiles", "load_kr_value_rows", "load_chart_rows",
+           "load_daily_brief", "load_close_headlines", "load_research",
+           "load_release_dates"]
 st = FakeSt()
 ns = {"st": st, "config": config, "threading": threading, "perf": perf,
       "dart": _Src, "fred": _Src}
 ns.update({n: _mk(n) for n in loaders})
+ns.update({"SOFT_SECTIONS": ("summary", "holdings"), "PREFETCH_BUDGET": 3.0})
 exec(compile(mod, "app.py", "exec"), ns)
 
 jobs = ns["_section_jobs"]("summary", "kr", False)
@@ -199,7 +203,7 @@ called.clear()
 t0 = time.perf_counter()
 ns["_prefetch"]("summary", "kr", False, log)
 wall = time.perf_counter() - t0
-check("요약의 7가지를 동시에 (0.2초×7 → 0.6초 안)", wall < 0.6 and len(called) == 7,
+check("요약의 12가지를 동시에 (0.2초×12 → 0.6초 안)", wall < 0.6 and len(called) == 12,
       f"{wall:.2f}s, {len(called)}건")
 called.clear()
 ns["_prefetch"]("summary", "kr", True, perf.RunLog())
@@ -208,7 +212,36 @@ check("데모 모드에서는 받지 않는다", called == [])
 ns["load_macro"] = lambda *a: 1 / 0
 called.clear()
 ns["_prefetch"]("summary", "kr", False, perf.RunLog())
-check("하나가 터져도 나머지는 받아 둔다", len(called) == 6, str(called))
+check("하나가 터져도 나머지는 받아 둔다", len(called) == 11, str(called))
+
+print("\n=== 느린 하나가 첫 화면을 붙잡지 않는다 ===")
+import threading as _th  # noqa: E402
+_gate = _th.Event()
+_slow_done = []
+
+
+def _slow():
+    _gate.wait(5)
+    _slow_done.append(1)
+    return "늦은 값"
+
+
+_log = perf.RunLog()
+_t0 = time.perf_counter()
+_got = perf.run_parallel({"빠름": lambda: 1, "느림": _slow}, _log, budget=0.3)
+_wall = time.perf_counter() - _t0
+check("정한 시간만 기다린다", _wall < 1.0, f"{_wall:.2f}s")
+check("끝난 것은 돌려준다", _got == {"빠름": 1}, str(_got))
+check("못 끝낸 것을 기록한다",
+      any(t.name == "느림" and t.error == "뒤에서 계속" for t in _log.items))
+check("한 줄 요약에 드러난다", "뒤에서 계속" in _log.summary_line())
+_gate.set()
+time.sleep(0.2)
+check("못 끝낸 것은 뒤에서 끝까지 돈다", _slow_done == [1])
+check("시간을 안 주면 전부 기다린다",
+      perf.run_parallel({"a": lambda: (time.sleep(0.2), 2)[1]}, None) == {"a": 2})
+check("요약·내 종목만 먼저 그린다",
+      'budget = PREFETCH_BUDGET if section in SOFT_SECTIONS else None' in src)
 
 # ──────────────────────────────────────────────────────────────────────────────
 print("\n=== 고정 확인 ===")

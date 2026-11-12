@@ -1417,6 +1417,12 @@ def _macro_panel(section, data, fx, use_demo: bool) -> str:
             errors = {sid: str(exc) for sid in config.macro_series_ids()}
 
     readings = macro_mod.build_readings(config.macro_series(), series_map, errors)
+    # 앱과 같이: 다음 발표일(데모 일정)과 10년물 지금 시세를 붙입니다
+    import calendar_events as _ce  # noqa: PLC0415
+    readings = macro_mod.attach_context(
+        readings,
+        next_releases=_ce.next_release_dates(demo_mod.demo_fred_release_dates()),
+        live_quotes={"^TNX": (4.21, 0.03)})          # 데모 값
     triggers = macro_mod.evaluate_all(readings)
     brief_lines = brief_mod.compose(
         readings=readings, triggers=triggers,
@@ -1732,7 +1738,12 @@ def build_html(convention: str, use_demo: bool) -> str:
         market_switch,
         '<div class="pv-shell">',
         '<div class="pv-side">' + "".join(navs) + "</div>",
-        f'<div class="pv-main">{"".join(panels)}</div>',
+        '<div class="pv-main">'
+        # 앱은 화면마다 그 화면에서 쓴 값의 받은 시각을 적습니다 (여기는 예시)
+        '<div class="dash-times"><b>받은 시각</b><span>시세 11:04</span>'
+        '<span>경제지표(FRED) 10:58</span><span>공포탐욕 11:01</span>'
+        '<span class="old">국내 재무 심사 06:35 <i>4시간 전</i></span></div>'
+        f'{"".join(panels)}</div>',
         "</div>",
         ui.render_footnote(
             "정보 제공 목적이며 투자 판단의 근거가 아닙니다. 시세는 지연될 수 있고, "

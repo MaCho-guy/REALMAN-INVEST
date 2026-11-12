@@ -148,28 +148,169 @@ check("부호를 붙일 수 있다", ui.fmt_usd_bn(30, signed=True).startswith("
 
 print("\n=== 공시 분류 ===")
 cases = [
-    ("영업(잠정)실적(공정공시)", "실적"),
-    ("매출액또는손익구조30%(대규모법인은15%)이상변동", "실적"),
-    ("유상증자결정", "자본조달"),
-    ("[정정]전환사채권발행결정", "자본조달"),
-    ("자기주식취득결정", "주주환원"),
-    ("현금ㆍ현물배당결정", "주주환원"),
-    ("단일판매ㆍ공급계약체결", "계약"),
-    ("단일판매·공급계약체결", "계약"),
-    ("최대주주변경", "지배구조"),
-    ("주식등의대량보유상황보고서", "지배구조"),
-    ("불성실공시법인지정", "경고"),
-    ("상장폐지사유발생", "경고"),
-    ("분기보고서", ""),
-    ("임원ㆍ주요주주특정증권등소유상황보고서", ""),
+    # (제목, 묶음, 세부)
+    ("영업(잠정)실적(공정공시)", "실적", "잠정실적"),
+    ("연결재무제표기준영업(잠정)실적(공정공시)", "실적", "잠정실적"),
+    ("매출액또는손익구조30%(대규모법인은15%)이상변동", "실적", "손익구조 변동"),
+    ("주요사항보고서(유상증자결정)", "희석·물량", "유상증자"),
+    ("유무상증자결정", "희석·물량", "유상증자"),
+    ("[기재정정]전환사채권발행결정", "희석·물량", "전환사채(CB)"),
+    ("신주인수권부사채권발행결정", "희석·물량", "신주인수권부사채(BW)"),
+    ("교환사채권발행결정", "희석·물량", "교환사채(EB)"),
+    ("전환가액의조정", "희석·물량", "가액 조정(리픽싱)"),
+    ("전환청구권행사", "희석·물량", "전환·행사 청구"),
+    ("주요사항보고서(자기주식처분결정)", "희석·물량", "자사주 처분"),
+    ("자기주식취득결정", "주주환원", "자사주 취득"),
+    ("자기주식취득신탁계약체결결정", "주주환원", "자사주 신탁"),
+    ("주식소각결정", "주주환원", "소각"),
+    ("현금ㆍ현물배당결정", "주주환원", "배당"),
+    ("단일판매ㆍ공급계약체결", "사업·계약", "공급계약"),
+    ("단일판매·공급계약체결", "사업·계약", "공급계약"),
+    ("단일판매ㆍ공급계약해지", "사업·계약", "공급계약 해지"),
+    ("최대주주변경", "지분·M&A", "최대주주 변경"),
+    ("최대주주변경을수반하는주식양수도계약체결", "지분·M&A", "최대주주 변경"),
+    ("주식등의대량보유상황보고서", "지분·M&A", "5% 대량보유"),
+    ("회사분할결정", "지분·M&A", "분할"),
+    ("분할합병결정", "지분·M&A", "분할"),
+    ("회사합병결정", "지분·M&A", "합병"),
+    ("주식분할결정", "주식수 변동", "액면분할"),
+    ("무상증자결정", "주식수 변동", "무상증자"),
+    ("불성실공시법인지정", "경고", "불성실공시"),
+    ("상장폐지사유발생", "경고", "상장폐지"),
+    ("주권매매거래정지(상장폐지사유발생)", "경고", "상장폐지"),
+    ("기타시장안내(조회공시요구)", "경고", "조회·해명"),
+    ("투자경고종목지정", "경고", "투자경고·위험"),
+    ("분기보고서", "", ""),
+    ("임원ㆍ주요주주특정증권등소유상황보고서", "", ""),
+    ("투자주의종목지정", "", ""),
 ]
-for title, want in cases:
+for title, want, want_sub in cases:
     got = dart.classify(title)
-    check(f"{title[:24]} → {want or '(제외)'}", got == want, f"실제 {got!r}")
+    det = dart.classify_detail(title)
+    got_sub = det.label if det else ""
+    check(f"{title[:24]} → {want or '(제외)'}/{want_sub or '-'}",
+          got == want and got_sub == want_sub, f"실제 {got!r}/{got_sub!r}")
 check("가운뎃점 두 종류를 모두 받는다",
       dart.classify("현금·현물배당결정") == dart.classify("현금ㆍ현물배당결정"),
       "DART 는 ㆍ(U+318D), 사람은 ·(U+00B7) 를 씁니다")
-check("빈 제목도 안 죽는다", dart.classify("") == "")
+check("빈 제목도 안 죽는다", dart.classify("") == "" and dart.classify_detail("") is None)
+check("모든 세부 유형이 정해진 묶음에 속한다",
+      all(t.group in dart.DISCLOSURE_GROUPS for t in dart.DISCLOSURE_TYPES))
+check("세부 이름이 겹치지 않는다",
+      len({t.label for t in dart.DISCLOSURE_TYPES}) == len(dart.DISCLOSURE_TYPES))
+check("모든 유형에 '무엇을 보나' 설명이 있다",
+      all(t.why.strip() for t in dart.DISCLOSURE_TYPES))
+check("묶음마다 색이 있다",
+      set(dart.GROUP_TONE) == set(dart.DISCLOSURE_GROUPS)
+      and dict(ui._FILING_TONE) == dict(dart.GROUP_TONE),
+      "components 쪽 복사본이 어긋남")
+check("옛 이름 표(DISCLOSURE_KINDS)도 남아 있다",
+      [g for g, _n in dart.DISCLOSURE_KINDS] == list(dart.DISCLOSURE_GROUPS))
+
+print("\n=== 공시 꼬리표 ===")
+check("기재정정", dart.title_flags("[기재정정]유상증자결정") == ("정정",))
+check("자회사", "자회사" in dart.title_flags(
+    "단일판매ㆍ공급계약체결(자회사의주요경영사항)"))
+check("발행조건확정 같은 다른 꼬리표", dart.title_flags("[발행조건확정]증권신고서")
+      == ("발행조건확정",))
+check("비고 '철' → 철회", "철회" in dart.title_flags("유상증자결정", "철"))
+check("비고 '정' → 이후 정정", "이후 정정" in dart.title_flags("유상증자결정", "유정"))
+check("비고의 접수처 글자는 무시", dart.title_flags("유상증자결정", "유") == ())
+
+print("\n=== 공시 훑기 (가짜 DART) ===")
+calls = []
+
+
+def fake_get(endpoint, params, **_kw):
+    calls.append(dict(params))
+    ty = params.get("pblntf_ty")
+    page = int(params["page_no"])
+    if ty == "B" and page == 1:
+        return {"status": "000", "total_page": 1, "list": [
+            {"report_nm": "주요사항보고서(유상증자결정)", "corp_cls": "K",
+             "corp_name": "가", "stock_code": "111111", "rcept_no": "1",
+             "rcept_dt": "20261110", "rm": ""},
+            {"report_nm": "주요사항보고서(자기주식취득결정)", "corp_cls": "E",
+             "corp_name": "비상장", "stock_code": "", "rcept_no": "2",
+             "rcept_dt": "20261110", "rm": ""},
+        ]}
+    if ty == "I":
+        # 6쪽 한도까지 매번 '다음 쪽 있음' — 한도에 걸려 범위 안내가 나와야 함
+        return {"status": "000", "total_page": 50, "list": [
+            {"report_nm": "영업(잠정)실적(공정공시)", "corp_cls": "Y",
+             "corp_name": f"나{page}", "stock_code": f"22222{page}",
+             "rcept_no": f"I{page}", "rcept_dt": "20261111", "rm": "유"},
+            {"report_nm": "투자주의종목지정", "corp_cls": "K",
+             "corp_name": "다", "stock_code": "333333", "rcept_no": f"X{page}",
+             "rcept_dt": "20261111", "rm": "코"},
+        ]}
+    if ty == "D":
+        raise dart.DartError("DART list.json 실패 [013]: 조회된 데이터가 없습니다.")
+    return {"status": "000", "total_page": 1, "list": []}
+
+
+import datetime as _dtm  # noqa: E402
+scan = dart.scan_market_filings(days=5, today=_dtm.date(2026, 11, 11),
+                                get=fake_get)
+check("비상장(E)은 뺀다", all(f.corp_name != "비상장" for f in scan.filings))
+check("유형 필터로 부른다", {c.get("pblntf_ty") for c in calls} >= {"B", "I", "D"})
+check("거래소공시는 6쪽에서 멈춘다",
+      sum(1 for c in calls if c.get("pblntf_ty") == "I") == 6)
+check("013(0건)은 오류가 아니다", not scan.fallback and scan.filings)
+check("한도에 걸리면 어디까지 봤는지 적는다",
+      any("거래소공시" in g for g in scan.gaps), str(scan.gaps))
+check("투자주의는 뺀다", all("투자주의" not in f.title for f in scan.filings))
+check("시장 이름을 붙인다", {f.market for f in scan.filings} == {"코스피", "코스닥"})
+check("최신 날짜가 위", scan.filings[0].date == "2026-11-11")
+check("읽은 수를 센다", scan.scanned == 2 + 12)
+
+calls.clear()
+
+
+def empty_get(endpoint, params, **_kw):
+    calls.append(dict(params))
+    if "pblntf_ty" in params:
+        return {"status": "000", "total_page": 1, "list": []}
+    return {"status": "000", "total_page": 1, "list": [
+        {"report_nm": "자기주식소각결정", "corp_cls": "",
+         "corp_name": "라", "stock_code": "444444",
+         "rcept_no": "F" + params["corp_cls"], "rcept_dt": "20261111"}]}
+
+
+scan2 = dart.scan_market_filings(today=_dtm.date(2026, 11, 11), get=empty_get)
+check("유형 필터가 0건이면 옛 방식으로 한 번 더", scan2.fallback
+      and any("corp_cls" in c for c in calls))
+check("옛 방식은 시장을 요청값으로 붙인다",
+      {f.market for f in scan2.filings} == {"코스피", "코스닥"})
+
+print("\n=== 공시 필터·집계 ===")
+demo_f = demo_mod.demo_market_filings()
+cnt = dart.count_filings(demo_f)
+check("집계 합 = 전체", sum(n for _g, n, _s in cnt) == len(demo_f))
+check("집계는 묶음 순서대로",
+      [g for g, _n, _s in cnt] == [g for g in dart.DISCLOSURE_GROUPS
+                                   if any(f.kind == g for f in demo_f)])
+only = dart.filter_filings(demo_f, groups=["희석·물량"])
+check("묶음 필터", only and all(f.kind == "희석·물량" for f in only))
+cb = dart.filter_filings(demo_f, groups=["희석·물량"], subs=["전환사채(CB)"])
+check("세부 필터", len(cb) == 1 and cb[0].sub == "전환사채(CB)")
+check("시장 필터", all(f.market == "코스피"
+                     for f in dart.filter_filings(demo_f, market="코스피")))
+mine = dart.filter_filings(demo_f, codes={"005930"})
+check("내 종목 필터", [f.stock_code for f in mine] == ["005930"])
+check("빈 조건은 전부", len(dart.filter_filings(demo_f)) == len(demo_f))
+check("코드 집합이 비어 있으면 0건 (전부가 아님)",
+      dart.filter_filings(demo_f, codes=set()) == [])
+
+print("\n=== 개별 공시 중요도 ===")
+D = dart.Disclosure
+check("DART 가운뎃점 배당도 중요", D("x", "현금ㆍ현물배당결정", "1", "20261111").importance == 2,
+      "예전에는 '현금·현물배당'(U+00B7) 키워드와 안 맞았습니다")
+check("세부 유형(CB)도 중요", D("x", "전환사채권발행결정", "1", "20261111").importance == 2)
+check("임원 소유보고는 보통", D("x", "임원ㆍ주요주주특정증권등소유상황보고서", "1",
+                              "20261111").importance == 1)
+check("세부 유형 이름", D("x", "전환가액의조정", "1", "20261111").category
+      == "가액 조정(리픽싱)")
 
 f = dart.MarketFiling("2026-11-11", "삼성전자", "005930", "영업(잠정)실적",
                       "실적", rcept_no="20261111000001")
@@ -215,10 +356,28 @@ check("빈 섹터도 자리를 남긴다", "dash-sector-empty" in html,
       "조용히 빼면 '오늘 뉴스가 없네' 로 오해합니다")
 check("검색어를 보여준다", "한국은행 기준금리" in html)
 
-fl = ui.render_market_filings(demo_mod.demo_market_filings())
+fl = ui.render_market_filings(demo_mod.demo_market_filings(),
+                              held={"005930"}, scan=demo_mod.demo_filing_scan())
 check("공시 표를 그린다", "dash-table" in fl)
-check("분류 배지", "자본조달" in fl)
+check("묶음 배지 + 세부 이름", "희석·물량" in fl and "전환사채(CB)" in fl)
+check("묶음 색 클래스", "dash-fk-dilute" in fl and "dash-fk-risk" in fl)
+check("시장을 적는다", "코스닥" in fl)
+check("정정 꼬리표", "dash-fl-flag'>정정<" in fl)
+check("내 종목 별표", fl.count("dash-fl-star") == 1)
+check("대량보유는 제출인을 적는다", "제출 (데모) 어떤자산운용" in fl)
+check("훑은 범위를 밝힌다", "6쪽 한도" in fl)
 check("추렸다는 걸 밝힌다", "제목으로 추렸습니다" in fl)
+long = demo_mod.demo_market_filings() * 10
+check("많으면 잘라서 보여주고 그 사실을 적는다",
+      "앞의 120건만" in ui.render_market_filings(long))
+fc = ui.render_filing_counts(dart.count_filings(demo_mod.demo_market_filings()),
+                             active=["경고"])
+check("건수 카드", fc.count("dash-fc ") >= 5 and "dim" in fc)
+check("세부 분해를 적는다", "전환사채(CB) 1" in fc)
+check("빈 집계는 빈 문자열", ui.render_filing_counts([]) == "")
+guide = ui.render_filing_guide(dart.DISCLOSURE_TYPES, dart.DISCLOSURE_GROUPS)
+check("유형 설명", "리픽싱" in guide and guide.count("<li>") == len(dart.DISCLOSURE_TYPES))
+check("판정하지 않는다고 밝힌다", "판정하지 않고" in guide)
 check("비면 왜 비었는지 적는다",
       "추려내는 유형" in ui.render_market_filings([]))
 check("오류는 오류로", "키 없음" in ui.render_market_filings([], error="키 없음"))
@@ -227,6 +386,73 @@ xss_f = dart.MarketFiling("2026-11-11", "<img src=x onerror=1>", "0",
                           "<script>", "실적", rcept_no="1")
 check("공시 응답을 이스케이프한다",
       "&lt;img" in ui.render_market_filings([xss_f]))
+
+
+print("\n=== 공시 화면 배선 (가짜 스트림릿) ===")
+import ast as _ast  # noqa: E402
+import contextlib as _cl  # noqa: E402
+import portfolio as _pf  # noqa: E402
+
+_fns = {n.name: n for n in _ast.parse(pathlib.Path("app.py").read_text(
+    encoding="utf-8")).body if isinstance(n, _ast.FunctionDef)}
+
+
+class _St:
+    def __init__(self, picks=(), market="전체", mine=False):
+        self.md, self.picks, self.market, self.mine = [], list(picks), market, mine
+        self.session_state = {"filing_groups": ["사라진 묶음"] + list(picks)}
+        self.labels = []
+
+    def markdown(self, html, **_k):
+        self.md.append(html)
+
+    def pills(self, label, options, **k):
+        self.labels.append((label, list(options)))
+        cur = self.session_state.get(k["key"])
+        assert cur is None or all(x in options for x in cur), "옛 선택 남음"
+        return [x for x in self.picks if x in options] if label == "분류" else []
+
+    def segmented_control(self, label, options, **_k):
+        return self.market
+
+    def toggle(self, label, **_k):
+        self.labels.append((label, []))
+        return self.mine
+
+    def columns(self, spec):
+        return [_cl.nullcontext() for _ in spec]
+
+    def expander(self, _label):
+        return _cl.nullcontext()
+
+
+def _run_f(st, err=""):
+    scan = demo_mod.demo_filing_scan()
+    ns = {"st": st, "ui": ui, "config": config, "dart": dart, "portfolio": _pf,
+          "load_market_filings": lambda d, fp: (scan if not err else dart.FilingScan([]), err)}
+    body = [_fns[n] for n in ("_kr_my_codes", "_multi_pick", "_render_market_filings")]
+    exec(compile(_ast.Module(body=body, type_ignores=[]), "app.py", "exec"), ns)
+    ns["_render_market_filings"](True)
+    return "".join(st.md)
+
+
+_h = _run_f(_St())
+check("공시 화면: 건수 카드 + 표 + 설명", all(x in _h for x in
+      ("dash-fc-grid", "dash-fl", "dash-fg-wrap")))
+check("세션에 남은 옛 선택을 지운다", True)
+_st1 = _St(picks=["희석·물량"])
+_h = _run_f(_st1)
+check("묶음 하나를 고르면 세부 칩이 나온다",
+      any(lbl == "희석·물량 세부" for lbl, _o in _st1.labels))
+check("고른 묶음만 표에", "dash-fk-dilute" in _h and "dash-fk-return'" not in _h
+      .split("dash-fl")[1] if "dash-fl" in _h else False)
+_h = _run_f(_St(market="코스피"))
+check("시장 필터가 표에 먹는다", "(데모) 코스닥" not in _h.split("<tbody>")[1])
+_h = _run_f(_St(mine=True))
+check("내 종목만 — 워치리스트 국내 종목이 남는다",
+      "삼성전자" in _h.split("<tbody>")[1] and "(데모) 코스닥" not in _h.split("<tbody>")[1])
+_h = _run_f(_St(), err="DartKeyMissing: 키 없음")
+check("오류면 필터 없이 사유만", "키 없음" in _h and "dash-fc-grid" not in _h)
 
 print("\n=== 앱 배선 ===")
 _app = pathlib.Path("app.py").read_text(encoding="utf-8")

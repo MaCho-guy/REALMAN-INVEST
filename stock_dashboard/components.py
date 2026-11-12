@@ -962,10 +962,13 @@ def render_macro_card(reading, *, hit: bool = False, show_why: bool = True) -> s
     if reading.delta is not None and reading.delta != 0:
         arrow = f"{'▲' if reading.delta > 0 else '▼'} {_esc(reading.delta_label)}"
 
-    meta = [f"관측 {_esc(reading.observed_label)}"]
-    if reading.lag_days is not None:
-        late = ' class="late"' if reading.stale else ""
-        meta.append(f"<span{late}>{reading.lag_days}일 전</span>")
+    meta = [_esc(reading.period_label)]
+    if reading.stale:
+        meta.append('<span class="late">발표 지연</span>')
+    else:
+        meta.append(_esc(reading.cadence_label))
+    if reading.live_label:
+        meta.insert(0, f"<b>{_esc(reading.live_label)}</b>")
     if not spec.verified:
         meta.append("계열 미검증")
 
@@ -3368,14 +3371,18 @@ def render_macro_table(groups, by_group: dict, hit_keys: set,
             arrow = "—"
             if r.delta is not None and r.delta != 0:
                 arrow = f"{'▲' if r.delta > 0 else '▼'} {_esc(r.delta_label)}"
-            late = " class='late'" if r.stale else ""
-            lag = "" if r.lag_days is None else f"<span{late}>{r.lag_days}일 전</span>"
+            # 'N일 전' 대신 **언제 것인지**와 **다음에 언제 나오는지** 를 적습니다
+            lag = (f"<span class='late'>발표 지연 · {r.lag_days}일째</span>"
+                   if r.stale and r.lag_days is not None
+                   else f"<span>{_esc(r.cadence_label)}</span>")
+            live = (f"<i class='mt-live'>{_esc(r.live_label)}</i>"
+                    if r.live_label else "")
             body.append(
                 f"<tr class='{'mt-hit' if hit else ''}'>{name}"
-                f"<td class='mt-val'>{_esc(r.value_label)}</td>"
+                f"<td class='mt-val'>{_esc(r.value_label)}{live}</td>"
                 f"<td class='mt-delta'>{arrow}</td>"
                 f"<td class='mt-spark'>{render_macro_spark(r.history, width=120, height=24)}</td>"
-                f"<td class='mt-obs'>{_esc(r.observed_label)}{lag}</td></tr>")
+                f"<td class='mt-obs'>{_esc(r.period_label)}{lag}</td></tr>")
             extra = []
             if show_why and spec.why:
                 extra.append(_safe_inline(spec.why))

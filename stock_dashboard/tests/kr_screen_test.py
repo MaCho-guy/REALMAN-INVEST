@@ -304,6 +304,45 @@ check("kr_screen 이 streamlit 을 임포트하지 않는다",
 _pv = pathlib.Path("tools/preview.py").read_text(encoding="utf-8")
 check("프리뷰도 같은 정의를 쓴다", "kr_screen.KR_SCREENS" in _pv)
 
+print("\n=== 걸러진 단계 (0건 원인 구분) ===")
+import random as _rnd  # noqa: E402
+import kr_screen  # noqa: E402
+from kr_screen import VolProfile as _VP, vol_funnel as _vf, value_funnel as _vlf, ValueRow as _VR  # noqa: E402
+
+_rnd.seed(1)
+_cl = [100 * (1 + 0.001 * i) for i in range(300)]
+_good = kr_screen.profile("A", "a", _cl, [1e7] * 300)
+_steps = _vf(10, [_good])
+check("일봉 받은 수가 적으면 출처 문제라고 적는다",
+      _steps[1].count == 1 and "출처" in _steps[1].note, str(_steps[1]))
+check("단계는 줄어들기만 한다",
+      all(_steps[i].count >= _steps[i + 1].count for i in range(1, len(_steps) - 1)))
+_novol = kr_screen.profile("B", "b", _cl, None)
+_s2 = _vf(1, [_novol])
+check("거래량 못 받은 종목 수를 적는다", "거래량을 못 받은" in _s2[3].note, _s2[3].note)
+_v = _vlf([_VR("A", "a", error="네이버 실패"), _VR("B", "b", pbr=0.8, per=8, div_yield=3)])
+check("지표 단계: 받은 1 · 통과 1", _v[1].count == 1 and _v[3].count == 1, str(_v))
+
+print("\n=== 네이버 응답 해석 ===")
+from sources import naver as _nv  # noqa: E402
+
+_xml = ('<chartdata name="삼성전자"><item data="20251107|1|1|1|1050|12345" />'
+        '<item data="20251110|1|1|1|1010|2000" /><item data="x|y" /></chartdata>')
+_c, _vv, _n = _nv.parse_chart_xml(_xml)
+check("일봉: 종가·거래량·이름", _c == [1050.0, 1010.0] and _vv == [12345.0, 2000.0]
+      and _n == "삼성전자")
+check("일봉: 빈 응답은 빈 목록", _nv.parse_chart_xml("")[0] == [])
+_i = _nv.parse_integration({"stockName": "삼성전자", "totalInfos": [
+    {"code": "cnsPer", "key": "추정PER", "value": "9.10배"},
+    {"code": "per", "key": "PER", "value": "13.52배"},
+    {"code": "pbr", "key": "PBR", "value": "1.10배"},
+    {"code": "dividendYieldRatio", "key": "배당수익률", "value": "1.84%"}]})
+check("지표: 추정PER 이 아니라 PER", _i["per"] == 13.52, str(_i))
+check("지표: PBR·배당", _i["pbr"] == 1.10 and _i["div_yield"] == 1.84)
+check("지표: 'N/A' 는 None", _nv.parse_integration(
+    {"totalInfos": [{"code": "per", "value": "N/A"}]})["per"] is None)
+check("지표: 이상한 응답에도 안 죽는다", _nv.parse_integration([1, 2])["per"] is None)
+
 print("\n" + "=" * 54)
 if FAILURES:
     print(f"실패 {len(FAILURES)}건: {', '.join(FAILURES)}")

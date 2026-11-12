@@ -390,6 +390,68 @@ check("import 보다 먼저 확인한다",
       src.index("_drop_stale_modules() if __name__") < src.index("import swr  # noqa: E402"))
 check("정상 시작한 뒤에 묶음을 적는다", "sys._dash_build = _build_id()" in src)
 
+print("\n=== 받은 시각 표기 (2026-11-12 \"모든 지표 언제 받았는지\") ===")
+import re  # noqa: E402
+from concurrent.futures import ThreadPoolExecutor  # noqa: E402
+
+with swr._store_lock:
+    swr._store.clear()
+swr._tl.__dict__.pop("served", None)
+t_a = swr.cached(3_600, disk=False)(lambda tag: tag)
+t_a.name = "load_alpha"
+t_b = swr.cached(3_600, disk=False)(lambda: "b")
+t_b.name = "load_beta"
+t_a("x")
+check("기록을 시작하기 전에는 적지 않는다", swr.served_times() == {})
+swr.reset_stale_served()
+t0_ = time.time()
+t_a("x"), t_a("y"), t_b.peek()        # peek 는 값이 없으면 None — 기록도 없음
+got_times = swr.served_times()
+check("이번 화면에서 쓴 것만, 받은 시각과 함께",
+      set(got_times) == {"load_alpha"} and got_times["load_alpha"][0] <= got_times["load_alpha"][1] <= time.time(),
+      str(got_times))
+x_at = swr._store[t_a.key(("x",), {})].at
+check("같은 출처를 여러 번 받았으면 가장 오래된 시각이 앞", got_times["load_alpha"][0] == x_at)
+t_b()
+check("peek 로 읽은 값도 적는다", t_b.peek() == "b" and "load_beta" in swr.served_times())
+with ThreadPoolExecutor(1) as ex:
+    other = ex.submit(lambda: (t_a("z"), swr.served_times())[1]).result()
+check("뒤에서 도는 스레드의 받기는 섞이지 않는다",
+      other == {} and len(swr._tl.served["load_alpha"]) == 2, str(other))
+swr.reset_stale_served()
+check("화면을 새로 그리면 비운다", swr.served_times() == {})
+
+want = {"FETCH_LABELS", "FETCH_OLD_SEC"}
+body = [n for n in tree.body
+        if (isinstance(n, ast.FunctionDef) and n.name in ("_fetched_line", "_age_text"))
+        or (isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") in want)]
+ns2 = {"dt": dt, "time": time, "KST": ZoneInfo("Asia/Seoul")}
+exec(compile(ast.Module(body=body, type_ignores=[]), "app.py", "exec"), ns2)  # noqa: S102
+line_fn, labels = ns2["_fetched_line"], ns2["FETCH_LABELS"]
+now_ = dt.datetime(2026, 11, 12, 11, 5, tzinfo=ZoneInfo("Asia/Seoul")).timestamp()
+html_ = line_fn({"load_all": (now_ - 40, now_ - 40),
+                 "load_macro": (now_ - 7 * 60, now_ - 60),
+                 "load_kr_screens": (now_ - 4.5 * 3_600, now_ - 4.5 * 3_600),
+                 "load_dividends": (now_ - 30 * 3_600, now_),
+                 "모르는_함수": (now_, now_)}, now_)
+check("시:분으로 적는다", "시세 11:04" in html_ and "경제지표(FRED) 10:58" in html_, html_)
+check("오래된 것은 몇 시간 전인지 함께, 눈에 띄게",
+      '<span class="old">국내 재무 심사 06:35 <i>4시간 전</i></span>' in html_
+      or '<span class="old">국내 재무 심사 06:35 <i>5시간 전</i></span>' in html_, html_)
+check("오늘 것이 아니면 날짜도", "배당 11/11 05:05" in html_, html_)
+check("이름표가 없는 것은 적지 않는다", "모르는_함수" not in html_)
+check("쓴 것이 없으면 줄 자체가 없다", line_fn({}, now_) == "")
+check("시세가 맨 앞", html_.index("시세 ") < html_.index("경제지표"))
+loaders = set(re.findall(r"^@swr\.cached\([^\n]*\n(?:[^\n]*\n)??def (\w+)\(", src, re.M))
+loaders |= set(re.findall(r"wait_fresh=config\.QUOTE_WAIT_FRESH_SEC\)\ndef (\w+)\(", src))
+check("받기 함수를 전부 찾았다", len(loaders) >= 30 and "load_all" in loaders, str(len(loaders)))
+check("모든 받기 함수에 이름표가 있다", not (loaders - set(labels)), str(sorted(loaders - set(labels))))
+check("없는 함수의 이름표가 없다", not (set(labels) - loaders), str(sorted(set(labels) - loaders)))
+check("화면마다 자리를 잡고 다 그린 뒤 채운다",
+      src.index("times_slot = st.empty()") < src.index("times_slot.markdown(")
+      and "swr.served_times()" in src)
+check("스타일이 있다", ".dash-times" in theme.build_css("kr"))
+
 print("\n" + "=" * 54)
 if FAILURES:
     print(f"실패 {len(FAILURES)}건: {FAILURES}")

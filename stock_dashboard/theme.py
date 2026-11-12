@@ -1565,6 +1565,16 @@ def build_rules() -> str:
   .dash-mt td.mt-obs span {{ display: block; color: var(--dash-ink-muted);
                             font-size: var(--fs-1); }}
   .dash-mt td.mt-obs span.late {{ color: var(--dash-badge-error); font-weight: 650; }}
+  /* 받은 시각 — 화면마다 맨 위 한 줄 (좁으면 여러 줄로 넘어갑니다) */
+  .dash-times {{ display: flex; flex-wrap: wrap; align-items: baseline;
+    gap: 3px 12px; margin: 0 0 10px; font-size: var(--fs-1);
+    color: var(--dash-ink-muted); font-variant-numeric: tabular-nums; }}
+  .dash-times b {{ color: var(--dash-ink-2); font-weight: 650; }}
+  .dash-times span {{ white-space: nowrap; }}
+  .dash-times span.old {{ color: var(--dash-ink-2); font-weight: 600; }}
+  .dash-times span.old i {{ font-style: normal; font-weight: 400; }}
+  .dash-mt td.mt-val i.mt-live {{ display: block; font-style: normal;
+    font-size: var(--fs-2); font-weight: 600; color: var(--dash-accent); }}
   .dash-mt tr.mt-hit td:first-child {{ box-shadow: inset 3px 0 0 var(--dash-accent); }}
   .mt-flag, .mt-unv {{ font-style: normal; font-size: var(--fs-1); font-weight: 650;
     margin-left: 7px; padding: 1px 7px; border-radius: var(--r-pill);

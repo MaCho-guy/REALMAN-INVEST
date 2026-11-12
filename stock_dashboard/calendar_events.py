@@ -246,6 +246,31 @@ def parse_fred_dates(payload: object, start: dt.date, end: dt.date
     return out, sorted(set(warns))
 
 
+def next_release_dates(payload: object, today: dt.date | None = None
+                       ) -> dict[int, dt.date]:
+    """FRED releases/dates 응답 → {발표 번호: 오늘 이후 가장 가까운 발표일}.
+
+    매크로 표의 '다음 발표 11/13' 에 씁니다. 응답이 이상하면 빈 묶음.
+    """
+    today = today or dt.date.today()
+    out: dict[int, dt.date] = {}
+    if not isinstance(payload, dict):
+        return out
+    for row in payload.get("release_dates") or []:
+        if not isinstance(row, dict):
+            continue
+        try:
+            rid = int(row.get("release_id"))
+            day = dt.date.fromisoformat(str(row.get("date") or ""))
+        except (TypeError, ValueError):
+            continue
+        if day < today:
+            continue
+        if rid not in out or day < out[rid]:
+            out[rid] = day
+    return out
+
+
 def _as_date(value) -> dt.date | None:
     """epoch 초(야후 실제 응답) 또는 'YYYY-MM-DD'(데모·다른 경로) → 날짜."""
     if not value:

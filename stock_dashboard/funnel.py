@@ -23,6 +23,7 @@
 """
 from __future__ import annotations
 
+import config
 import reverse_dcf as rdcf
 
 
@@ -79,13 +80,26 @@ def chart_part(row) -> dict:
     return {"side": row.side, "st": st, "bar": row.last_bar, "p": row.price}
 
 
-def is_light(p: dict | None) -> bool:
-    """가격 부담 낮음 — 요구 성장률 ≤ 과거 실제 성장률 (왜곡이 큰 종목 제외)."""
-    return bool(p) and p.get("gap") is not None and p["gap"] <= 0 and not p.get("sev")
+def hist_ref(p: dict | None, cap: float | None = None) -> float | None:
+    """비교에 쓰는 과거 성장률 — 실제 값과 상한 가운데 작은 쪽 (없으면 None)."""
+    if not p or p.get("h") is None:
+        return None
+    cap = config.FUNNEL_HIST_GROWTH_CAP if cap is None else cap
+    return min(p["h"], cap)
+
+
+def is_light(p: dict | None, cap: float | None = None) -> bool:
+    """가격 부담 낮음 — 요구 성장률 ≤ 과거 실제 성장률(상한까지만 인정).
+
+    FCF 기준값 왜곡이 큰 종목은 숫자가 있어도 세지 않습니다.
+    """
+    ref = hist_ref(p, cap)
+    return (ref is not None and p.get("g") is not None and not p.get("sev")
+            and p["g"] <= ref)
 
 
 def price_known(p: dict | None) -> bool:
-    return bool(p) and p.get("gap") is not None and not p.get("sev")
+    return bool(p) and p.get("g") is not None and p.get("h") is not None and not p.get("sev")
 
 
 def is_oversold(c: dict | None) -> bool:
@@ -105,6 +119,8 @@ def price_cells(p: dict | None) -> tuple[str, str]:
         return "—", "역DCF 적용 불가" if p.get("e") else ""
     note = (f"과거 {pct(p.get('h'))} · {p.get('sp')}년" if p.get("h") is not None
             else "과거 성장률 계산 불가")
+    if p.get("h") is not None and p["h"] > config.FUNNEL_HIST_GROWTH_CAP:
+        note += f" → 상한 {pct(config.FUNNEL_HIST_GROWTH_CAP)} 적용"
     if p.get("sev"):
         note += " · 기준값 왜곡 큼"
     elif p.get("norm"):

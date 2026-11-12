@@ -195,9 +195,17 @@ UNIVERSE_URLS = {
     "kr": os.environ.get("UNIVERSE_KR_URL", _DATA_RAW + "universe_kr.json"),
 }
 UNIVERSE_URLS["funnel_us"] = os.environ.get("FUNNEL_US_URL", _DATA_RAW + "funnel_us.json")
+UNIVERSE_URLS["funnel_kr"] = os.environ.get("FUNNEL_KR_URL", _DATA_RAW + "funnel_kr.json")
+#: 국내 품질 심사(DART 사업보고서)를 다시 하는 주기(시간) — 연간 재무라 하루 한 번이면 됩니다.
+#: 350종목 × 사업보고서 4건 = 약 1,400건 (DART 한도는 하루 20,000건).
+FUNNEL_KR_MAX_AGE_HOURS = 20.0
 #: 깔때기(가격 · 차트)를 미리 계산해 둘 종목 — 품질 통과 수가 이 값 이상.
 #: 기본선(7)보다 한 칸 낮게 잡아, 화면에서 슬라이더를 6으로 내려도 숫자가 나옵니다.
 FUNNEL_MIN_PASS = 6
+#: '가격 부담 낮음' 을 볼 때 과거 FCF 성장률을 인정하는 상한 (소수. 0.15 = 연 15%).
+#: 2026-11-12 사용자 결정. 상한이 없으면 과거에 연 35% 자란 회사는 주가가 연 17%
+#: 성장을 요구해도 '낮음' 이 됩니다 — 과거의 고성장이 그대로 이어진다고 보는 셈입니다.
+FUNNEL_HIST_GROWTH_CAP = 0.15
 #: 종목 발굴 표에 한 번에 싣는 줄 수 (나머지는 접어 둡니다).
 DISCOVER_TABLE_ROWS = 40
 #: 미국 발굴의 '통과' 기본선 — 9개 중 몇 개 이상 (2026-11-12 사용자 지정: 7).

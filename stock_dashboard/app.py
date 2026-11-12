@@ -1757,7 +1757,8 @@ def _discover_us(use_demo: bool) -> None:
         unknown_p = sum(1 for s_ in passed if not funnel.price_known(_fp(s_.ticker)))
         st.markdown(ui.render_legend(
             "<b>가격 부담 낮음</b> = 역DCF 로 역산한 '지금 주가가 요구하는 FCF 성장률' 이 "
-            "과거 실제 FCF 성장률 이하 (할인율 10% · 영구성장률 2.5% · 밸류에이션 탭과 같은 규칙) · "
+            "과거 실제 FCF 성장률 이하 (할인율 10% · 영구성장률 2.5% · 과거 성장률은 "
+            f"연 {config.FUNNEL_HIST_GROWTH_CAP * 100:g}% 까지만 인정) · "
             "<b>차트</b> = 과매도 쪽 (CCI · 스토캐스틱 · 볼린저) · 계산 "
             + (dt.datetime.fromtimestamp(made_f, KST).strftime("%m/%d %H:%M") if made_f else "?")
             + (f" · 가격을 판정하지 못한 {unknown_p}종목(FCF 적자 · 사이클 왜곡 · 과거 성장률 "
@@ -1845,6 +1846,110 @@ def _discover_us(use_demo: bool) -> None:
                         unsafe_allow_html=True)
 
 
+def _kr_quality_block(use_demo: bool) -> None:
+    """국내 품질 깔때기 — 버핏식 기준 9개 → 가격(역DCF 요구 성장률) → 차트 과매도 쪽.
+
+    수집기가 코스피200 + 코스닥150 을 DART 사업보고서로 심사해 올린 funnel_kr.json
+    을 읽기만 합니다 (tools/collect.build_funnel_kr). 파일이 없으면 아무것도
+    그리지 않습니다 — 아래 여섯 스크리너는 그대로 나옵니다.
+    """
+    fpay = _universe_or_none("funnel_kr", use_demo)
+    all_screens = [x for x in (buffett.from_summary(r) for r in (fpay.get("screens") or [])) if x]
+    if not all_screens:
+        return
+    usable = [s_ for s_ in all_screens if s_.ok]
+    errors = dict(fpay.get("errors") or {})
+    errors.update({x.ticker: x.error for x in all_screens if not x.ok and x.error})
+    fmap = {r.get("t"): r for r in (fpay.get("rows") or []) if isinstance(r, dict)}
+
+    def _fp(t):
+        return (fmap.get(t) or {}).get("p")
+
+    def _fc(t):
+        return (fmap.get(t) or {}).get("c")
+
+    qmin = min(config.DISCOVER_QUALITY_MIN, len(buffett.CRITERIA))
+    quality = buffett.rank_by_ratio([s_ for s_ in usable if s_.passed_count >= qmin])
+    light = [s_ for s_ in quality if funnel.is_light(_fp(s_.ticker))]
+    both = [s_ for s_ in light if funnel.is_oversold(_fc(s_.ticker))]
+    verdicts = [c.verdict for s_ in usable for c in s_.checks]
+    unknown_pct = (verdicts.count("unknown") / len(verdicts) * 100) if verdicts else 0.0
+    q_made, made = fpay.get("q_made"), fpay.get("made")
+
+    def _when(ts):
+        return dt.datetime.fromtimestamp(ts, KST).strftime("%m/%d %H:%M") if ts else "?"
+
+    st.markdown(ui.render_section_head(
+        "품질 깔때기 · 한국",
+        f"대형주 전수 → 버핏식 품질 기준 {len(buffett.CRITERIA)}개 → 가격 → 차트"),
+        unsafe_allow_html=True)
+    st.markdown(ui.render_legend(
+        f"<b>품질</b> = 버핏식 기준 {len(buffett.CRITERIA)}개 중 {qmin}개 이상 통과 "
+        f"(DART 사업보고서 최근 10년 · 심사 {_when(q_made)}) · 전체 판정 가운데 "
+        f"<b>판정 불가 {unknown_pct:.0f}%</b> · <b>가격 부담 낮음</b> = 역DCF 요구 FCF 성장률 ≤ "
+        f"과거 실제 성장률(연 {config.FUNNEL_HIST_GROWTH_CAP * 100:g}% 까지만 인정) · "
+        f"<b>차트</b> = 과매도 쪽 · 가격 · 차트 계산 {_when(made)}"),
+        unsafe_allow_html=True)
+    st.markdown(ui.render_funnel([
+        kr_screen.FunnelStep("후보", int(fpay.get("n_members") or len(all_screens) + len(errors))),
+        kr_screen.FunnelStep("재무 받음", len(usable),
+                             "못 받은 종목은 아래 '이유 보기'" if errors else ""),
+        kr_screen.FunnelStep(f"{qmin}개 이상 통과", len(quality)),
+        kr_screen.FunnelStep("가격 부담 낮음", len(light)),
+        kr_screen.FunnelStep("차트 과매도 쪽", len(both)),
+    ], errors, title="단계별로 남은 종목"), unsafe_allow_html=True)
+
+    stage_names = {"q": f"품질 통과 ({len(quality)})",
+                   "p": f"+ 가격 부담 낮음 ({len(light)})",
+                   "c": f"+ 차트 과매도 쪽 ({len(both)})"}
+    stage = st.segmented_control(
+        "어디까지 좁혀서 볼까", list(stage_names), default="q", key="disc_kr_stage",
+        format_func=lambda k: stage_names[k], label_visibility="collapsed") or "q"
+    shown = {"q": quality, "p": light, "c": both}[stage]
+    held = {c for c, _n in config.watchlist_kr()}
+    names = {k: n for k, n, _r in chart_signals.CONDITIONS}
+    extra = {s_.ticker: [funnel.price_cells(_fp(s_.ticker)),
+                         (funnel.chart_cell(_fc(s_.ticker), names), "")] for s_ in quality}
+    if not shown:
+        st.markdown(ui.render_notice(
+            "<b>이 단계까지 남은 종목이 없습니다.</b> "
+            + (f"품질 통과 {len(quality)}종목 가운데 조건을 다 만족하는 종목이 지금은 없습니다 — "
+               "한 단계 앞을 보십시오." if quality else
+               f"{qmin}개 이상 통과한 종목이 없습니다.")), unsafe_allow_html=True)
+    else:
+        top = shown[:config.DISCOVER_US_ROWS]
+        st.markdown(ui.render_screen_table(
+            top, buffett.CRITERIA, held=held, rank_from=1,
+            extra_heads=("요구 성장률", "차트"), extra=extra), unsafe_allow_html=True)
+        st.markdown(ui.render_legend(
+            "<b>○</b> 통과 · <b>✗</b> 미달 · <b>?</b> 판정 불가 · <b>★</b> 내 관심종목 · "
+            "<b>순위</b> = 판정된 기준 중 통과 비율 — 이 목록은 '살 종목' 이 아니라 "
+            "'공시를 읽어볼 순서' 입니다"
+            + (f" · {len(shown)}종목 중 위 {len(top)}종목" if len(shown) > len(top) else "")),
+            unsafe_allow_html=True)
+        rest = shown[len(top):]
+        if rest:
+            with st.expander(f"나머지 {len(rest)}개 ({len(top) + 1}위부터)", expanded=False):
+                st.markdown(ui.render_screen_table(
+                    rest[:300], buffett.CRITERIA, held=held, rank_from=len(top) + 1,
+                    extra_heads=("요구 성장률", "차트"), extra=extra), unsafe_allow_html=True)
+        by_ticker = {s_.ticker: s_ for s_ in shown}
+        order = {s_.ticker: i + 1 for i, s_ in enumerate(shown)}
+        if st.session_state.get("disc_kr_pick") not in by_ticker:
+            st.session_state.pop("disc_kr_pick", None)
+        picked = st.selectbox(
+            "자세히 볼 종목 (기준별 근거)", list(by_ticker), key="disc_kr_pick",
+            format_func=lambda t: (f"{order[t]}위 · " + ("★ " if t in held else "")
+                                   + f"{by_ticker[t].name[:20]} · {t} · "
+                                   f"{by_ticker[t].score_label}"))
+        if picked in by_ticker:
+            st.markdown(ui.render_screen(by_ticker[picked], show_source=False),
+                        unsafe_allow_html=True)
+    with st.expander("버핏식 품질 기준 9개 — 국내 통과 조건", expanded=False):
+        st.markdown(_criteria_block(buffett_kr.kr_thresholds(), market="kr", quality_min=qmin),
+                    unsafe_allow_html=True)
+
+
 # ── 국내 — 변동성 + 밸류 ────────────────────────────────────────────────
 
 def _discover_kr(use_demo: bool) -> None:
@@ -1864,6 +1969,13 @@ def _discover_kr(use_demo: bool) -> None:
         st.markdown(ui.render_legend(_universe_line("kr", payload)), unsafe_allow_html=True)
     elif not use_demo:
         st.markdown(ui.render_notice(_fallback_note("kr")), unsafe_allow_html=True)
+    # 품질 → 가격 → 차트 깔때기 (미국과 같은 순서). 아래 여섯 스크리너는 주가 ·
+    # 거래 기준이라 질문이 다릅니다 — 둘 다 둡니다.
+    _kr_quality_block(use_demo)
+    if from_file:
+        st.markdown(ui.render_section_head(
+            "주가 · 거래 스크리너", "변동성 · 신고가 · 전통 밸류 · 상대강도 · 낙폭 · 거래대금"),
+            unsafe_allow_html=True)
     st.markdown(
         ui.render_footnote(
             f"<b>왜 미국과 기준이 다른가.</b> 국내 후보 "
@@ -3327,8 +3439,15 @@ def load_kr_screens(use_demo: bool, key_fp: str = "") -> tuple[dict, dict]:
     """국내 스크리닝. 종목당 사업보고서 4회 요청(각 3년)."""
     if use_demo:
         return demo_mod.demo_kr_screens()
+    return kr_screens_for(config.screen_kr_candidates())
 
-    candidates = config.screen_kr_candidates()
+
+def kr_screens_for(candidates, *, keep_failed: bool = False) -> tuple[dict, dict]:
+    """(코드, 이름) 목록을 DART 사업보고서로 심사합니다 — ({코드: Screen}, {코드: 이유}).
+
+    화면(손으로 고른 후보)과 수집기(코스피200 + 코스닥150 전수)가 같이 씁니다.
+    keep_failed 면 재무는 받았지만 연도 축을 못 만든 종목도 Screen 으로 돌려줍니다.
+    """
     th = buffett_kr.kr_thresholds()
     try:
         corp_map = dart.fetch_corp_codes()
@@ -3365,7 +3484,7 @@ def load_kr_screens(use_demo: bool, key_fp: str = "") -> tuple[dict, dict]:
             for code, screen, err in pool.map(one, jobs):
                 if err is not None:
                     errors[code] = err
-                elif screen is not None and screen.ok:
+                elif screen is not None and (screen.ok or keep_failed):
                     screens[code] = screen
                 elif screen is not None:
                     errors[code] = screen.error

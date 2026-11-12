@@ -532,6 +532,100 @@ def build_funnel_us(app, out_dir: str, *, caps_fn=None, ohlc_fn=None) -> dict:
             "sec": time.time() - t0, "sec_caps": t_caps, "bytes": size_b}
 
 
+def build_funnel_kr(app, out_dir: str, *, screens_fn=None, caps_fn=None, ohlc_fn=None,
+                    force: bool = False) -> dict:
+    """한국 깔때기 — 코스피200 + 코스닥150 을 버핏식 품질 기준으로 거르고(DART),
+    통과 종목에만 가격(역DCF)과 차트 조건을 겁니다.
+
+    품질 심사는 연간 재무라 하루 한 번만 합니다 (지난 funnel_kr.json 이
+    FUNNEL_KR_MAX_AGE_HOURS 보다 새것이고 읽는 방식의 판이 같으면 그 판정을 다시 씀).
+    가격 · 차트는 매번 새로 계산합니다. DART 키가 없으면 건너뜁니다.
+    """
+    import buffett  # noqa: PLC0415
+    import chart_signals  # noqa: PLC0415
+    import config  # noqa: PLC0415
+    import funnel  # noqa: PLC0415
+    import universe  # noqa: PLC0415
+    from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
+    from sources import naver, yahoo  # noqa: PLC0415
+
+    t0 = time.time()
+    name = "funnel_kr.json"
+    uni = _read_prev(out_dir, "universe_kr.json")
+    members = [m for m in (uni.get("members") or []) if m.get("code")]
+    if not members:
+        return {"skipped": "한국 후보 목록(universe_kr.json)이 없습니다"}
+    prev = _read_prev(out_dir, name)
+    q_made = prev.get("q_made") or 0
+    reuse = (not force and prev.get("screens") and prev.get("screen_rev") == buffett.SCREEN_REV
+             and (time.time() - q_made) < config.FUNNEL_KR_MAX_AGE_HOURS * 3600
+             and len(prev["screens"]) >= len(members) // 2)
+    if reuse:
+        screens, errors = list(prev["screens"]), dict(prev.get("errors") or {})
+    else:
+        if screens_fn is None and not os.environ.get("DART_API_KEY"):
+            return {"skipped": "DART_API_KEY 가 없습니다 (저장소 Secrets)", "kept": bool(prev)}
+        cands = [(m["code"], m.get("name", "")) for m in members]
+        got, errs = (screens_fn or (lambda c: app.kr_screens_for(c, keep_failed=True)))(cands)
+        if len(got) < len(cands) // 3 and prev.get("screens"):
+            # 3분의 1도 못 받았으면(DART 한도 · 장애) 지난 판정이 낫습니다
+            return {"skipped": f"품질 심사를 {len(got)}/{len(cands)}만 받았습니다", "kept": True}
+        errors = {c: redact(str(e), secret_values())[:160] for c, e in errs.items()}
+        screens = []
+        for code, _n in cands:
+            sc = got.get(code)
+            if sc is None:
+                continue
+            d = (funnel.dcf_inputs(sc)
+                 if sc.ok and sc.passed_count >= config.FUNNEL_MIN_PASS else None)
+            screens.append(buffett.to_summary(sc, d=d))
+        q_made = int(time.time())
+    t_q = time.time() - t0
+
+    todo = [r for r in screens if isinstance(r.get("d"), dict)]
+    codes = [r["t"] for r in todo]
+    # 시가총액 — 후보 목록에 있으면(네이버, 억 원) 그것을, 없으면 야후
+    caps = {m["code"]: float(m["cap"]) * 1e8 for m in members
+            if m.get("cap") and m["code"] in set(codes)}
+    need = [c for c in codes if c not in caps]
+
+    def caps_default(symbols):
+        def one(s):
+            try:
+                return s, yahoo.fetch_market_cap(s)
+            except Exception:  # noqa: BLE001
+                return s, None
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            return {s: v for s, v in pool.map(one, symbols) if v}
+
+    if need:
+        caps.update((caps_fn or caps_default)(need))
+    try:
+        ohlc, oerr = (ohlc_fn or naver.fetch_ohlc_many)(codes) if codes else ({}, {})
+    except Exception as exc:  # noqa: BLE001
+        ohlc, oerr = {}, {c: f"일봉 실패: {type(exc).__name__}" for c in codes}
+    charts = {row.ticker: row for row in chart_signals.build_rows(
+        [(r["t"], r.get("n", "")) for r in todo], ohlc, oerr)}
+    rows = [{"t": r["t"], "p": funnel.price_part(r["t"], r["d"], caps.get(r["t"])),
+             "c": funnel.chart_part(charts[r["t"]])} for r in todo]
+    size_b = _write_out(out_dir, name, universe.dump({
+        "screens": screens, "errors": errors, "rows": rows, "q_made": q_made,
+        "screen_rev": buffett.SCREEN_REV, "min_pass": config.FUNNEL_MIN_PASS,
+        "n_members": len(members)}))
+    ok = [r for r in screens if r.get("y") and not r.get("e")]
+    verdicts = [c[1] for r in ok for c in r.get("c") or []]
+    return {"n": len(ok), "members": len(members), "errors": len(errors), "reused": bool(reuse),
+            "unknown": verdicts.count("unknown"), "verdicts": len(verdicts),
+            "pass7": sum(1 for r in ok if sum(1 for c in r["c"] if c[1] == "pass")
+                         >= config.DISCOVER_QUALITY_MIN),
+            "todo": len(rows), "caps": sum(1 for r in rows if r["p"].get("cap")),
+            "bars": sum(1 for r in rows if not r["c"].get("e")),
+            "priced": sum(1 for r in rows if funnel.price_known(r["p"])),
+            "light": sum(1 for r in rows if funnel.is_light(r["p"])),
+            "os": sum(1 for r in rows if funnel.is_oversold(r["c"])),
+            "sec": time.time() - t0, "sec_q": t_q, "bytes": size_b}
+
+
 def build_universe(app, out_dir: str, markets=("us", "kr")) -> dict:
     """전수 심사 두 시장. 한쪽이 실패해도 다른 쪽은 갑니다."""
     out = {}
@@ -569,6 +663,21 @@ def build_universe(app, out_dir: str, markets=("us", "kr")) -> dict:
             print(f"  미국 깔때기: 품질 통과 {f['n']}종목 → 시가총액 {f['caps']} · 일봉 {f['bars']} · "
                   f"가격 판정 {f['priced']} (부담 낮음 {f['light']}) · 차트 과매도 쪽 {f['os']} · "
                   f"{f['sec']:.0f}초 (시가총액 {f['sec_caps']:.0f}초) · {f['bytes'] / 1024:.0f} KB")
+    if "kr" in markets:
+        try:
+            k = build_funnel_kr(app, out_dir)
+        except Exception as exc:  # noqa: BLE001
+            k = {"skipped": f"{type(exc).__name__}: {redact(str(exc), secret_values())[:160]}"}
+        out["funnel_kr"] = k
+        if k.get("skipped"):
+            print(f"  한국 깔때기: 건너뜀 — {k['skipped']}")
+        else:
+            print(f"  한국 깔때기: 후보 {k['members']} → 재무 받음 {k['n']} (못 받음 {k['errors']}"
+                  f"{' · 지난 판정 재사용' if k['reused'] else ''}) · 판정 불가 "
+                  f"{k['unknown']}/{k['verdicts']} · 7개 이상 통과 {k['pass7']} · "
+                  f"가격 판정 {k['priced']}/{k['todo']} (부담 낮음 {k['light']}) · "
+                  f"차트 과매도 쪽 {k['os']} · {k['sec']:.0f}초 (품질 {k['sec_q']:.0f}초) · "
+                  f"{k['bytes'] / 1024:.0f} KB")
     return out
 
 

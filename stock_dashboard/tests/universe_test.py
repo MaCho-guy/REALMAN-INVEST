@@ -422,7 +422,7 @@ check("워크플로 — 시간 한도를 늘림", "timeout-minutes: 45" in wf)
 
 print("\n=== 화면 — 전수 심사 결과로 그린다 ===")
 _names = ("_discover_us", "_discover_kr", "_universe_or_none", "_universe_line",
-          "_fallback_note", "_criteria_block")
+          "_fallback_note", "_criteria_block", "_kr_quality_block")
 _fns = [n for n in ast.parse(app_src).body
         if isinstance(n, ast.FunctionDef) and n.name in _names]
 
@@ -451,7 +451,7 @@ class FakeSt:
         return self._q or value
 
     def selectbox(self, label, opts, key=None, format_func=None, index=0):
-        if key == "disc_pick":          # 자세히 볼 종목 — 기본은 1위
+        if key and key.endswith("_pick"):          # 자세히 볼 종목 — 기본은 1위
             self.pick_opts = [format_func(o) for o in opts]
             return self._pick or opts[0]
         self.sector_opts = [format_func(o) for o in opts]
@@ -496,13 +496,15 @@ def us_payload(n=120):
         "errors": {"ASML": "CIK 를 찾지 못했습니다", "CRCL": "HTTP 404"}}))
 
 
-def run(market, payload, funnel_payload=None, **kw):
+def run(market, payload, funnel_payload=None, kr_funnel=None, **kw):
     st = FakeSt(**kw)
     calls = {"fallback": 0}
 
     def load_universe(m, use_demo):
         if m == "funnel_us":
             return funnel_payload or {}
+        if m == "funnel_kr":
+            return kr_funnel or {}
         if isinstance(payload, Exception):
             raise payload
         return payload
@@ -517,8 +519,9 @@ def run(market, payload, funnel_payload=None, **kw):
         return demo_mod.demo_kr_vol_profiles(c)
 
     import html as _h
+    import buffett_kr as _bkr
     ns = {"st": st, "ui": ui, "config": config, "buffett": buffett, "kr_screen": kr_screen,
-          "funnel": funnel, "chart_signals": chart_signals,
+          "buffett_kr": _bkr, "funnel": funnel, "chart_signals": chart_signals,
           "universe": universe, "dt": dt, "KST": ZoneInfo("Asia/Seoul"),
           "_esc_plain": lambda t: _h.escape(str(t), quote=True),
           "load_universe": load_universe, "_soft_main": soft_main, "load_screens": None,
@@ -672,7 +675,12 @@ loss = funnel.price_part("A", {"f": [[2016 + i, -1e6] for i in range(10)], "nd":
 check("시가총액을 못 받았거나 FCF 가 적자면 판정하지 않는다 (낮음으로 세지 않음)",
       not funnel.is_light(nocap) and nocap.get("e") and not funnel.price_known(loss) and loss.get("e"))
 check("왜곡이 큰 종목은 숫자가 있어도 낮음으로 세지 않는다",
-      not funnel.is_light({"gap": -0.1, "sev": True}) and funnel.is_light({"gap": -0.1}))
+      not funnel.is_light({"g": 0.0, "h": 0.1, "sev": True}) and funnel.is_light({"g": 0.0, "h": 0.1}))
+_hot = {"g": 0.167, "h": 0.353, "sp": 9}
+check("과거 성장률은 상한(연 15%)까지만 인정 — 과거 35% · 요구 16.7% 는 낮음이 아니다",
+      config.FUNNEL_HIST_GROWTH_CAP == 0.15 and not funnel.is_light(_hot)
+      and funnel.is_light(_hot, cap=1.0) and funnel.is_light({"g": 0.149, "h": 0.353})
+      and "상한 연 15.0% 적용" in funnel.price_cells(_hot)[1], funnel.price_cells(_hot)[1])
 v, note = funnel.price_cells(cheap)
 check("표의 글 — 요구 성장률과 과거", v.startswith("연 ") and "과거 연 8.0% · 9년" in note, f"{v} / {note}")
 check("차트 칸 — 쪽과 근거", funnel.chart_cell(
@@ -723,7 +731,7 @@ _fpay = {"made": 1_794_470_000, "rows": [
     {"t": "D1", "p": dear, "c": {"side": "os", "st": {"stoch": "과매도 구간"}}}]}
 stq, hq, _c = run("us", _pay2, funnel_payload=_fpay)
 check("단계표에 가격 · 차트 단계가 이어진다", "가격 부담 낮음" in hq and "차트 과매도 쪽" in hq
-      and "요구 성장률" in hq and "<th>차트</th>" in hq and "밸류에이션 탭과 같은 규칙" in hq)
+      and "요구 성장률" in hq and "<th>차트</th>" in hq and "까지만 인정" in hq)
 check("기본은 품질 통과 전부", hq.count('class="sc-rk"') == 3)
 stp, hp, _c = run("us", _pay2, funnel_payload=_fpay, choice="p")
 check("가격까지 좁히면 부담 낮은 종목만", hp.count('class="sc-rk"') == 2 and "D1" not in hp.split("dash-sctable")[1])
@@ -734,6 +742,66 @@ check("남은 종목이 없으면 그렇게 적는다 (화면은 끝까지)", "�
 stn, hn, _c = run("us", _pay2)
 check("깔때기 파일이 없으면 품질 단계만 — 칸도 단계도 없다",
       "가격 부담 낮음" not in hn and "요구 성장률" not in hn and hn.count('class="sc-rk"') == 3)
+
+print("\n=== 한국 깔때기 — DART 품질 → 가격 → 차트 ===")
+with tempfile.TemporaryDirectory() as out:
+    mem = [{"code": f"{i:06d}", "name": f"회사{i}", "index": True, **({"cap": 20.0} if i < 2 else {})}
+           for i in range(6)]
+    pathlib.Path(out, "universe_kr.json").write_text(universe.dump({
+        "rules": {}, "members": mem, "profiles": [], "values": [], "errors": {}}), encoding="utf-8")
+    kcalls = {"q": 0}
+
+    def _kscreens(cands):
+        kcalls["q"] += 1
+        got = {}
+        for i, (code, nm) in enumerate(cands[:5]):
+            sc = copy.copy(base_ok if i < 3 else base_bad)
+            sc.ticker, sc.name = code, nm
+            got[code] = sc
+        return got, {cands[5][0]: "고유번호를 찾지 못했습니다."}
+
+    base_ok = next(s for s in demo_screens.values() if s.ok and s.passed_count >= 7)
+    base_bad = min((s for s in demo_screens.values() if s.ok), key=lambda s: s.passed_count)
+    kneed = {}
+
+    def _kcaps(symbols):
+        kneed["caps"] = list(symbols)
+        return {x: 3.0e9 for x in symbols}
+
+    def _kohlc(codes):
+        kneed["ohlc"] = list(codes)
+        return demo_mod.demo_chart_ohlc([(c, c) for c in codes])
+
+    kr1 = collect.build_funnel_kr(None, out, screens_fn=_kscreens, caps_fn=_kcaps, ohlc_fn=_kohlc)
+    kdata = universe.parse(pathlib.Path(out, "funnel_kr.json").read_text(encoding="utf-8"))
+    n_in = sum(1 for r in kdata["screens"] if r.get("d"))
+    check("350종목 전부가 아니라 품질 통과 종목에만 가격 · 차트를 건다",
+          kr1["n"] == 5 and kr1["errors"] == 1 and len(kdata["rows"]) == n_in == len(kneed["ohlc"])
+          and n_in < 5, f"{kr1} / {kneed}")
+    check("시가총액은 후보 목록(억 원)에 있으면 그것을, 없으면 따로 받는다",
+          "000000" not in kneed["caps"] and kdata["rows"][0]["p"]["cap"] == 20.0e8, str(kneed))
+    kr2 = collect.build_funnel_kr(None, out, screens_fn=_kscreens, caps_fn=_kcaps, ohlc_fn=_kohlc)
+    check("품질 심사는 하루 한 번 — 새 파일이 있으면 DART 에 다시 묻지 않는다 (가격 · 차트는 다시)",
+          kr2["reused"] and kcalls["q"] == 1 and kr2["todo"] == kr1["todo"])
+    kr3 = collect.build_funnel_kr(None, out, screens_fn=_kscreens, caps_fn=_kcaps, ohlc_fn=_kohlc,
+                                  force=True)
+    check("강제로는 다시 심사한다", not kr3["reused"] and kcalls["q"] == 2)
+    _old_key = os.environ.pop("DART_API_KEY", None)
+    pathlib.Path(out, "funnel_kr.json").unlink()
+    check("DART 키가 없으면 건너뛴다 (실패가 아님)",
+          "DART_API_KEY" in collect.build_funnel_kr(None, out).get("skipped", ""))
+    if _old_key:
+        os.environ["DART_API_KEY"] = _old_key
+check("워크플로 — 지난 한국 깔때기 파일을 꺼내 둔다",
+      "funnel_kr.json" in pathlib.Path("tools", "collect_workflow.yml").read_text(encoding="utf-8"))
+stk, hk, _c = run("kr", kr_pay, kr_funnel=kdata)
+check("한국 발굴 — 품질 깔때기가 여섯 스크리너 위에 나온다",
+      "품질 깔때기 · 한국" in hk and hk.index("품질 깔때기 · 한국") < hk.index("주가 · 거래 스크리너")
+      and "가격 부담 낮음" in hk and "판정 불가" in hk and "DART 사업보고서" in hk
+      and any(e.startswith("버핏식 품질 기준 9개") for e in stk.exp))
+stk0, hk0, _c = run("kr", kr_pay)
+check("깔때기 파일이 없으면 여섯 스크리너만 (화면은 그대로)",
+      "품질 깔때기 · 한국" not in hk0 and "단계별로 남은 종목" in hk0)
 
 print("\n=== 후보 한 줄 — 셈이 맞아야 한다 ===")
 _p = {"members": [{"ticker": f"A{i}", "index": True} for i in range(515)] + [{"ticker": "W", "index": False}],

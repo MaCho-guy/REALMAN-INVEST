@@ -99,11 +99,27 @@ check("반도체 업종 174종목 (ETF 제외)", len(codes) == 174 and "091160" 
 check("JSON 으로 요청 (text/html 이면 406)", all(acc == "application/json" for _u, acc in seen))
 codes, info = universe_src.fetch_kr_industry(get=fake_get(big_ok=False))
 check("100개씩 실패 → 50개씩으로", len(codes) == 174, str(info))
+# 실제 응답처럼 첫 쪽 100개 안에 ETF 가 섞여 있어도 끝까지 넘겨야 합니다
+mixed = semi_stocks()
+for i in (10, 20, 30, 40):
+    mixed[i] = {**mixed[i], "stockEndType": "etf"}
+
+
+def get_mixed(url, headers=None, timeout=None):
+    if "/industry?" in url:
+        return Resp(GROUPS)
+    q = dict(x.split("=") for x in url.split("?")[1].split("&"))
+    page, size = int(q["page"]), int(q["pageSize"])
+    return Resp({"stocks": mixed[(page - 1) * size:page * size]})
+
+
+codes, info = universe_src.fetch_kr_industry(get=get_mixed)
+check("첫 쪽에 ETF 가 섞여도 둘째 쪽까지", len(codes) == 170 and "000660" in codes, str(info))
 try:
     universe_src.fetch_kr_industry(get=fake_get(markers=False))
     check("표지 종목이 없으면 예외", False)
 except universe_src.UniverseError as exc:
-    check("표지 종목이 없으면 예외", "SK하이닉스" in str(exc), str(exc))
+    check("표지 종목이 없으면 예외", "000660" in str(exc), str(exc))
 try:
     universe_src.fetch_kr_industry(get=lambda *a, **k: Resp({"groups": []}))
     check("업종이 없으면 예외", False)

@@ -187,7 +187,8 @@ def fetch_kr_members(get=None) -> tuple[list[dict], dict]:
 
 GROUPS_API_URL = "https://m.stock.naver.com/api/stocks/industry?page={page}&pageSize={size}"
 GROUP_API_URL = "https://m.stock.naver.com/api/stocks/industry/{no}?page={page}&pageSize={size}"
-#: 분류가 맞는지 보는 표지 종목 — 둘 중 하나는 반도체 업종에 있어야 합니다.
+#: 분류가 맞는지 보는 표지 종목 — **모두** 반도체 업종에 있어야 합니다 (2026-11-13 실제
+#: 응답에서 둘 다 확인). 하나만 보면 목록을 반만 받았을 때도 통과합니다.
 SEMI_MARKERS = ("000660", "005930")
 
 
@@ -218,19 +219,20 @@ def fetch_group_codes(no: str, expect: int, get=None,
         got: list[str] = []
         try:
             for page in range(1, max(expect, size) // size + 3):
-                rows = universe.parse_naver_stocks(
-                    _get_json(GROUP_API_URL.format(no=no, page=page, size=size), get))
-                fresh = [r["code"] for r in rows if r["code"] not in got]
-                if not fresh:
-                    break
-                got.extend(fresh)
-                if len(rows) < size or (expect and len(got) >= expect):
+                payload = _get_json(GROUP_API_URL.format(no=no, page=page, size=size), get)
+                raw = payload.get("stocks") if isinstance(payload, dict) else payload
+                n_raw = len(raw) if isinstance(raw, list) else 0
+                rows = universe.parse_naver_stocks(payload)
+                got.extend(r["code"] for r in rows if r["code"] not in got)
+                # 마지막 쪽인가는 **거르기 전** 개수로 봅니다 — ETF 를 뺀 수로 보면
+                # 100개 중 4개만 빠져도 첫 쪽에서 멈춥니다 (2026-11-13 첫 실행: 174 중 96).
+                if n_raw < size:
                     break
         except Exception:  # noqa: BLE001 - 이 쪽 크기는 안 받는 것 — 더 작게
             pass
         if len(got) > len(best):
             best = got
-        if expect and len(best) >= expect:
+        if best and len(best) >= expect * 0.9:      # totalCount 에는 ETF 등이 섞여 있습니다
             break
     return best
 
@@ -255,8 +257,10 @@ def fetch_kr_industry(keyword: str = "반도체", get=None) -> tuple[set[str], d
     for g in picked:
         codes.update(fetch_group_codes(g["no"], g["n"], get))
     total = sum(g["n"] for g in picked)
-    if keyword == "반도체" and not any(m in codes for m in SEMI_MARKERS):
-        raise UniverseError(f"'{keyword}' 업종 {len(codes)}/{total}종목에 SK하이닉스 · "
-                            "삼성전자가 없습니다 (분류를 믿을 수 없음).")
+    lost = [m for m in SEMI_MARKERS if m not in codes] if keyword == "반도체" else []
+    if lost:
+        raise UniverseError(f"'{keyword}' 업종 {len(codes)}/{total}종목에 표지 종목 "
+                            f"{', '.join(lost)}(SK하이닉스 · 삼성전자)이 없습니다 "
+                            "(목록을 덜 받았거나 분류를 믿을 수 없음).")
     return codes, {"name": " · ".join(g["name"] for g in picked),
                    "no": ",".join(g["no"] for g in picked), "n": len(codes), "total": total}

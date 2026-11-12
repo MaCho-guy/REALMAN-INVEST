@@ -424,9 +424,10 @@ class _Ctx:
 
 
 class FakeSt:
-    def __init__(self, sector="", q=None, choice=None):
+    def __init__(self, sector="", q=None, choice=None, pick=None):
         self.md, self.exp, self._sector, self._q, self.choice = [], [], sector, q, choice
         self.sector_opts = None
+        self.pick_opts, self._pick, self.session_state = None, pick, {}
 
     def markdown(self, html, **k):
         self.md.append(html)
@@ -438,6 +439,9 @@ class FakeSt:
         return self._q or value
 
     def selectbox(self, label, opts, key=None, format_func=None, index=0):
+        if key == "disc_pick":          # 자세히 볼 종목 — 기본은 1위
+            self.pick_opts = [format_func(o) for o in opts]
+            return self._pick or opts[0]
         self.sector_opts = [format_func(o) for o in opts]
         return self._sector
 
@@ -452,6 +456,15 @@ class FakeSt:
                           label_visibility=None):
         [format_func(k) for k in keys]
         return self.choice or default
+
+
+def _mk(ticker, verdicts):
+    return buffett.from_summary({"t": ticker, "n": ticker, "y": 10,
+                                 "c": [[c.key, v, "", "", ""] for c, v in zip(buffett.CRITERIA, verdicts)]})
+
+
+_mk0 = _mk("MIX", ["pass"] * 7 + ["fail", "unknown"])
+_all0 = _mk("ALL", ["pass"] * 9)
 
 
 def us_payload(n=120):
@@ -518,12 +531,39 @@ check("업종별 통과 수", "dash-sectpass" in html and "필수소비재" in h
 check("업종을 고를 수 있다 (종목 수와 함께)", st_.sector_opts[0] == "전체 (120)"
       and any(o.startswith("필수소비재 (40)") for o in st_.sector_opts), str(st_.sector_opts))
 tables = [t.split("</table>")[0] for t in html.split('dash-sctable">')[1:]]
-n_pass = sum(1 for x in us_payload()["screens"] if sum(1 for c in x["c"] if c[1] == "pass") >= 6)
-check("첫 표는 40줄까지 · 나머지는 접어 둠",
-      tables and tables[0].count("</tr>") - 1 == min(n_pass, config.DISCOVER_TABLE_ROWS)
-      and (n_pass <= config.DISCOVER_TABLE_ROWS
+QMIN = config.DISCOVER_QUALITY_MIN
+n_pass = sum(1 for x in us_payload()["screens"]
+             if sum(1 for c in x["c"] if c[1] == "pass") >= QMIN)
+check("통과 기본선은 9개 중 7개 (2026-11-12 사용자 지정)", QMIN == 7
+      and f"{QMIN}개 이상 통과" in html)
+check("첫 표는 20줄까지 · 나머지는 접어 둠",
+      tables and tables[0].count("</tr>") - 1 == min(n_pass, config.DISCOVER_US_ROWS)
+      and (n_pass <= config.DISCOVER_US_ROWS
            or any(e.startswith("나머지 통과 종목") for e in st_.exp)),
       f"통과 {n_pass} · 표 {[t.count('</tr>') - 1 for t in tables]}")
+check("순위 + 순위의 근거('판정 n 중 m')가 표에 있다",
+      '<i class="sc-rk">1</i>' in tables[0] and "sc-sub" in tables[0]
+      and "판정된 기준 중 통과 비율" in html)
+_one = ui.render_screen_table([_mk0], buffett.CRITERIA, rank_from=1)
+import re as _re
+_miss = _re.search(r'<td class="sc-miss"[^>]*>(.*?)</td>', _one)
+check("좁은 화면용 '걸린 기준' 한 줄 — 통과가 아닌 것만",
+      _miss and _miss.group(1).count(" · ") == 1 and _miss.group(1).startswith("✗ ")
+      and "? " in _miss.group(1) and 'data-l="걸린 기준"' in _one
+      and "전부 통과" in ui.render_screen_table([_all0], buffett.CRITERIA, rank_from=1),
+      _miss.group(1) if _miss else _one[:200])
+import theme as _theme
+_css = _theme.build_stack_rules()
+_src_css = open(_theme.__file__, encoding="utf-8").read()
+check("좁은 화면에서는 기준 9칸을 숨기고 한 줄만 보인다",
+      "table.dash-stk.dash-sctable td.mk { display: none !important; }" in _css
+      and "table.dash-stk.dash-sctable td.sc-miss { display: flow-root !important; }" in _css
+      and "table.dash-sctable .sc-miss {{ display: none; }}" in _src_css)
+check("자세히 보기는 한 칸 — 종목마다 접는 칸을 늘어놓지 않는다",
+      st_.pick_opts and st_.pick_opts[0].startswith("1위 · ")
+      and len(st_.pick_opts) == n_pass
+      and not any(" 통과" in e and "/" in e and "·" in e and "나머지" not in e
+                  and "보류" not in e and "미달" not in e for e in st_.exp), str(st_.exp))
 check("내 관심종목에 ★", "ct-star" in html)
 st2, html2, _c = run("us", us_payload(), sector="Utilities")
 check("업종으로 좁히면 그 업종만", "유틸리티" in html2 and "dash-sectpass" not in html2
@@ -576,6 +616,31 @@ check("업종 칩 — 통과/전체", "1/2" in ui.render_sector_pass(
     [buffett.from_summary(s) for s in us_payload(2)["screens"]],
     [buffett.from_summary(us_payload(2)["screens"][0])],
     {"MSFT": "A", "U1": "A"}))
+
+print("\n=== 순위 — 판정된 기준 중 통과 비율 ===")
+
+P, F, U = "pass", "fail", "unknown"
+_all9 = _mk("ALL9", [P] * 9)
+_p8u1 = _mk("P8U1", [P] * 8 + [U])
+_p7u2 = _mk("P7U2", [P] * 7 + [U, U])
+_p8f1 = _mk("P8F1", [P] * 8 + [F])
+_p7f1u1 = _mk("P7FU", [P] * 7 + [F, U])
+_p7f2 = _mk("P7F2", [P] * 7 + [F, F])
+_ranked = [x.ticker for x in buffett.rank_by_ratio([_p7f2, _p8f1, _p7u2, _p7f1u1, _all9, _p8u1])]
+check("미달이 없는 쪽이 먼저 — 9/9 · 8/8 · 7/7 · 8/9 · 7/8 · 7/9",
+      _ranked == ["ALL9", "P8U1", "P7U2", "P8F1", "P7FU", "P7F2"], str(_ranked))
+check("순위의 근거 글 · 미달 수", _p8u1.judged_label == "판정 8 중 8" and _p7f1u1.failed_count == 1
+      and _mk("NONE", [U] * 9).judged_ratio is None)
+_hold = _mk("HOLD", [P] * 5 + [U] * 4)       # 미달 0 · 판정 불가 4 → 7개에 못 미침
+_far = _mk("FAR", [P] * 2 + [F] * 3 + [U] * 4)
+_pay = us_payload(3)
+_pay["screens"] = [buffett.to_summary(x, s="Utilities") for x in (_all9, _hold, _far)]
+st7, html7, _c = run("us", _pay)
+check("보류 칸 — 미달 1개 이하인데 판정 불가로 못 미친 종목만",
+      any(e.startswith("판정이 모자라 보류 1개") for e in st7.exp)
+      and "숫자를 못 읽은 것" in html7, str(st7.exp))
+st8, html8, _c = run("us", _pay, q=9, sector="Information Technology")
+check("통과가 없어도 화면이 끝까지 그려진다", "통과한 종목이 없습니다" in html8)
 
 print("\n=== 후보 한 줄 — 셈이 맞아야 한다 ===")
 _p = {"members": [{"ticker": f"A{i}", "index": True} for i in range(515)] + [{"ticker": "W", "index": False}],

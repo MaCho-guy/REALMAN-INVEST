@@ -1676,7 +1676,7 @@ def _discover_us(use_demo: bool) -> None:
         quality_min = st.slider(
             "품질 기준 통과 수 (이상이면 '통과')",
             1, len(buffett.CRITERIA),
-            round(len(buffett.CRITERIA) * 2 / 3), key="disc_q")
+            min(config.DISCOVER_QUALITY_MIN, len(buffett.CRITERIA)), key="disc_q")
     sector_names = sorted({v for v in sectors.values() if v})
     pick_sector = ""
     with col2:
@@ -1696,9 +1696,19 @@ def _discover_us(use_demo: bool) -> None:
 
     screens = buffett.rank(all_screens)
     usable = [s_ for s_ in screens if s_.ok]
-    passed_all = [s_ for s_ in usable if s_.passed_count >= quality_min]
+    # 통과 = 통과 수가 기준 이상. 그 안의 순서는 '판정된 기준 중 통과 비율' —
+    # 판정 불가가 낀 종목이 통과 수만으로 밀리지 않게 (buffett.rank_by_ratio).
+    passed_all = buffett.rank_by_ratio(
+        [s_ for s_ in usable if s_.passed_count >= quality_min])
     passed = [s_ for s_ in passed_all
               if not pick_sector or sectors.get(s_.ticker) == pick_sector]
+    # 보류 — 미달은 1개 이하인데 판정 불가가 많아 기준에 못 미친 종목. 숫자를
+    # 못 읽은 것이지 떨어진 것이 아니라서 따로 보여 줍니다 (통과로 세지는 않음).
+    held_back = buffett.rank_by_ratio(
+        [s_ for s_ in usable
+         if s_.passed_count < quality_min and s_.failed_count <= 1 and s_.known_count >= 1
+         and s_.passed_count + s_.unknown_count >= quality_min
+         and (not pick_sector or sectors.get(s_.ticker) == pick_sector)])
 
     # 어디서 얼마나 줄었는지 — 후보 → 재무 받음 → 통과
     st.markdown(ui.render_funnel([
@@ -1713,6 +1723,8 @@ def _discover_us(use_demo: bool) -> None:
         st.markdown(ui.render_sector_pass(usable, passed_all, sectors, universe.sector_label),
                     unsafe_allow_html=True)
 
+    held = set(config.watchlist_us_tickers())
+    sector_ko = {k: universe.sector_label(v) for k, v in sectors.items()}
     if not passed:
         st.markdown(
             ui.render_notice(
@@ -1721,39 +1733,57 @@ def _discover_us(use_demo: bool) -> None:
                 "기업은 드뭅니다."),
             unsafe_allow_html=True,
         )
-        return
-
-    st.markdown(
-        ui.render_section_head("통과 종목", "통과 수 많은 순", len(passed)),
-        unsafe_allow_html=True,
-    )
-    held = set(config.watchlist_us_tickers())
-    top = passed[:config.DISCOVER_TABLE_ROWS]
-    # 한눈표 — 어느 종목이 어느 기준에서 걸렸는지. 펼치지 않고 비교합니다.
-    st.markdown(ui.render_screen_table(top, buffett.CRITERIA, held=held,
-                                       sectors={k: universe.sector_label(v)
-                                                for k, v in sectors.items()}),
-                unsafe_allow_html=True)
-    st.markdown(ui.render_legend(
-        "<b>○</b> 통과 · <b>✗</b> 미달 · <b>?</b> 판정 불가(숫자 5년치 미만) · "
-        "<b>★</b> 내 관심종목"
-        + (f" — 통과 {len(passed)}종목 중 위 {len(top)}종목. 나머지는 아래에 접어 두었습니다."
-           if len(passed) > len(top) else " — 종목별 숫자는 아래에서 펼칩니다.")),
-        unsafe_allow_html=True)
-    rest = passed[len(top):]
-    if rest:
-        with st.expander(f"나머지 통과 종목 {len(rest)}개", expanded=False):
-            st.markdown(ui.render_screen_table(
-                rest[:300], buffett.CRITERIA, held=held,
-                sectors={k: universe.sector_label(v) for k, v in sectors.items()}),
-                unsafe_allow_html=True)
-    for screen in passed[:30]:
-        label = (("★ " if screen.ticker in held else "")
-                 + f"{screen.ticker} · {screen.name[:28]} · {screen.passed_count}"
-                 f"/{len(buffett.CRITERIA)} 통과")
-        with st.expander(label, expanded=False):
-            st.markdown(ui.render_screen(screen, show_source=show_source),
+    else:
+        st.markdown(
+            ui.render_section_head("통과 종목", "판정된 기준 중 통과 비율 순", len(passed)),
+            unsafe_allow_html=True,
+        )
+        top = passed[:config.DISCOVER_US_ROWS]
+        # 한눈표 — 어느 종목이 어느 기준에서 걸렸는지. 펼치지 않고 비교합니다.
+        st.markdown(ui.render_screen_table(top, buffett.CRITERIA, held=held,
+                                           sectors=sector_ko, rank_from=1),
+                    unsafe_allow_html=True)
+        st.markdown(ui.render_legend(
+            "<b>○</b> 통과 · <b>✗</b> 미달 · <b>?</b> 판정 불가(숫자 5년치 미만) · "
+            "<b>★</b> 내 관심종목 · <b>순위</b> = 판정된 기준 중 통과 비율 "
+            "(같으면 통과 수가 많은 쪽) — 미달이 없는 종목이 먼저 옵니다"
+            + (f" · 통과 {len(passed)}종목 중 위 {len(top)}종목"
+               if len(passed) > len(top) else "")),
+            unsafe_allow_html=True)
+        rest = passed[len(top):]
+        if rest:
+            with st.expander(f"나머지 통과 종목 {len(rest)}개 ({len(top) + 1}위부터)",
+                             expanded=False):
+                st.markdown(ui.render_screen_table(
+                    rest[:300], buffett.CRITERIA, held=held, sectors=sector_ko,
+                    rank_from=len(top) + 1),
+                    unsafe_allow_html=True)
+        # 자세히 — 종목마다 접는 칸 30개를 늘어놓던 것을 한 칸으로 줄였습니다.
+        # 고른 한 종목만 그리므로 화면도 짧고 보내는 양도 적습니다.
+        by_ticker = {s_.ticker: s_ for s_ in passed}
+        order = {s_.ticker: i + 1 for i, s_ in enumerate(passed)}
+        if st.session_state.get("disc_pick") not in by_ticker:
+            st.session_state.pop("disc_pick", None)
+        picked = st.selectbox(
+            "자세히 볼 종목 (10년 숫자 · 기준별 근거)", list(by_ticker), key="disc_pick",
+            format_func=lambda t: (f"{order[t]}위 · " + ("★ " if t in held else "")
+                                   + f"{t} · {by_ticker[t].name[:28]} · "
+                                   f"{by_ticker[t].score_label}"))
+        if picked in by_ticker:
+            st.markdown(ui.render_screen(by_ticker[picked], show_source=show_source),
                         unsafe_allow_html=True)
+
+    if held_back:
+        with st.expander(
+                f"판정이 모자라 보류 {len(held_back)}개 — 미달 1개 이하인데 "
+                f"판정 불가 때문에 {quality_min}개에 못 미침", expanded=False):
+            st.markdown(ui.render_legend(
+                "떨어진 것이 아니라 <b>숫자를 못 읽은 것</b>입니다 — 통과로 세지 않고 "
+                "따로 둡니다. <b>?</b> 가 실제로 통과인지는 공시에서 직접 확인해야 합니다."),
+                unsafe_allow_html=True)
+            st.markdown(ui.render_screen_table(
+                held_back[:60], buffett.CRITERIA, held=held, sectors=sector_ko, rank_from=1),
+                unsafe_allow_html=True)
 
     # 내 관심종목이 어디서 걸렸는지 — 통과하지 못했어도 보여 줍니다
     mine = [s_ for s_ in usable if s_.ticker in held and s_.passed_count < quality_min]
@@ -3846,7 +3876,8 @@ def render_valuation_tab(data: dict[str, dict[str, Quote]], fx,
 
     screens = buffett.rank(list(screens_map.values()))
     if scope == "보유 + 발굴 통과":
-        threshold = max(1, round(len(buffett.CRITERIA) * 2 / 3))
+        # '발굴 통과' 는 발굴 탭의 기본선과 같은 뜻이어야 합니다
+        threshold = max(1, min(config.DISCOVER_QUALITY_MIN, len(buffett.CRITERIA)))
         screens = [s for s in screens
                    if s.ticker in held or s.passed_count >= threshold]
 

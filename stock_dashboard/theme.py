@@ -1748,6 +1748,12 @@ def build_rules() -> str:
   /* 종목 발굴 — 한눈표의 종목 이름 · 업종, 업종별 통과 칩 */
   table.dash-sctable .sc-name {{ display: block; font-size: var(--fs-1); font-weight: 400;
     color: var(--dash-ink-muted); max-width: 14em; overflow: hidden; text-overflow: ellipsis; }}
+  table.dash-sctable .sc-sub {{ display: block; font-size: var(--fs-1); font-weight: 400;
+    color: var(--dash-ink-muted); white-space: nowrap; }}
+  table.dash-sctable .sc-rk {{ font-style: normal; font-weight: 500; color: var(--dash-ink-muted);
+    font-variant-numeric: tabular-nums; margin-right: 6px; }}
+  /* '걸린 기준' 한 줄은 좁은 화면 전용 — 넓은 화면은 기준 9칸을 그대로 봅니다 */
+  table.dash-sctable .sc-miss {{ display: none; }}
   table.dash-sctable td.sc-sect {{ text-align: left; font-size: var(--fs-2);
     color: var(--dash-ink-2); }}
   table.dash-sctable .ct-star {{ font-style: normal; color: var(--dash-accent); margin-right: 3px; }}
@@ -2424,6 +2430,14 @@ def build_stack_rules() -> str:
     table.dash-stk tr.dv-other td {{ opacity: 1; }}
     table.dash-stk tr.dv-other {{ opacity: .6; }}
     .dash-pft.dash-stk td.pf-w i {{ display: none; }}
+
+    /* 품질 한눈표 — 기준 9칸 대신 '걸린 기준' 한 줄 (종목당 12줄 → 4줄) */
+    table.dash-stk.dash-sctable td.mk {{ display: none !important; }}
+    table.dash-stk.dash-sctable td.sc-miss {{ display: flow-root !important; }}
+    table.dash-stk.dash-sctable .sc-name {{ display: inline; margin-left: 6px;
+      font-size: var(--fs-2); font-weight: 500; }}
+    table.dash-stk.dash-sctable .sc-sub {{ display: inline; margin-left: 7px;
+      font-size: var(--fs-2); }}
 
     /* 차트 조건 — 해당하는 조건만 남깁니다 (7칸을 다 세우면 종목당 9줄) */
     table.dash-ctable.dash-stk td.ct-no,

@@ -1197,10 +1197,18 @@ def render_terms(terms) -> str:
         f'<div><b>{_esc(k)}</b>{_esc(v)}</div>' for k, v in terms) + "</div>")
 
 
-def render_screen_table(screens, criteria, *, held=(), sectors: dict | None = None) -> str:
+def render_screen_table(screens, criteria, *, held=(), sectors: dict | None = None,
+                        rank_from: int | None = None) -> str:
     """전체 요약 표 — 어느 기업이 어느 기준에서 걸렸나 한눈에.
 
     held 에 든 티커는 ★, sectors({티커: 업종})를 주면 업종 칸을 더합니다.
+    rank_from 을 주면 종목 이름 앞에 그 숫자부터 순위를 달고, 통과 칸에 순위의
+    근거('판정 8 중 8')를 작게 적습니다 — 접어 둔 나머지 표는 이어지는 숫자로.
+
+    좁은 화면에서는 한 줄이 카드 한 장이 되는데, 기준 9칸을 다 세우면 종목당
+    12줄이라 20종목만 돼도 끝없이 내려야 했습니다. 그래서 **걸린 기준만**
+    한 줄로 적은 칸('걸린 기준')을 따로 두고, 좁은 화면에서는 9칸 대신 그 한
+    줄을 보입니다 (theme.build_stack_rules). 넓은 화면에서는 그 칸을 숨깁니다.
     """
     if not screens:
         return ""
@@ -1212,9 +1220,11 @@ def render_screen_table(screens, criteria, *, held=(), sectors: dict | None = No
         f"<th class='mk' title='{_esc(c.name)}'>{_esc(_bf.SHORT_NAMES.get(c.key, c.name))}</th>"
         for c in criteria)
     rows = []
+    n = (rank_from or 1) - 1
     for s in screens:
         if not s.ok:
             continue
+        n += 1
         cells = []
         for check in s.checks:
             cls = {"pass": "mk", "fail": "mk na", "unknown": "mk na"}[check.verdict]
@@ -1223,10 +1233,16 @@ def render_screen_table(screens, criteria, *, held=(), sectors: dict | None = No
         star = '<i class="ct-star" title="내 관심종목">★</i>' if s.ticker in held else ""
         sect = (f'<td class="sc-sect">{_esc((sectors or {}).get(s.ticker, ""))}</td>'
                 if sectors else "")
+        rk = f'<i class="sc-rk">{n}</i>' if rank_from else ""
+        sub = (f"<span class='sc-sub'>{_esc(s.judged_label)}</span>" if rank_from else "")
+        miss = " · ".join(
+            f"{_MARK[c.verdict]} {_esc(_bf.SHORT_NAMES.get(c.criterion.key, c.criterion.name))}"
+            for c in s.checks if c.verdict != "pass") or "전부 통과"
         rows.append(
-            f"<tr><td title='{_esc(nm)}'>{star}{_esc(s.ticker)}"
+            f"<tr><td title='{_esc(nm)}'>{rk}{star}{_esc(s.ticker)}"
             f"<span class='sc-name'>{_esc(nm[:22])}</span></td>{sect}"
-            f'<td class="">{_esc(s.score_label)}</td>'
+            f'<td class="">{_esc(s.score_label)}{sub}</td>'
+            f'<td class="sc-miss">{miss}</td>'
             + "".join(cells) + "</tr>"
         )
     if not rows:
@@ -1234,7 +1250,8 @@ def render_screen_table(screens, criteria, *, held=(), sectors: dict | None = No
     sect_h = "<th>업종</th>" if sectors else ""
     return (
         '<div class="dash-table-wrap"><table class="dash-table dash-sctable">'
-        f"<thead><tr><th>종목</th>{sect_h}<th>통과</th>{header}</tr></thead>"
+        f"<thead><tr><th>종목</th>{sect_h}<th>통과</th>"
+        f"<th class='sc-miss'>걸린 기준</th>{header}</tr></thead>"
         f"<tbody>{''.join(rows)}</tbody></table></div>"
     )
 

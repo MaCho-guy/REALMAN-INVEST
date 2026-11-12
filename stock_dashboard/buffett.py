@@ -588,6 +588,21 @@ class Screen:
         return sum(1 for c in self.checks if not c.known)
 
     @property
+    def failed_count(self) -> int:
+        return sum(1 for c in self.checks if c.known and not c.passed)
+
+    @property
+    def judged_ratio(self) -> float | None:
+        """판정된 기준 가운데 통과한 비율 (판정 불가는 분모에서 뺌). 판정된 게 없으면 None."""
+        known = self.known_count
+        return self.passed_count / known if known else None
+
+    @property
+    def judged_label(self) -> str:
+        """'판정 8 중 8' — 순위가 무엇으로 매겨졌는지 표에 같이 적는 글."""
+        return f"판정 {self.known_count} 중 {self.passed_count}"
+
+    @property
     def score_label(self) -> str:
         """'4 / 6' 형태. 판정 불가는 분모에서 빼지 않고 따로 표시합니다 —
         데이터가 없는 것을 통과로도 탈락으로도 세면 안 됩니다."""
@@ -1012,6 +1027,23 @@ def rank(screens: list[Screen]) -> list[Screen]:
         [s for s in screens if s.ok],
         key=lambda s: (-s.passed_count, s.unknown_count, s.ticker),
     ) + [s for s in screens if not s.ok]
+
+
+def rank_by_ratio(screens: list[Screen]) -> list[Screen]:
+    """판정된 기준 중 통과 비율 내림차순 → 통과 수 내림차순 → 티커순.
+
+    판정 불가가 많은 종목이 통과 수만으로는 불리하게 밀리던 것을 고칩니다
+    (2026-11-12 전수 심사: 판정의 33% 가 '판정 불가'). 9개 중 8개 통과 · 1개
+    판정 불가(8/8)는 9개 중 8개 통과 · 1개 미달(8/9)보다 앞에 옵니다 —
+    **미달이 없는 쪽이 먼저**입니다.
+
+    비율만 보면 '판정 2 중 2' 가 맨 위로 오므로, 이 함수는 **통과 수 기준을
+    이미 넘긴 목록**(또는 보류 목록)에만 씁니다. 점수가 높다고 좋은 투자가
+    아닙니다 — 읽는 순서를 정하는 용도입니다.
+    """
+    return sorted(
+        [s for s in screens if s.ok],
+        key=lambda s: (-(s.judged_ratio or 0.0), -s.passed_count, s.ticker))
 
 
 def prompt_for(screen: Screen) -> str:

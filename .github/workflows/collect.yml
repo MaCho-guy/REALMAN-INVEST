@@ -7,6 +7,7 @@
 #
 # 준비: 저장소 Settings → Secrets and variables → Actions 에
 #   DART_API_KEY, FRED_API_KEY  (없으면 그 항목만 건너뜁니다)
+#   ANTHROPIC_API_KEY           (리포트 AI 요약 — 없으면 요약만 건너뜁니다)
 name: collect
 
 on:
@@ -39,10 +40,25 @@ jobs:
       - name: 필요한 패키지
         run: pip install -r stock_dashboard/requirements.txt
 
+      # data 브랜치는 매번 통째로 새로 올립니다. 지난 AI 요약을 먼저 꺼내 두어야
+      # 이어 붙일 수 있습니다 (같은 리포트를 다시 요약하지 않게).
+      - name: 지난 요약 꺼내기
+        run: |
+          mkdir -p "$RUNNER_TEMP/seed"
+          if git fetch -q --depth=1 origin data 2>/dev/null \
+             && git show FETCH_HEAD:summaries.json > "$RUNNER_TEMP/seed/summaries.json" 2>/dev/null; then
+            echo "지난 요약 파일을 꺼냈습니다"
+          else
+            rm -f "$RUNNER_TEMP/seed/summaries.json"
+            echo "지난 요약 파일이 없습니다 (처음이면 정상)"
+          fi
+
       - name: 수집
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          # 리포트 AI 요약용 (없으면 요약만 건너뜁니다)
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           TZ: Asia/Seoul
         run: python stock_dashboard/tools/collect.py --out "$RUNNER_TEMP/seed"
 

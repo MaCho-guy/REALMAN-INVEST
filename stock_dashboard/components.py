@@ -3522,13 +3522,36 @@ def _goal_won(value) -> str:
     return "" if not value else f"{value:,.0f}원"
 
 
+def render_ai_summary(item: dict) -> str:
+    """AI 요약 한 건 (HTML). item: report_summary.entry 가 만든 묶음."""
+    import report_summary  # noqa: PLC0415
+
+    parts = []
+    for head, lines in report_summary.blocks(item.get("summary") or ""):
+        if head:
+            parts.append(f'<div class="ai-h">{_esc(head)}</div>')
+        if lines:
+            parts.append("<ul>" + "".join(f"<li>{_esc(x)}</li>" for x in lines) + "</ul>")
+    if not parts:
+        return ""
+    model = str(item.get("model") or "").strip()
+    tag = "AI 요약" + (f" · {_esc(model)}" if model else "")
+    return (f'<div class="rp-ai"><span class="ai-tag">{tag}</span>'
+            + "".join(parts) + "</div>")
+
+
 def render_report_cards(reports, limit: int = 12, *, show_stock: bool = False,
-                        show_opinion: bool = True) -> str:
+                        show_opinion: bool = True, summaries: dict | None = None) -> str:
     """리포트 한 건 = 카드 한 장. 제목(원문 링크) · 미리보기 · 증권사 의견.
 
     휴대폰에서 표보다 읽기 쉽게 세로로 쌓습니다. 미리보기는 본문 앞부분만
     이고, 의견·목표주가는 **증권사가 낸 것**임을 줄마다 적습니다.
+    summaries({이름: 항목})에 요약이 있는 리포트는 미리보기 대신 AI 요약을
+    보여 줍니다 — 누가 쓴 글인지 헷갈리지 않게 'AI 요약' 표시를 붙입니다.
     """
+    import report_summary  # noqa: PLC0415
+
+    summaries = summaries or {}
     reports = list(reports or [])[:limit]
     if not reports:
         return ""
@@ -3548,6 +3571,9 @@ def render_report_cards(reports, limit: int = 12, *, show_stock: bool = False,
                     if pdf.startswith(("https://", "http://")) else "")
         preview = getattr(r, "preview", "") or ""
         body = f'<div class="rp-body">{_esc(preview)}</div>' if preview else ""
+        item = summaries.get(report_summary.key_of(r))
+        if isinstance(item, dict):
+            body = render_ai_summary(item) or body
         meta = ""
         if show_opinion:
             bits = []

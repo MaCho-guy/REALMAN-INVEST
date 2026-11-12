@@ -182,6 +182,17 @@ SEED_URL = os.environ.get(
     "SEED_URL",
     "https://raw.githubusercontent.com/MaCho-guy/REALMAN-INVEST/data/seed.pkl.gz")
 
+#: 리포트 AI 요약 — 수집기가 Claude API 로 만들어 data 브랜치에 올리는 파일.
+SUMMARY_URL = os.environ.get(
+    "SUMMARY_URL",
+    "https://raw.githubusercontent.com/MaCho-guy/REALMAN-INVEST/data/summaries.json")
+#: 요약에 쓸 모델. 가장 싼 것으로 시작합니다 — 품질이 아쉬우면 여기만 바꿉니다.
+SUMMARY_MODEL = os.environ.get("SUMMARY_MODEL", "claude-haiku-5-5")
+#: 묶음(반도체 산업 · 삼성전자 · SK하이닉스)마다 최근 몇 건까지 요약 대상으로 보나.
+SUMMARY_PER_LIST = 10
+#: 수집기가 한 번 돌 때 새로 요약하는 최대 건수 (비용 상한).
+SUMMARY_MAX_NEW = 12
+
 #: 관심종목 외에 함께 돌릴 후보. 미국 종목(SEC 신고 기업)만 됩니다 —
 #: 삼성전자·SK하이닉스는 SEC 에 신고하지 않아 이 스크리너로는 안 됩니다.
 #: 아래 목록은 '버핏식 기준을 적용해볼 만한' 성격의 종목을 업종별로 넓게

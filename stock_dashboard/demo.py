@@ -1313,6 +1313,27 @@ def demo_research():
     return ind, mk
 
 
+def demo_report_summaries() -> dict:
+    """AI 요약의 가짜 데이터 — 데모 리포트 앞의 몇 건에만 붙입니다 (전부 지어낸 글)."""
+    import report_summary  # noqa: PLC0415
+
+    data = demo_semi_research()
+    lists = [data["industry"]] + list(data["stocks"].values())
+    text = ("핵심 주장\n- (데모) 메모리 가격 반등이 이어진다고 본다\n"
+            "- (데모) 수요는 서버가 끌고 있다고 적었다\n"
+            "근거 숫자\n- (데모) DRAM 계약가 +12% (3쪽)\n- (데모) 재고 일수 9주 → 6주 (5쪽)\n"
+            "가정 · 위험\n- (데모) 데이터센터 투자가 줄면 결론이 달라진다고 밝혔다")
+    out = {}
+    for reports in lists:
+        for r in reports[:2]:
+            key = report_summary.key_of(r)
+            if key:
+                out[key] = {"summary": text, "title": r.title, "broker": r.broker,
+                            "date": r.date, "model": "(데모)", "at": 0,
+                            "input_tokens": 0, "output_tokens": 0}
+    return out
+
+
 def demo_semi_research():
     """반도체 리포트 화면의 가짜 데이터 — 제목·미리보기·숫자 전부 지어낸 것."""
     from sources.research import Report  # noqa: PLC0415

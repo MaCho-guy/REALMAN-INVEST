@@ -1592,6 +1592,16 @@ def build_rules() -> str:
     margin-top: 3px; }}
   .dash-rp .rp-body {{ font-size: var(--fs-3); color: var(--dash-ink-2); line-height: 1.55;
     margin-top: 5px; }}
+  .dash-rp .rp-ai {{ margin-top: 7px; padding: 8px 10px; border-radius: var(--r-chip);
+    background: var(--dash-raised); font-size: var(--fs-3); line-height: 1.55;
+    color: var(--dash-ink); }}
+  .dash-rp .rp-ai .ai-tag {{ display: inline-block; font-size: var(--fs-1); font-weight: 700;
+    color: var(--dash-accent); border: 1px solid var(--dash-accent);
+    border-radius: var(--r-chip); padding: 0 5px; margin-bottom: 2px; }}
+  .dash-rp .rp-ai .ai-h {{ font-weight: 700; font-size: var(--fs-2);
+    color: var(--dash-ink-2); margin-top: 6px; }}
+  .dash-rp .rp-ai ul {{ margin: 2px 0 0; padding-left: 17px; }}
+  .dash-rp .rp-ai li {{ margin: 1px 0; }}
   .dash-rp .rp-meta {{ font-size: var(--fs-2); color: var(--dash-ink-2); margin-top: 7px;
     padding-top: 6px; border-top: 1px dashed var(--dash-divider); }}
   .dash-rp .rp-src {{ font-size: var(--fs-1); color: var(--dash-ink-muted);

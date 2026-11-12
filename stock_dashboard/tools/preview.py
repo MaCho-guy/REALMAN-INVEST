@@ -1194,7 +1194,7 @@ def _semi_research_panel(use_demo: bool) -> str:
     for what, picked in groups:
         parts.append(ui.render_section_head(what, "최근 리포트", len(picked)))
         parts.append(ui.render_digest(sr.digest(picked, what), sr.keyword_counts(picked)))
-        parts.append(ui.render_report_cards(picked, limit=3))
+        parts.append(ui.render_report_cards(picked, limit=3, summaries=demo_mod.demo_report_summaries()))
     return "".join(parts)
 
 

@@ -34,7 +34,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 APP_DIR = os.path.dirname(HERE)
 
 #: 이 환경변수들의 값이 스냅샷 어디에도 남으면 안 됩니다.
-SECRET_ENVS = ("DART_API_KEY", "FRED_API_KEY", "EDGAR_USER_AGENT",
+SECRET_ENVS = ("DART_API_KEY", "FRED_API_KEY", "ANTHROPIC_API_KEY", "EDGAR_USER_AGENT",
                "GITHUB_TOKEN", "PORTFOLIO")
 
 
@@ -202,6 +202,102 @@ def write_seed(out_dir: str, rows: list[dict], secrets: tuple[str, ...]) -> dict
     return {**report, "manifest": manifest}
 
 
+def fetch_bytes(url: str, limit: int = 9 * 1024 * 1024, timeout: float = 30.0) -> bytes:
+    """주소의 내용을 받습니다 (limit 를 넘으면 그만 받고 예외)."""
+    import requests  # noqa: PLC0415
+
+    resp = requests.get(url, timeout=timeout, stream=True,
+                        headers={"User-Agent": "stock-dashboard/1.0 (personal dashboard)"})
+    resp.raise_for_status()
+    chunks, size = [], 0
+    for chunk in resp.iter_content(65_536):
+        size += len(chunk)
+        if size > limit:
+            raise ValueError(f"너무 큽니다 (>{limit / 1e6:.0f} MB)")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def summarize_reports(app, out_dir: str, *, fetch=None, summarize=None,
+                      load_existing=None) -> dict:
+    """반도체 산업 · 삼성전자 · SK하이닉스 리포트를 Claude API 로 요약해 저장합니다.
+
+    {skipped: 사유, new: 건수, total: 건수, failed: [사유…], cost: 달러(참고)}
+    키(ANTHROPIC_API_KEY)가 없으면 아무것도 하지 않습니다. 이미 요약한
+    리포트는 다시 보내지 않으려고, 먼저 data 브랜치의 지난 파일을 읽습니다.
+    """
+    import config  # noqa: PLC0415
+    import report_summary as rsum  # noqa: PLC0415
+    import semi_research  # noqa: PLC0415
+    from sources import claude_api  # noqa: PLC0415
+
+    report = {"skipped": "", "new": 0, "total": 0, "failed": [], "cost": 0.0}
+    existing: dict = {}
+    # data 브랜치는 돌 때마다 통째로 새로 올라갑니다 — 지난 요약을 먼저 읽어
+    # 이어 붙이지 않으면 사라지고, 같은 리포트에 돈을 또 냅니다. 워크플로가
+    # git 으로 미리 받아 둔 파일(out_dir/summaries.json)이 있으면 그것을,
+    # 없으면 공개 주소에서 읽습니다.
+    local = os.path.join(out_dir, "summaries.json")
+    try:
+        if load_existing:
+            text = load_existing()
+        elif os.path.exists(local):
+            with open(local, encoding="utf-8") as fh:
+                text = fh.read()
+        else:
+            text = fetch_bytes(config.SUMMARY_URL, timeout=15).decode("utf-8")
+        existing = rsum.parse(text)
+    except Exception as exc:  # noqa: BLE001 - 처음에는 파일이 없습니다 (404)
+        print(f"  지난 요약 파일 없음 ({type(exc).__name__}) — 새로 시작합니다")
+
+    def save() -> None:
+        os.makedirs(out_dir, exist_ok=True)
+        with open(os.path.join(out_dir, "summaries.json"), "w", encoding="utf-8") as fh:
+            fh.write(redact(rsum.dump(existing), secret_values()))
+        report["total"] = len(existing)
+
+    if not claude_api.api_key():
+        report["skipped"] = "ANTHROPIC_API_KEY 없음"
+        if existing:
+            save()                       # 지난 요약은 그대로 넘깁니다
+        return report
+    try:
+        data = app.load_semi_research(False)
+    except Exception as exc:  # noqa: BLE001
+        report["skipped"] = f"리포트 목록 실패: {type(exc).__name__}"
+        if existing:
+            save()
+        return report
+    lists = {"반도체 산업": data.get("industry") or []}
+    for code, name in semi_research.STOCKS:
+        lists[name] = (data.get("stocks") or {}).get(code) or []
+    todo = rsum.targets(lists, existing, config.SUMMARY_PER_LIST, config.SUMMARY_MAX_NEW)
+    print(f"  요약할 새 리포트 {len(todo)}건 (이미 있는 요약 {len(existing)}건)")
+    fetch = fetch or fetch_bytes
+    summarize = summarize or claude_api.summarize_pdf
+    for r in todo:
+        try:
+            text, usage = summarize(fetch(r.pdf), rsum.PROMPT, model=config.SUMMARY_MODEL)
+        except Exception as exc:  # noqa: BLE001 - 한 건 실패가 나머지를 막지 않게
+            why = redact(f"{type(exc).__name__}: {exc}", secret_values())[:160]
+            report["failed"].append(f"{r.broker} 「{r.title[:24]}」 — {why}")
+            print(f"  ✗ {r.date} {r.broker} — {why}")
+            if any(w in why for w in ("authentication_error", "permission_error",
+                                      "credit balance", "billing")):
+                # 키가 틀렸거나 잔액이 없으면 남은 건도 똑같이 실패합니다 — 그만.
+                report["skipped"] = "키 또는 잔액 문제로 중단"
+                print("  → 키 또는 잔액 문제입니다. 남은 리포트는 보내지 않습니다.")
+                break
+            continue
+        existing[rsum.key_of(r)] = rsum.entry(r, text, config.SUMMARY_MODEL, usage)
+        report["new"] += 1
+        print(f"  ✓ {r.date} {r.broker} 「{r.title[:30]}」 "
+              f"입력 {usage.get('input_tokens', 0):,} · 출력 {usage.get('output_tokens', 0):,} 토큰")
+    if existing:
+        save()
+    return report
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[1])
     ap.add_argument("--out", default="seed_out")
@@ -227,6 +323,18 @@ def main(argv=None) -> int:
         return 0
     rows = run_jobs(jobs, workers=args.workers)
     report = write_seed(args.out, rows, secret_values())
+    # 리포트 AI 요약 — 키가 있을 때만. 실패해도 스냅샷은 그대로 올라갑니다.
+    print("\n리포트 요약 (Claude API)")
+    try:
+        summ = summarize_reports(app, args.out)
+        if summ["skipped"]:
+            print(f"  건너뜀 — {summ['skipped']}")
+        if not summ["skipped"] or summ["new"]:
+            print(f"  새 요약 {summ['new']}건 · 저장된 요약 {summ['total']}건"
+                  + (f" · 실패 {len(summ['failed'])}건" if summ["failed"] else ""))
+    except Exception as exc:  # noqa: BLE001
+        print(f"  요약 단계 실패: {type(exc).__name__}: "
+              f"{redact(str(exc), secret_values())[:200]}")
     failed = [r for r in rows if r["error"]]
     print(f"\n스냅샷 {report['kept']}개 항목 · {report['bytes'] / 1024:,.0f} KB · "
           f"{time.time() - t0:.0f}초 · 실패 {len(failed)}/{len(rows)}")

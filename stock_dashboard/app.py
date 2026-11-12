@@ -16,6 +16,7 @@ jusikbot.com 의 정보 구조를 참고했으나 UI·코드는 전부 직접 �
 from __future__ import annotations
 
 import datetime as dt
+import json
 import os
 import sys
 from zoneinfo import ZoneInfo
@@ -122,6 +123,7 @@ import inflation
 import kr_screen
 import sector_heat
 import semi_research
+import report_summary
 import chart_signals
 import daily_brief
 import calendar_events
@@ -564,6 +566,37 @@ def load_research(kind: str, use_demo: bool):
             kind, pages=config.RESEARCH_PAGES if kind == "industry" else 1)
     except Exception as exc:  # noqa: BLE001
         return [], f"{type(exc).__name__}: {exc}"
+
+
+@swr.cached(1_800, stale=7 * 86_400)
+def load_report_summaries(use_demo: bool) -> dict:
+    """리포트 AI 요약 — 수집기가 data 브랜치에 올린 summaries.json.
+
+    {"items": {이름: 항목}, "made": 만든 시각(초), "note": 없을 때의 사유}.
+    요약은 이 서버가 만들지 않습니다 (키를 서버에 두지 않으려고). 수집기가
+    Claude API 로 만들어 올린 파일을 읽기만 합니다. 30분 저장.
+    파일이 아직 없는 것(404)은 실패가 아니라 '아직 켜지 않음' 입니다.
+    """
+    if use_demo:
+        return {"items": demo_mod.demo_report_summaries(), "made": 0, "note": ""}
+    import urllib.error  # noqa: PLC0415
+    import urllib.request  # noqa: PLC0415
+
+    req = urllib.request.Request(config.SUMMARY_URL, headers={"User-Agent": "dash-summary/1"})
+    try:
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            text = resp.read(4_000_000).decode("utf-8", "replace")
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return {"items": {}, "made": 0, "note": "아직 요약 파일이 없습니다"}
+        raise
+    items = report_summary.parse(text)
+    made = 0
+    try:
+        made = int(json.loads(text).get("made") or 0)
+    except Exception:  # noqa: BLE001
+        pass
+    return {"items": items, "made": made, "note": "" if items else "요약 파일이 비어 있습니다"}
 
 
 @swr.cached(3 * 3_600, stale=2 * 86_400)
@@ -2274,11 +2307,17 @@ def render_research_tab(use_demo: bool) -> None:
 def render_semi_research_tab(use_demo: bool) -> None:
     """반도체 리포트 — 묶음 요약 + 리포트별 미리보기 (산업 · 삼성전자 · SK하이닉스).
 
-    2026-11-12 요청. 이 서버에는 글을 읽고 요약하는 AI 가 없어서, 요약은
-    (1) 코드가 세는 묶음 요약과 (2) 리포트별 본문 앞부분입니다. 전문은
-    싣지 않고 원문·PDF 로 보냅니다 (semi_research.py 머리말 참고).
+    2026-11-12 요청. 요약은 세 가지입니다 — (1) 코드가 세는 묶음 요약,
+    (2) 리포트별 본문 앞부분, (3) AI 요약 (수집기가 Claude API 로 만들어
+    data 브랜치에 올린 것 — report_summary.py). 전문은 싣지 않고 원문·PDF 로
+    보냅니다 (semi_research.py 머리말 참고).
     """
     data = load_semi_research(use_demo)
+    try:
+        summ = load_report_summaries(use_demo)
+    except Exception as exc:  # noqa: BLE001 - 요약이 없어도 리포트는 보여 줍니다
+        summ = {"items": {}, "made": 0, "note": f"요약 파일을 받지 못했습니다 ({type(exc).__name__})"}
+    summaries = summ.get("items") or {}
     industry = list(data.get("industry") or [])
     stocks = data.get("stocks") or {}
     errors = data.get("errors") or {}
@@ -2287,12 +2326,26 @@ def render_semi_research_tab(use_demo: bool) -> None:
         ui.render_section_head(
             "반도체 리포트", "증권사 산업분석(반도체) · 삼성전자 · SK하이닉스", total),
         unsafe_allow_html=True)
+    shown = [r for r in industry + [x for v in stocks.values() for x in v]
+             if report_summary.key_of(r) in summaries]
+    if shown:
+        ai_line = (f"<b>AI 요약</b> 표시가 붙은 카드 {len(shown)}건은 Claude 가 PDF 를 "
+                   "읽고 쓴 것입니다 — 숫자는 괄호 안 쪽수로 원문과 맞춰 보십시오 "
+                   "(AI 는 숫자를 잘못 옮길 수 있습니다)."
+                   + (" 마지막으로 만든 때 "
+                      + dt.datetime.fromtimestamp(summ["made"], KST).strftime("%m/%d %H:%M")
+                      + "." if summ.get("made") else ""))
+    else:
+        ai_line = ("<b>AI 요약</b>은 아직 없습니다 — GitHub 저장소 Secrets 에 "
+                   "<code>ANTHROPIC_API_KEY</code> 를 넣고 collect 를 돌리면 붙습니다"
+                   + (f" ({_esc_plain(summ.get('note'))})" if summ.get("note") else "") + ".")
     st.markdown(ui.render_footnote(
-        "<b>요약은 두 가지입니다.</b> 맨 위 상자는 코드가 센 <b>묶음 요약</b>"
-        "(건수 · 증권사 · 자주 나온 말)이고, 카드의 글은 리포트 <b>본문 앞부분</b>"
-        "입니다. 전문은 증권사의 저작물이라 싣지 않고 제목(원문)과 PDF 로 "
-        "보냅니다. 증권사 리포트는 매수 의견 비중이 매우 높습니다 — 결론보다 "
-        "근거가 된 숫자를 보십시오."), unsafe_allow_html=True)
+        "맨 위 상자는 코드가 센 <b>묶음 요약</b>(건수 · 증권사 · 자주 나온 말)이고, "
+        "카드의 글은 리포트 <b>본문 앞부분</b>입니다. " + ai_line
+        + " 전문은 증권사의 저작물이라 싣지 않고 제목(원문)과 PDF 로 보냅니다. "
+        "증권사 리포트는 매수 의견 비중이 매우 높습니다 — 결론보다 근거가 된 "
+        "숫자를 보십시오."),
+        unsafe_allow_html=True)
     if errors:
         st.markdown(ui.render_notice(
             "<b>받지 못한 것:</b> "
@@ -2361,7 +2414,8 @@ def render_semi_research_tab(use_demo: bool) -> None:
                 "평균을 내어 하나의 숫자로 만들지 않습니다."),
                 unsafe_allow_html=True)
 
-    st.markdown(ui.render_report_cards(picked, limit=20), unsafe_allow_html=True)
+    st.markdown(ui.render_report_cards(picked, limit=20, summaries=summaries),
+                unsafe_allow_html=True)
     rest = picked[20:]
     if rest:
         with st.expander(f"이전 리포트 {len(rest)}건 (제목만)"):
@@ -3599,6 +3653,7 @@ FETCH_LABELS = {
     "load_sector_news": "섹터 기사", "load_news": "헤드라인",
     "load_close_headlines": "마감 기사", "load_research": "리포트",
     "load_semi_research": "반도체 리포트",
+    "load_report_summaries": "AI 요약",
     "load_daily_brief": "전일 브리핑", "load_briefings": "브리핑 글",
 }
 

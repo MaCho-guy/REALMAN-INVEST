@@ -20,9 +20,11 @@ import os
 import re
 
 #: 이 환경변수의 **값**은 어디에도 찍히면 안 됩니다.
-SECRET_ENVS = ("DART_API_KEY", "FRED_API_KEY", "GITHUB_TOKEN")
+SECRET_ENVS = ("DART_API_KEY", "FRED_API_KEY", "GITHUB_TOKEN", "ANTHROPIC_API_KEY")
 
 _QUERY = re.compile(r"(?i)\b(crtfc_key|api_key|apikey|access_token|token)=([^&\s'\"<>)]+)")
+#: 어디에 섞여 있든 Anthropic 키 모양이면 지웁니다.
+_SK_ANT = re.compile(r"sk-ant-[A-Za-z0-9_\-]{8,}")
 
 
 def secret_values() -> tuple[str, ...]:
@@ -49,6 +51,8 @@ def scrub(text):
     for v in secret_values():
         if v in out:
             out = out.replace(v, "***")
+    if "sk-ant-" in out:
+        out = _SK_ANT.sub("sk-ant-***", out)
     if "key=" in out.lower() or "token=" in out.lower():
         out = _QUERY.sub(lambda m: f"{m.group(1)}=***", out)
     return out

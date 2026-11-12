@@ -182,14 +182,22 @@ def build_density_rules() -> str:
   :root {{ --sp-4: 13px; --sp-5: 20px; }}
 
   /* 스트림릿 블록 사이 */
-  section[data-testid="stMain"] div[data-testid="stVerticalBlock"] {{ gap: 0.5rem; }}
-  section[data-testid="stMain"] div[data-testid="stHorizontalBlock"] {{ gap: 0.6rem; }}
-  section[data-testid="stMain"] .block-container,
+  [data-testid="stMain"] div[data-testid="stVerticalBlock"] {{ gap: 0.5rem; }}
+  [data-testid="stMain"] div[data-testid="stHorizontalBlock"] {{ gap: 0.6rem; }}
+  /* 2026-11-12 실제 앱에서 잰 값: 위 여백이 96px(6rem)였습니다. 스트림릿
+     머리띠(60px, 오른쪽에 Fork·메뉴)만 피하면 됩니다. 이 스트림릿에서
+     stMain 은 <section> 이 아니라 <main> 이라 꼬리표 이름 없이 집습니다. */
+  [data-testid="stMain"] .block-container,
   div[data-testid="stMainBlockContainer"] {{
+    padding-top: 3.9rem !important;
     padding-bottom: 2.5rem !important; max-width: 1560px;
   }}
+  /* <style> 만 든 칸은 높이가 0 이어도 블록 간격을 한 번씩 먹습니다 (2칸) */
+  div[data-testid="stElementContainer"]:has([data-testid="stMarkdownContainer"] > style:only-child) {{
+    display: none !important;
+  }}
   @media (min-width: 900px) {{
-    section[data-testid="stMain"] .block-container,
+    [data-testid="stMain"] .block-container,
     div[data-testid="stMainBlockContainer"] {{
       padding-left: 1.6rem !important; padding-right: 1.6rem !important;
     }}
@@ -238,7 +246,7 @@ def build_density_rules() -> str:
   }}
 
   @media (max-width: 640px) {{
-    section[data-testid="stMain"] div[data-testid="stVerticalBlock"] {{ gap: 0.45rem; }}
+    [data-testid="stMain"] div[data-testid="stVerticalBlock"] {{ gap: 0.45rem; }}
     .dash-section-head {{ margin-top: 14px; }}
     .dash-footnote {{ line-height: 1.45; }}
     .dash-card {{ padding: 9px 11px; }}
@@ -1681,8 +1689,6 @@ def build_rules() -> str:
   .dash-criteria .cr-table tr:last-child td {{ border-bottom: 0; }}
   .dash-criteria .cr-n {{ color: var(--dash-ink-muted); width: 1.4em; }}
   .dash-criteria .cr-name {{ white-space: nowrap; color: var(--dash-ink); width: 1%; }}
-  .dash-criteria .cr-q {{ display: block; font-size: var(--fs-1); font-weight: 400;
-    color: var(--dash-ink-muted); white-space: normal; min-width: 9em; }}
   .dash-criteria .cr-rule {{ color: var(--dash-ink); }}
   .dash-criteria .cr-src {{ display: inline-block; margin-left: 6px; font-size: var(--fs-1);
     color: var(--dash-ink-muted); border: 1px solid var(--dash-border);

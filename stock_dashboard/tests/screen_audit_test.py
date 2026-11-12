@@ -680,8 +680,13 @@ check("한눈표 머리는 짧은 이름", tbl == "" and all(len(v) <= 6 for v i
 
 css = theme.build_css("kr")
 check("촘촘한 배치가 기본", config.DENSITY == "compact"
-      and 'div[data-testid="stVerticalBlock"] {{ gap: 0.5rem; }}'.replace("{{", "{").replace("}}", "}") in css)
+      and 'div[data-testid="stVerticalBlock"] { gap: 0.5rem; }' in css)
 check("글자 크기는 건드리지 않음", "--fs-" not in theme.build_density_rules())
+check("stMain 을 꼬리표 이름으로 집지 않음 (실제 앱에서는 <main>)",
+      'section[data-testid="stMain"]' not in theme.build_density_rules()
+      and '[data-testid="stMain"] div[data-testid="stVerticalBlock"]' in theme.build_density_rules())
+check("위 여백을 머리띠 높이만큼만", "padding-top: 3.9rem !important" in theme.build_density_rules())
+check("<style> 만 든 칸은 간격을 먹지 않게", "> style:only-child" in theme.build_density_rules())
 check("기준표 스타일", ".dash-criteria" in css and ".dash-terms" in css)
 old_density = config.DENSITY
 config.DENSITY = "roomy"

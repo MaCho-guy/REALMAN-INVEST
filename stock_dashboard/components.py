@@ -1166,10 +1166,10 @@ def render_criteria_table(rows, *, title: str = "", intro: str = "",
         label = r.get("label") or ""
         chip = f'<span class="cr-src">{_esc(label)}</span>' if label else ""
         name = r.get("name") or ""
-        sub = f'<span class="cr-q">{_esc(name)}</span>' if name else ""
+        tip = f' title="{_esc(name)}"' if name else ""
         body.append(
             f'<tr><td class="cr-n">{i}</td>'
-            f'<td class="cr-name"><b>{_esc(r.get("short") or r.get("title") or "")}</b>{sub}</td>'
+            f'<td class="cr-name"{tip}><b>{_esc(r.get("short") or r.get("title") or "")}</b></td>'
             f'<td class="cr-rule">{_safe_inline(r.get("rule") or "")}{chip}</td></tr>')
     head = (f'<div class="cr-title">{_esc(title)}</div>' if title else "")
     intro_html = f'<div class="cr-intro">{_safe_inline(intro)}</div>' if intro else ""

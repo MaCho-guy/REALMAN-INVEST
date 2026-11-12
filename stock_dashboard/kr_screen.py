@@ -89,7 +89,31 @@ class VolProfile:
     vol_short: float | None = None     # 연율 변동성 (%), 3개월
     return_1y: float | None = None     # %
     turnover: float | None = None      # 20일 평균 거래대금 (원)
+    # ── 2026-11-12 추가: 상대강도 · 되돌림 · 거래대금 급증 스크리너용 ──────────
+    ret_1w: float | None = None        # 5거래일 수익률 (%)
+    ret_1m: float | None = None        # 21거래일
+    ret_3m: float | None = None        # 63거래일
+    ret_6m: float | None = None        # 126거래일
+    low_20d: float | None = None       # 최근 20거래일 최저 종가
+    ma20: float | None = None
+    ma60: float | None = None
+    turnover_5d: float | None = None   # 5일 평균 거래대금
+    turnover_60d: float | None = None  # 60일 평균 거래대금
     error: str = ""
+
+    @property
+    def off_low_pct(self) -> float | None:
+        """최근 20일 저점에서 몇 % 올라와 있나."""
+        if self.price is None or not self.low_20d:
+            return None
+        return (self.price / self.low_20d - 1.0) * 100.0
+
+    @property
+    def turnover_surge(self) -> float | None:
+        """5일 평균 거래대금 ÷ 60일 평균. 2 면 평소의 두 배."""
+        if not self.turnover_60d or self.turnover_5d is None:
+            return None
+        return self.turnover_5d / self.turnover_60d
 
     @property
     def liquid(self) -> bool:
@@ -183,6 +207,15 @@ def profile(ticker: str, name: str, closes: list[float],
     ret = None
     if year and year[0] > 0:
         ret = (clean[-1] / year[0] - 1.0) * 100.0
+
+    def back(n: int) -> float | None:
+        if len(clean) <= n or clean[-1 - n] <= 0:
+            return None
+        return (clean[-1] / clean[-1 - n] - 1.0) * 100.0
+
+    def mean(n: int) -> float | None:
+        return sum(clean[-n:]) / n if len(clean) >= n else None
+
     return VolProfile(
         ticker=ticker, name=name, bars=len(clean), price=clean[-1],
         high_52w=max(year), low_52w=min(year),
@@ -190,6 +223,10 @@ def profile(ticker: str, name: str, closes: list[float],
         vol_short=annualized_vol(clean, SHORT_WINDOW),
         return_1y=ret,
         turnover=(average_turnover(closes, volumes) if volumes else None),
+        ret_1w=back(5), ret_1m=back(21), ret_3m=back(63), ret_6m=back(126),
+        low_20d=min(clean[-20:]), ma20=mean(20), ma60=mean(60),
+        turnover_5d=(average_turnover(closes, volumes, 5) if volumes else None),
+        turnover_60d=(average_turnover(closes, volumes, 60) if volumes else None),
     )
 
 
@@ -286,6 +323,161 @@ def near_high_hits(profiles: list[VolProfile], *,
                 ("20일 평균 거래대금", p.turnover_label),
             ],
             sort_key=-hp,
+        ))
+    out.sort(key=lambda h: h.sort_key)
+    return out
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 스크리너 4·5·6 — 하락장에서도 비지 않는 기준 (2026-11-12 추가)
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# ①②는 '52주 고가의 90% 이상' 이라는 **절대** 기준입니다. 시장 전체가
+# 10% 넘게 빠지면 (2026-11-12: KODEX 200 1개월 -9.1%, 50종목 전부 90% 아래)
+# 둘 다 0종목이 되어 화면이 아무 말도 하지 않습니다. 기준을 느슨하게 하는
+# 대신, **다른 질문**을 하는 스크리너를 따로 둡니다:
+#   ④ 시장이 빠질 때 누가 덜 빠졌나            (상대)
+#   ⑤ 많이 빠진 것 중 누가 돌아서고 있나        (낙폭 + 되돌림)
+#   ⑥ 어디에 평소보다 거래가 몰리나             (관심)
+
+#: ④ 후보 가운데 상위 몇 % 를 '강하다' 고 보나.
+RS_TOP_PCT = 20.0
+#: ⑤ 52주 고가 대비 이 % 이하 (= 25% 이상 하락) 이면서
+REBOUND_MAX_OF_HIGH = 75.0
+#:    최근 20일 저점에서 이 % 이상 올라와 있고 20일선 위.
+REBOUND_OFF_LOW_PCT = 8.0
+#: ⑥ 5일 평균 거래대금이 60일 평균의 몇 배 이상인가.
+SURGE_RATIO = 2.0
+
+
+def _median(values: list[float]) -> float | None:
+    return statistics.median(values) if values else None
+
+
+def _pct_rank(value: float, values: list[float]) -> float:
+    """value 가 values 안에서 몇 % 위치인가 (100 = 가장 높음)."""
+    if not values:
+        return 0.0
+    below = sum(1 for v in values if v < value)
+    same = sum(1 for v in values if v == value)
+    return (below + 0.5 * same) / len(values) * 100.0
+
+
+def _rs_universe(profiles: list[VolProfile], require_liquid: bool) -> list[VolProfile]:
+    return [p for p in profiles
+            if p.ok and p.ret_3m is not None and p.ret_6m is not None
+            and (p.liquid or not require_liquid)]
+
+
+def relative_strength_hits(profiles: list[VolProfile], *,
+                           top_pct: float = RS_TOP_PCT,
+                           require_liquid: bool = True) -> list[Hit]:
+    """후보 안에서 3개월·6개월 수익률이 상위인 종목 — **시장 대비**.
+
+    절대 수익률이 마이너스여도 올라옵니다 (전부 빠지는 장에서는 덜 빠진
+    것이 강한 것입니다). 그래서 이유에 실제 수익률과 후보 중앙값을 같이
+    적습니다 — '강하다' 가 '올랐다' 로 읽히지 않게.
+    """
+    uni = _rs_universe(profiles, require_liquid)
+    if len(uni) < 5:
+        return []
+    r3 = [p.ret_3m for p in uni]
+    r6 = [p.ret_6m for p in uni]
+    med3, med6 = _median(r3), _median(r6)
+    out: list[Hit] = []
+    for p in uni:
+        score = 0.5 * _pct_rank(p.ret_3m, r3) + 0.5 * _pct_rank(p.ret_6m, r6)
+        if score < 100.0 - top_pct:
+            continue
+        out.append(Hit(
+            ticker=p.ticker, name=p.name,
+            reasons=[
+                f"3개월 수익률 {p.ret_3m:+.1f}% — 후보 중앙값 {med3:+.1f}% 보다 "
+                f"{p.ret_3m - med3:+.1f}%p",
+                f"6개월 수익률 {p.ret_6m:+.1f}% — 후보 중앙값 {med6:+.1f}% 보다 "
+                f"{p.ret_6m - med6:+.1f}%p",
+                f"후보 {len(uni)}종목 중 상위 {100.0 - score:.0f}% "
+                f"(기준 상위 {top_pct:.0f}%)",
+            ],
+            metrics=[
+                ("상대강도 순위", f"상위 {100.0 - score:.0f}%"),
+                ("3개월 수익률", f"{p.ret_3m:+.1f}%"),
+                ("6개월 수익률", f"{p.ret_6m:+.1f}%"),
+                ("1개월 수익률", "—" if p.ret_1m is None else f"{p.ret_1m:+.1f}%"),
+                ("52주 고가 대비",
+                 "—" if p.pct_of_high is None else f"{p.pct_of_high:.1f}%"),
+                ("20일 평균 거래대금", p.turnover_label),
+            ],
+            sort_key=-score,
+        ))
+    out.sort(key=lambda h: h.sort_key)
+    return out
+
+
+def rebound_hits(profiles: list[VolProfile], *,
+                 max_of_high: float = REBOUND_MAX_OF_HIGH,
+                 off_low_pct: float = REBOUND_OFF_LOW_PCT,
+                 require_liquid: bool = True) -> list[Hit]:
+    """많이 빠진 뒤 최근 저점에서 올라와 20일선 위에 있는 종목."""
+    out: list[Hit] = []
+    for p in profiles:
+        hp, off = p.pct_of_high, p.off_low_pct
+        if not p.ok or hp is None or off is None or p.ma20 is None or p.price is None:
+            continue
+        if hp > max_of_high or off < off_low_pct or p.price <= p.ma20:
+            continue
+        if require_liquid and not p.liquid:
+            continue
+        out.append(Hit(
+            ticker=p.ticker, name=p.name,
+            reasons=[
+                f"52주 고가 대비 {hp:.1f}% — {100.0 - hp:.0f}% 빠진 상태 "
+                f"(기준 {100.0 - max_of_high:.0f}% 이상 하락)",
+                f"최근 20일 저점에서 {off:+.1f}% (기준 +{off_low_pct:.0f}% 이상)",
+                f"종가가 20일선 위 ({(p.price / p.ma20 - 1) * 100:+.1f}%)",
+            ],
+            metrics=[
+                ("52주 고가 대비", f"{hp:.1f}%"),
+                ("20일 저점 대비", f"{off:+.1f}%"),
+                ("20일선 대비", f"{(p.price / p.ma20 - 1) * 100:+.1f}%"),
+                ("1개월 수익률", "—" if p.ret_1m is None else f"{p.ret_1m:+.1f}%"),
+                ("3개월 수익률", "—" if p.ret_3m is None else f"{p.ret_3m:+.1f}%"),
+                ("20일 평균 거래대금", p.turnover_label),
+            ],
+            sort_key=-off,
+        ))
+    out.sort(key=lambda h: h.sort_key)
+    return out
+
+
+def turnover_surge_hits(profiles: list[VolProfile], *,
+                        ratio: float = SURGE_RATIO) -> list[Hit]:
+    """최근 5일 거래대금이 60일 평균의 ratio 배 이상인 종목."""
+    out: list[Hit] = []
+    for p in profiles:
+        surge = p.turnover_surge
+        if not p.ok or surge is None or p.turnover_5d is None:
+            continue
+        if surge < ratio or p.turnover_5d < MIN_TURNOVER:
+            continue
+        week = "—" if p.ret_1w is None else f"{p.ret_1w:+.1f}%"
+        out.append(Hit(
+            ticker=p.ticker, name=p.name,
+            reasons=[
+                f"5일 평균 거래대금이 60일 평균의 {surge:.1f}배 (기준 {ratio:.1f}배 이상)",
+                f"그 5일 동안 주가 {week} — 거래가 몰린 방향을 같이 보십시오",
+            ],
+            metrics=[
+                ("거래대금 배수", f"{surge:.1f}배"),
+                ("5일 평균 거래대금", f"{p.turnover_5d / 1e8:,.1f}억"),
+                ("60일 평균 거래대금",
+                 "—" if not p.turnover_60d else f"{p.turnover_60d / 1e8:,.1f}억"),
+                ("1주 수익률", week),
+                ("1개월 수익률", "—" if p.ret_1m is None else f"{p.ret_1m:+.1f}%"),
+                ("52주 고가 대비",
+                 "—" if p.pct_of_high is None else f"{p.pct_of_high:.1f}%"),
+            ],
+            sort_key=-surge,
         ))
     out.sort(key=lambda h: h.sort_key)
     return out
@@ -399,6 +591,43 @@ def vol_funnel(n_candidates: int, profiles: list[VolProfile],
     return steps
 
 
+#: 일봉으로 계산하는 스크리너들 (나머지는 지표 기반).
+VOL_SCREENS = ("contraction", "near_high", "rs", "rebound", "surge")
+
+
+def funnel(key: str, n_candidates: int, profiles: list[VolProfile]) -> list[FunnelStep]:
+    """스크리너마다 '어느 단계에서 몇 종목이 남았나'. 0건의 원인을 가립니다."""
+    if key == "contraction":
+        return vol_funnel(n_candidates, profiles)
+    if key == "near_high":
+        return vol_funnel(n_candidates, profiles)[:-1]
+    head = vol_funnel(n_candidates, profiles)[:4]          # 후보 … 거래대금
+    usable = [p for p in profiles if p.ok]
+    liquid = [p for p in usable if p.liquid]
+    if key == "rs":
+        uni = _rs_universe(profiles, True)
+        return head + [
+            FunnelStep("6개월 수익률 있음", len(uni),
+                       "" if len(uni) >= 5 else "비교할 종목이 5개 미만이면 순위를 내지 않습니다"),
+            FunnelStep(f"상위 {RS_TOP_PCT:.0f}%", len(relative_strength_hits(profiles))),
+        ]
+    if key == "rebound":
+        deep = [p for p in liquid if (p.pct_of_high or 100.0) <= REBOUND_MAX_OF_HIGH]
+        off = [p for p in deep if (p.off_low_pct or 0.0) >= REBOUND_OFF_LOW_PCT]
+        return head + [
+            FunnelStep(f"52주 고가 {REBOUND_MAX_OF_HIGH:.0f}%↓", len(deep)),
+            FunnelStep(f"20일 저점 +{REBOUND_OFF_LOW_PCT:.0f}%↑", len(off)),
+            FunnelStep("20일선 위", len(rebound_hits(profiles))),
+        ]
+    if key == "surge":
+        have = [p for p in usable if p.turnover_surge is not None]
+        return head[:3] + [
+            FunnelStep("거래대금 60일치 있음", len(have)),
+            FunnelStep(f"5일 ÷ 60일 ≥ {SURGE_RATIO:.1f}배", len(turnover_surge_hits(profiles))),
+        ]
+    return head
+
+
 def value_funnel(rows: list[ValueRow], min_pass: int = 2) -> list[FunnelStep]:
     ok = [r for r in rows if not r.error]
     any_val = [r for r in ok if r.total and any(
@@ -509,4 +738,21 @@ KR_SCREENS = (
      "야후 집계값입니다. <b>PBR 은 자산이 많은 업종(은행·중공업)에 "
      "구조적으로 유리</b>하고, 그 업종은 대체로 품질 기준에서 떨어집니다. "
      "공시 기반 가격 조건(밸류에이션 탭)과 <b>섞지 않고 따로</b> 둡니다."),
+    ("rs", "④ 시장 대비 강한 종목",
+     f"3개월·6개월 수익률 순위가 후보 가운데 상위 {RS_TOP_PCT:.0f}% · 거래대금 ≥ "
+     f"{MIN_TURNOVER / 100_000_000:.0f}억",
+     "<b>'강하다' 는 '올랐다' 가 아닙니다.</b> 전부 빠지는 장에서는 덜 빠진 "
+     "종목이 올라옵니다 — 수익률 숫자를 그대로 보십시오. ①②가 0종목인 "
+     "하락장에서 '그래도 버티는 곳' 을 보려고 둔 목록입니다."),
+    ("rebound", "⑤ 낙폭 과대 + 되돌림",
+     f"52주 고가 대비 ≤ {REBOUND_MAX_OF_HIGH:.0f}% <b>그리고</b> 최근 20일 저점에서 "
+     f"+{REBOUND_OFF_LOW_PCT:.0f}% 이상 <b>그리고</b> 20일선 위",
+     "<b>추세가 바뀌었다는 뜻이 아닙니다.</b> 하락 중의 반등(데드캣)이 "
+     "가장 많이 잡히는 조건입니다. 왜 빠졌는지 공시부터 읽으십시오."),
+    ("surge", "⑥ 거래대금 급증",
+     f"5일 평균 거래대금 ÷ 60일 평균 ≥ {SURGE_RATIO:.1f}배 · 5일 평균 ≥ "
+     f"{MIN_TURNOVER / 100_000_000:.0f}억",
+     "<b>방향을 말해주지 않습니다.</b> 급락하면서 거래가 터진 종목도 "
+     "똑같이 올라옵니다 — 1주 수익률을 같이 적었습니다. 무슨 일이 있었는지 "
+     "(공시·실적·수급) 확인할 종목의 목록입니다."),
 )

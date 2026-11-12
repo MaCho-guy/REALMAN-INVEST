@@ -1073,7 +1073,9 @@ def diagnose_research_detail() -> None:
         ("company", "/api/research/company?pageSize=30&page=1&keyword=삼성전자"),
         ("company", "/front-api/research/list?category=company&pageSize=30&page=1&itemCode=005930"),
         ("company", "/api/stock/005930/research?pageSize=20&page=1"),
-        ("company", "/api/research/stock/005930?pageSize=20&page=1"),
+        ("stock", "/api/research/stock/005930?pageSize=20&page=1"),
+        ("stock", "/api/research/stock/000660?pageSize=20&page=2"),
+        ("industry", "/api/research/industry?pageSize=30&page=4"),
     ]
     for kind, path in lists:
         data = call(base + path)
@@ -1090,19 +1092,23 @@ def diagnose_research_detail() -> None:
         top = sorted(cats.items(), key=lambda kv: -kv[1])[:6]
         print(f"    {len(rows)}줄 · 분포 {top}")
         print("    첫 줄: " + ", ".join(f"{k}={show(v, 40)!r}" for k, v in rows[0].items()))
+        if kind == "stock":
+            print(f"    날짜 범위 {rows[-1].get('writeDate')} ~ {rows[0].get('writeDate')}")
+            for row in rows[:3]:
+                print("    미리보기: " + show(row.get("previewContent"), 220))
         first_ids.setdefault(kind, str(rows[0].get("researchId") or rows[0].get("id")
                                        or rows[0].get("nid") or ""))
 
     print("\n[상세]")
+    first_ids.setdefault("company", first_ids.get("stock", ""))
+    if first_ids.get("stock"):
+        first_ids["company"] = first_ids["stock"]      # 삼성전자 리포트의 상세를 봅니다
     for kind in ("industry", "company"):
         rid = first_ids.get(kind)
         if not rid:
             print(f"  {kind}: 목록에서 번호를 얻지 못해 건너뜁니다")
             continue
-        for path in (f"/api/research/{kind}/{rid}",
-                     f"/front-api/research/detail?category={kind}&researchId={rid}",
-                     f"/api/research/{kind}/detail/{rid}",
-                     f"/api/research/detail/{kind}/{rid}"):
+        for path in (f"/api/research/{kind}/{rid}",):
             data = call(base + path)
             if data is None:
                 continue
@@ -1113,9 +1119,15 @@ def diagnose_research_detail() -> None:
                 print(f"    모양: {type(node).__name__}")
                 continue
             for key, val in node.items():
-                if isinstance(val, (dict, list)):
-                    print(f"    {key}: {type(val).__name__}[{len(val)}] "
-                          f"{show(_json.dumps(val, ensure_ascii=False), 160)}")
+                if isinstance(val, dict):
+                    # 한 단계 더 — 칸 이름을 전부 봐야 해석기를 쓸 수 있습니다
+                    print(f"    {key}: dict[{len(val)}]")
+                    for k2, v2 in val.items():
+                        size = f" (글자 {len(v2):,})" if isinstance(v2, str) and len(v2) > 90 else ""
+                        print(f"      · {k2}{size}: {show(v2, 90)!r}")
+                elif isinstance(val, list):
+                    print(f"    {key}: list[{len(val)}] "
+                          f"{show(_json.dumps(val[:1], ensure_ascii=False), 200)}")
                 else:
                     print(f"    {key}: {show(val, 160)!r}")
 

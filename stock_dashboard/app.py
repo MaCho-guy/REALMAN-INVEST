@@ -1520,6 +1520,9 @@ def _discover_kr(use_demo: bool) -> None:
         "contraction": kr_screen.contraction_hits(profiles),
         "near_high": kr_screen.near_high_hits(profiles),
         "value_trad": kr_screen.value_hits(value_rows),
+        "rs": kr_screen.relative_strength_hits(profiles),
+        "rebound": kr_screen.rebound_hits(profiles),
+        "surge": kr_screen.turnover_surge_hits(profiles),
     }
 
     picker = getattr(st, "segmented_control", None)
@@ -1551,10 +1554,8 @@ def _discover_kr(use_demo: bool) -> None:
     # 단계별로 몇 종목이 남는지 — 0 건이 '데이터 실패' 인지 '기준 탈락'
     # 인지 바로 보이게 합니다.
     n_cands = len(config.screen_kr_candidates())
-    if choice in ("contraction", "near_high"):
-        steps = kr_screen.vol_funnel(n_cands, profiles)
-        if choice == "near_high":
-            steps = steps[:-1]      # 신고가만 보는 스크리너엔 수축 단계가 없음
+    if choice in kr_screen.VOL_SCREENS:
+        steps = kr_screen.funnel(choice, n_cands, profiles)
         st.markdown(ui.render_funnel(steps, vol_errors,
                                      title="단계별로 남은 종목"),
                     unsafe_allow_html=True)
@@ -1571,7 +1572,9 @@ def _discover_kr(use_demo: bool) -> None:
                 "숫자가 크게 줄어든 칸이 원인입니다 — '일봉 받음' 이나 "
                 "'지표 받음' 에서 줄었다면 데이터 문제이고, 그 뒤에서 "
                 "줄었다면 지금 시장에 그런 종목이 없는 것입니다. 기준은 "
-                "느슨하게 하지 않습니다."),
+                "느슨하게 하지 않습니다 — 하락장에서는 <b>④ 시장 대비 강한 "
+                "종목</b> · <b>⑤ 낙폭 과대 + 되돌림</b> 이 다른 질문으로 "
+                "같은 후보를 봅니다."),
             unsafe_allow_html=True,
         )
         return

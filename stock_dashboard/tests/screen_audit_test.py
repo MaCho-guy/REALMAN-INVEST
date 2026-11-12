@@ -317,6 +317,70 @@ check("비우기도 번호를 따른다", new_fn.age() is None and old_fn.age() 
 check("한국 지표 · 수출 통계에 번호를 올렸다",
       "@swr.cached(3_600, version=3)" in src and "@swr.cached(21_600, version=2)" in src)
 
+print("\n=== 국내 스크리너 — 하락장에서도 비지 않는 기준 ===")
+import kr_screen as ks  # noqa: E402
+
+
+def bars(start, moves):
+    out, px = [], float(start)
+    for m in moves:
+        px *= 1 + m
+        out.append(px)
+    return out
+
+
+VOL = [300_000.0] * 300
+# 전 종목이 고점에서 20% 넘게 빠진 장 — ①②는 0종목이어야 정상
+market = {}
+for i in range(10):
+    tail = -0.0040 + i * 0.0003                 # 종목마다 빠지는 속도가 다름 (전부 하락)
+    market[f"S{i}"] = bars(50_000, [0.004] * 170 + [tail] * 130)
+profs = [ks.profile(k, k, v, VOL) for k, v in market.items()]
+check("하락장: 52주 고가 90% 이상이 하나도 없다 (①② 0종목은 버그가 아님)",
+      ks.near_high_hits(profs) == [] and ks.contraction_hits(profs) == [])
+rs = ks.relative_strength_hits(profs)
+check("④ 그래도 덜 빠진 종목이 올라온다", len(rs) == 2 and {h.ticker for h in rs} == {"S9", "S8"},
+      str([h.ticker for h in rs]))
+check("④ 가장 덜 빠진 종목이 맨 위", rs[0].ticker == "S9")
+check("④ 이유에 실제 수익률과 후보 중앙값을 적는다 ('강하다' ≠ '올랐다')",
+      "3개월 수익률" in rs[0].reasons[0] and "후보 중앙값" in rs[0].reasons[0], rs[0].reasons[0])
+check("④ 비교할 종목이 5개 미만이면 순위를 내지 않는다", ks.relative_strength_hits(profs[:4]) == [])
+thin = [ks.profile(k, k, v, [100.0] * 300) for k, v in market.items()]
+check("④ 거래대금 바닥 밑은 뺀다", ks.relative_strength_hits(thin) == [])
+
+deep = bars(100_000, [0.002] * 150 + [-0.006] * 120 + [0.012] * 12)      # 급락 뒤 반등
+falling = bars(100_000, [0.002] * 150 + [-0.006] * 132)                  # 계속 하락
+flat_hi = bars(100_000, [0.001] * 282)                                   # 고점 근처
+rb = ks.rebound_hits([ks.profile("D", "되돌림", deep, VOL), ks.profile("F", "하락중", falling, VOL),
+                      ks.profile("H", "고점", flat_hi, VOL)])
+check("⑤ 많이 빠졌다가 저점에서 올라온 종목만", [h.ticker for h in rb] == ["D"], str([h.ticker for h in rb]))
+check("⑤ 이유에 낙폭 · 저점 대비 · 20일선", "빠진 상태" in rb[0].reasons[0] and "20일 저점" in rb[0].reasons[1]
+      and "20일선 위" in rb[0].reasons[2])
+
+quiet = bars(50_000, [0.0] * 300)
+surge_vol = [300_000.0] * 295 + [1_500_000.0] * 5
+sg = ks.turnover_surge_hits([ks.profile("V", "거래급증", quiet, surge_vol),
+                             ks.profile("Q", "평소대로", quiet, VOL)])
+check("⑥ 5일 거래대금이 60일 평균의 2배 이상", [h.ticker for h in sg] == ["V"]
+      and sg[0].metrics[0][1].endswith("배"), str(sg[0].metrics[0] if sg else None))
+check("⑥ 그 사이 주가 방향을 같이 적는다", "주가" in sg[0].reasons[1])
+check("⑥ 거래량을 못 받았으면 올리지 않는다", ks.turnover_surge_hits([ks.profile("N", "n", quiet, None)]) == [])
+
+for key in ks.VOL_SCREENS:
+    steps = ks.funnel(key, len(profs), profs)
+    check(f"단계표 [{key}] — 후보에서 시작해 줄어든다",
+          steps[0].label == "후보" and steps[0].count == len(profs)
+          and all(a.count >= b.count for a, b in zip(steps[2:], steps[3:])),
+          str([(x.label, x.count) for x in steps]))
+check("단계표 마지막 칸 = 통과 종목 수",
+      ks.funnel("rs", len(profs), profs)[-1].count == len(rs))
+keys = [k for k, *_ in ks.KR_SCREENS]
+check("스크리너 6개 — 기존 셋은 그대로, 셋 추가",
+      keys == ["contraction", "near_high", "value_trad", "rs", "rebound", "surge"])
+check("앱이 여섯 개를 모두 계산한다",
+      all(f'"{k}": kr_screen.' in src for k in ("rs", "rebound", "surge")))
+check("0종목일 때 다른 스크리너를 안내한다", "④ 시장 대비 강한" in src)
+
 print("\n=== 분석 실행 안내 ===")
 check("화면 3분의 1 을 차지하던 노란 경고가 없다", "분석 실행 불가" not in src)
 check("한 줄 안내 + 접어 둔 설치 방법",

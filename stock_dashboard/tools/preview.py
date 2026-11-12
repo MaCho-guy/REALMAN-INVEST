@@ -943,6 +943,9 @@ def _discover_panel(use_demo: bool, market: str = "us") -> str:
         "contraction": kr_screen.contraction_hits(profiles),
         "near_high": kr_screen.near_high_hits(profiles),
         "value_trad": kr_screen.value_hits(value_rows),
+        "rs": kr_screen.relative_strength_hits(profiles),
+        "rebound": kr_screen.rebound_hits(profiles),
+        "surge": kr_screen.turnover_surge_hits(profiles),
     }
     companies = demo_mod.demo_kr_companies(
         tuple(c for c, _n in cands)) if use_demo else {}
@@ -952,10 +955,8 @@ def _discover_panel(use_demo: bool, market: str = "us") -> str:
     for key, title, rule, caveat in kr_screen.KR_SCREENS:
         picked = hits.get(key, [])
         parts.append(ui.render_screener_head(title, rule, len(picked), caveat))
-        if key in ("contraction", "near_high"):
-            steps = kr_screen.vol_funnel(n_cands, profiles)
-            if key == "near_high":
-                steps = steps[:-1]
+        if key in kr_screen.VOL_SCREENS:
+            steps = kr_screen.funnel(key, n_cands, profiles)
             parts.append(ui.render_funnel(steps, vol_errors, title="단계별로 남은 종목"))
         else:
             parts.append(ui.render_funnel(

@@ -127,15 +127,20 @@ def _from_history(ticker, symbol: str = "") -> tuple[float | None, float | None]
         return None, None
     if hist is None or hist.empty or "Close" not in hist:
         return None, None
+    raw = hist["Close"].tolist()
+    try:
+        stamps = list(hist.index)
+    except Exception:  # noqa: BLE001 - 날짜를 못 읽는 표면 예전 방식으로
+        stamps = []
     rows = []
-    for stamp, close in zip(list(hist.index), hist["Close"].tolist()):
+    for stamp, close in zip(stamps, raw):
         try:
-            day = stamp.date() if hasattr(stamp, "date") else stamp
+            day = stamp.date() if hasattr(stamp, "date") else None
         except Exception:  # noqa: BLE001
             day = None
         rows.append((day, close))
-    if any(d is None for d, _c in rows):
-        closes = [c for _d, c in rows if c == c]
+    if len(rows) != len(raw) or any(d is None for d, _c in rows):
+        closes = [c for c in raw if c is not None and c == c]
         if not closes:
             return None, None
         return closes[-1], (closes[-2] if len(closes) > 1 else None)

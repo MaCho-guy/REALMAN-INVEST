@@ -1877,7 +1877,9 @@ def render_chart_tab(use_demo: bool, *, market: str = "kr") -> None:
         f"볼린저 %B {chart_signals.BB_NEAR:g} / {1 - chart_signals.BB_NEAR:g}. "
         "셋 중 하나라도 그쪽 상태이고 반대쪽이 없으면 그쪽입니다. "
         "'탈출' 은 기준선을 나온 지 3봉 이내이고 아직 가운데 선"
-        f"(CCI {chart_signals.CCI_MID:g} · %K {chart_signals.STOCH_MID:g})을 넘지 않은 때까지만 셉니다."),
+        f"(CCI {chart_signals.CCI_MID:g} · %K {chart_signals.STOCH_MID:g})을 넘지 않은 때까지만 세고, "
+        "근거가 '탈출'뿐인데 다른 지표가 이미 가운데 선을 넘었으면 그쪽으로 치지 않습니다. "
+        "MACD 는 방향 지표라 쪽을 가르지 않습니다."),
         unsafe_allow_html=True)
 
     chosen = chart_signals.select(rows, required, side)

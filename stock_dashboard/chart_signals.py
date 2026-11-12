@@ -97,6 +97,8 @@ CONDITION_KEYS = tuple(k for k, _n, _r in CONDITIONS)
 #: 기준선이 없습니다 — 상태 이름은 그대로 두되 쪽에서는 뺍니다.
 SIDED = ("cci", "stoch", "bb")
 SIDE_NAMES = {"os": "과매도", "ob": "과매수", "mixed": "엇갈림", "": ""}
+#: 기준선을 이미 나온 뒤의 상태 — 쪽의 근거로는 약합니다 (ChartRow.side 참고).
+EXITED = ("과매도 탈출", "과매수 이탈")
 SIDES = (("", "전체"), ("os", "과매도 쪽"), ("ob", "과매수 쪽"))
 
 
@@ -567,12 +569,24 @@ class ChartRow:
         과매도 쪽 상태이고 과매수 쪽 상태가 없으면 과매도, 그 반대면 과매수,
         둘 다 있으면 엇갈림입니다.
         """
-        got = {self.sides.get(k) for k in SIDED} - {"", None}
-        if got == {"os"}:
-            return "os"
-        if got == {"ob"}:
-            return "ob"
-        return "mixed" if got else ""
+        votes = {k: self.sides.get(k) for k in SIDED if self.sides.get(k)}
+        got = set(votes.values())
+        if not got:
+            return ""
+        if len(got) > 1:
+            return "mixed"
+        side = got.pop()
+        # 근거가 전부 '기준선을 나온 뒤'(탈출·이탈) 상태뿐이면, 다른 진동 지표가
+        # 이미 가운데 선을 넘었는지 봅니다. 넘었으면 그쪽이 아닙니다 —
+        # 스토캐스틱 45('과매도 탈출')인데 CCI 가 +59 인 종목이 과매도 목록에
+        # 남던 것을 막습니다 (2026-11-12 실제 화면).
+        if all(self.states.get(k) in EXITED for k in votes):
+            for val, mid in ((self.cci, CCI_MID), (self.stoch_k, STOCH_MID)):
+                if val is None:
+                    continue
+                if (side == "os" and val > mid) or (side == "ob" and val < mid):
+                    return ""
+        return side
 
     @property
     def side_votes(self) -> tuple[int, int]:

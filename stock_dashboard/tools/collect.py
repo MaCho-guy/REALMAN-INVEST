@@ -355,7 +355,11 @@ def build_universe_us(app, out_dir: str, *, members_fn=None, ticker_map_fn=None,
     t0 = time.time()
     prev = _read_prev(out_dir, name)
     age = universe.age_hours(prev)
-    if (not force and prev and age is not None and age < config.UNIVERSE_US_MAX_AGE_HOURS
+    # 지난번에 목록 하나를 못 받았으면(나스닥100 실패 등) 새 파일이어도 다시 합니다
+    failed_rule = any(str((info or {}).get("how", "")).startswith("실패")
+                      for info in (prev.get("rules") or {}).values())
+    if (not force and not failed_rule and prev and age is not None
+            and age < config.UNIVERSE_US_MAX_AGE_HOURS
             and len(prev.get("screens") or []) >= (
                 universe.MIN_SP500 // 2 if min_keep is None else min_keep)):
         return {"kept": True, "age": age, "n": len(prev.get("screens") or [])}
@@ -481,6 +485,8 @@ def build_universe(app, out_dir: str, markets=("us", "kr")) -> dict:
             print(f"  {label}: 후보 {r.get('members', 0)} → 심사 {r.get('n', 0)} · "
                   f"못 받음 {r.get('errors', 0)} · {r.get('sec', 0):.0f}초 · "
                   f"{r.get('bytes', 0) / 1024:.0f} KB")
+            for name, info in (r.get("rules") or {}).items():
+                print(f"    규칙: {name} {info.get('n', 0)} ({info.get('how', '')})")
     return out
 
 

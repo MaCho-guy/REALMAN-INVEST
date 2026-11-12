@@ -58,19 +58,11 @@ def _cell_text(cell: str) -> str:
 _TH = re.compile(r"<th[^>]*>(.*?)</th>", re.S | re.I)
 
 
-def parse_index_table(page: str) -> list[dict]:
-    """위키백과 지수 구성 종목 표 → [{ticker, name, sector, cik}].
+_TABLE = re.compile(r"<table[^>]*>.*?</table>", re.S | re.I)
 
-    id="constituents" 표를 읽습니다. 칸 순서를 외워 두지 않고 **머리글로**
-    찾습니다 — S&P 500 표(Symbol · Security · GICS Sector · … · CIK, 2026-11-12
-    실제 응답으로 확인)와 나스닥100 표(Ticker · Company · … 업종)가 순서가
-    다르고, 위키백과는 칸을 가끔 바꿉니다. 표나 티커 칸을 못 찾으면 빈 목록.
-    """
-    i = (page or "").find('id="constituents"')
-    if i < 0:
-        return []
-    j = page.find("</table>", i)
-    body = page[i:j if j > 0 else len(page)]
+
+def _parse_one_table(body: str) -> list[dict]:
+    """표 하나 → [{ticker, name, sector, cik}]. 티커 칸이 없는 표면 빈 목록."""
     rows = _TR.findall(body)
     heads: list[str] = []
     for row in rows:
@@ -85,18 +77,20 @@ def parse_index_table(page: str) -> list[dict]:
         return None
 
     c_tick = col("symbol", "ticker")
+    if c_tick is None:
+        return []
     c_name = col("security", "company")
     c_sect = col("sector", avoid=("sub",))
     if c_sect is None:
         c_sect = col("industry", avoid=("sub",))
     c_cik = col("cik")
-    if c_tick is None:
-        return []
     out, seen = [], set()
     for row in rows:
+        if not _TD.findall(row):
+            continue                     # 머리글 줄
         # 티커가 <th scope="row"> 로 올 때도 있어 th·td 를 순서대로 같이 읽습니다
         cells = [_cell_text(c) for c in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row, re.S | re.I)]
-        if len(cells) <= c_tick or _TH.findall(row) and not _TD.findall(row):
+        if len(cells) <= c_tick:
             continue
         ticker = cells[c_tick].upper().strip()
         if not ticker or not re.fullmatch(r"[A-Z0-9.\-]{1,7}", ticker) or ticker in seen:
@@ -109,6 +103,33 @@ def parse_index_table(page: str) -> list[dict]:
         out.append({"ticker": ticker, "name": at(c_name), "sector": at(c_sect),
                     "cik": int(cik) if cik.isdigit() else None})
     return out
+
+
+def parse_index_table(page: str) -> list[dict]:
+    """위키백과 지수 구성 종목 표 → [{ticker, name, sector, cik}].
+
+    칸 순서를 외워 두지 않고 **머리글로** 찾습니다 — S&P 500 표(Symbol ·
+    Security · GICS Sector · … · CIK, 2026-11-12 실제 응답으로 확인)와 나스닥100
+    표가 순서가 다르고, 위키백과는 칸을 가끔 바꿉니다.
+
+    표도 id 하나에 기대지 않습니다. id="constituents" 표를 먼저 보고, 거기서
+    못 읽으면 페이지의 표 가운데 **티커 칸이 있고 줄이 가장 많은 것**을 씁니다
+    (2026-11-12 첫 실행에서 나스닥100 은 그 id 로 읽히지 않았습니다).
+    """
+    page = page or ""
+    best: list[dict] = []
+    i = page.find('id="constituents"')
+    if i >= 0:
+        start = page.rfind("<table", 0, i)
+        j = page.find("</table>", i)
+        best = _parse_one_table(page[start if start >= 0 else i:j if j > 0 else len(page)])
+    if len(best) >= 50:
+        return best
+    for block in _TABLE.findall(page):
+        got = _parse_one_table(block)
+        if len(got) > len(best):
+            best = got
+    return best
 
 
 def parse_sp500(page: str) -> list[dict]:

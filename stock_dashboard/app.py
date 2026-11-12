@@ -1658,6 +1658,8 @@ def _discover_us(use_demo: bool) -> None:
     if from_file:
         all_screens = [x for x in (buffett.from_summary(r) for r in payload["screens"]) if x]
         errors = dict(payload.get("errors") or {})
+        # 받기는 했지만 연간 숫자를 못 읽은 종목도 '빠진 종목' 에 이유와 함께
+        errors.update({x.ticker: x.error for x in all_screens if not x.ok and x.error})
         sectors = {x.ticker: x.sector for x in all_screens}
         n_members = len(payload.get("members") or []) or len(all_screens) + len(errors)
     else:

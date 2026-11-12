@@ -71,6 +71,14 @@ nd = universe.parse_index_table(NDX)
 check("칸 순서가 달라도 머리글로 찾는다 (CIK 칸이 없으면 None)",
       [r["ticker"] for r in nd] == ["ADBE", "ASML"] and nd[0]["cik"] is None
       and nd[0]["name"] == "Adobe Inc." and nd[0]["sector"] == "Technology")
+NOID = ('<table class="wikitable"><tr><th>Year</th><th>Change</th></tr><tr><td>2025</td><td>x</td></tr></table>'
+        '<table class="wikitable sortable"><tr><th>Company</th><th>Ticker</th><th>GICS Sector</th></tr>'
+        + "".join(f"<tr><td><a>회사{i}</a></td><td>N{i}</td><td>Tech</td></tr>" for i in range(60))
+        + '</table><table><tr><th>Ticker</th></tr><tr><td>ZZ</td></tr></table>')
+no = universe.parse_index_table(NOID)
+check("id 가 없어도 티커 칸이 있는 가장 큰 표를 읽는다 (칸 순서도 달라도)",
+      len(no) == 60 and no[0] == {"ticker": "N0", "name": "회사0", "sector": "Tech", "cik": None},
+      str(no[:1]))
 check("표가 없으면 빈 목록", universe.parse_index_table("<html>없음</html>") == []
       and universe.parse_index_table("") == [])
 check("업종 우리말 이름", universe.sector_label("Consumer Staples") == "필수소비재"
@@ -304,6 +312,14 @@ try:
         r3 = collect.build_universe_us(None, out, members_fn=members_fn, facts_fn=facts_fn,
                                        ticker_map_fn=lambda ua: {}, force=True)
         check("강제로는 다시 한다", not r3.get("kept") and len(batches) > before)
+        bad = json.loads(pathlib.Path(out, "universe_us.json").read_text(encoding="utf-8"))
+        bad["rules"]["나스닥100 (목록을 못 받아 제외)"] = {"n": 0, "how": "실패: UniverseError"}
+        pathlib.Path(out, "universe_us.json").write_text(json.dumps(bad), encoding="utf-8")
+        before = len(batches)
+        r3b = collect.build_universe_us(None, out, members_fn=members_fn, facts_fn=facts_fn,
+                                        ticker_map_fn=lambda ua: {}, min_keep=10)
+        check("지난번에 목록 하나를 못 받았으면 새 파일이어도 다시 한다",
+              not r3b.get("kept") and len(batches) > before)
 
         def boom():
             raise universe_src.UniverseError("표에서 40종목만")

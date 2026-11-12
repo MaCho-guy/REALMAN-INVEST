@@ -64,7 +64,8 @@ def fetch_us_members(get=None) -> tuple[list[dict], dict]:
     try:
         ndx = fetch_index_table(NDX_URL, universe.MIN_NDX, "나스닥100", get)
     except Exception as exc:  # noqa: BLE001
-        rules["나스닥100 (목록을 못 받아 제외)"] = {"n": 0, "how": f"실패: {type(exc).__name__}"}
+        rules["나스닥100 (목록을 못 받아 제외)"] = {
+            "n": 0, "how": f"실패: {type(exc).__name__}: {str(exc)[:90]}"}
         return sp, rules
     added = [dict(m, index=True) for m in ndx if m["ticker"] not in have]
     rules["나스닥100 에만 있는 종목"] = {"n": len(added), "how": "index",
@@ -72,21 +73,35 @@ def fetch_us_members(get=None) -> tuple[list[dict], dict]:
     return sp + added, rules
 
 
-def fetch_index_members(code: str, expect: int, get=None, max_pages: int = 5) -> list[dict]:
-    """지수 구성 종목 [{code, name, cap}]. 빈 응답이면 빈 목록 (그 지수 코드가 없는 것)."""
-    out: list[dict] = []
-    seen: set[str] = set()
-    for page in range(1, max_pages + 1):
-        rows = universe.parse_naver_stocks(
-            _get_json(INDEX_URL.format(code=code, page=page, size=PAGE_SIZE), get))
-        fresh = [r for r in rows if r["code"] not in seen]
-        if not fresh:
+def fetch_index_members(code: str, expect: int, get=None,
+                        sizes: tuple[int, ...] = (100, 50, 20)) -> list[dict]:
+    """지수 구성 종목 [{code, name, cap}]. 빈 응답이면 빈 목록 (그 지수 코드가 없는 것).
+
+    쪽 크기를 줄여 가며 받아 봅니다 — 2026-11-12 첫 실행에서 100개씩은 받지
+    못했습니다 (3개씩은 왔습니다). 가장 많이 받은 결과를 돌려줍니다.
+    """
+    best: list[dict] = []
+    for size in sizes:
+        out: list[dict] = []
+        seen: set[str] = set()
+        try:
+            for page in range(1, expect // size + 3):
+                rows = universe.parse_naver_stocks(
+                    _get_json(INDEX_URL.format(code=code, page=page, size=size), get))
+                fresh = [r for r in rows if r["code"] not in seen]
+                if not fresh:
+                    break
+                seen.update(r["code"] for r in fresh)
+                out.extend(fresh)
+                if len(out) >= expect or len(rows) < size:
+                    break
+        except Exception:  # noqa: BLE001 - 이 쪽 크기는 안 받는 것 — 더 작게
+            pass
+        if len(out) > len(best):
+            best = out
+        if len(best) >= expect:
             break
-        seen.update(r["code"] for r in fresh)
-        out.extend(fresh)
-        if len(out) >= expect or len(rows) < PAGE_SIZE:
-            break
-    return out
+    return best
 
 
 def fetch_cap_top(market: str, n: int, get=None, max_pages: int = 8) -> list[dict]:

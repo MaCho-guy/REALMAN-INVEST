@@ -1162,6 +1162,21 @@ def diagnose_universe_sources() -> None:
     except Exception as exc:  # noqa: BLE001
         print(f"위키백과 실패: {type(exc).__name__}: {exc}")
 
+    try:
+        import universe as _un
+        r = _rq.get("https://en.wikipedia.org/wiki/Nasdaq-100", headers=ua, timeout=15)
+        got = _un.parse_index_table(r.text)
+        print(f"\n나스닥100: HTTP {r.status_code} · {len(r.text):,}자 · id=constituents "
+              f"{'있음' if 'id=\"constituents\"' in r.text else '없음'} · 읽은 종목 {len(got)}")
+        print("  앞 3종목:", got[:3])
+        for m in _re.finditer(r"<table[^>]*>", r.text):
+            tag = m.group(0)
+            seg = r.text[m.end():m.end() + 1500]
+            ths = [_re.sub(r"<[^>]+>", "", t).strip() for t in _re.findall(r"<th[^>]*>(.*?)</th>", seg, _re.S)][:8]
+            print("  표:", tag[:110], "| 머리글:", ths)
+    except Exception as exc:  # noqa: BLE001
+        print(f"나스닥100 실패: {type(exc).__name__}: {exc}")
+
     hdr = {**_nv.HEADERS, "Accept": "application/json"}
 
     def show(value, limit=90):
@@ -1174,6 +1189,11 @@ def diagnose_universe_sources() -> None:
         "https://m.stock.naver.com/api/stocks/marketValue/KOSPI?page=2&pageSize=100",
         "https://m.stock.naver.com/api/stocks/marketValue/KOSPI?page=1&pageSize=200",
         "https://m.stock.naver.com/api/index/KPI200/enrollStocks?page=1&pageSize=3",
+        "https://m.stock.naver.com/api/index/KPI200/enrollStocks?page=1&pageSize=100",
+        "https://m.stock.naver.com/api/index/KPI200/enrollStocks?page=2&pageSize=50",
+        "https://m.stock.naver.com/api/index/KPI200/enrollStocks?page=3&pageSize=20",
+        "https://m.stock.naver.com/api/index/KQ150/enrollStocks?page=1&pageSize=20",
+        "https://m.stock.naver.com/api/index/KOSDAQ/enrollStocks?page=1&pageSize=3",
         "https://m.stock.naver.com/api/index/KOSDAQ150/enrollStocks?page=1&pageSize=3",
         "https://m.stock.naver.com/api/stocks/marketValue/all?page=1&pageSize=3",
     ):

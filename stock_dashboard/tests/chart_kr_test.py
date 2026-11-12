@@ -59,45 +59,56 @@ class Resp:
         return json.loads(self.content)
 
 
-LIST_HTML = ('<table><tr><td><a href="/sise/sise_group_detail.naver?type=upjong&no=278">'
-             '반도체와반도체장비</a></td></tr><tr><td><a href="/sise/sise_group_detail.naver?'
-             'type=upjong&amp;no=999">은행</a></td></tr></table>').encode("cp949")
-PAGE_HTML = ('<a href="/item/main.naver?code=000660">SK하이닉스</a>'
-             '<a href="/item/main.naver?code=042700">한미반도체</a>'
-             '<a href="/item/main.naver?code=000660">SK하이닉스</a>').encode("cp949")
+GROUPS = {"stockListSortType": "INDUSTRY", "groups": [
+    {"no": 285, "name": "방송과엔터테인먼트", "totalCount": 58},
+    {"no": 278, "name": "반도체와반도체장비", "totalCount": 174}]}   # 2026-11-13 실제 응답 모양
 
 
-def fake_get(api_ok=True, page_codes=PAGE_HTML):
+def semi_stocks(n_total=174, markers=True):
+    rows = [{"stockType": "domestic", "stockEndType": "stock", "itemCode": f"{900000 + i}",
+             "stockName": f"반도체{i}"} for i in range(n_total)]
+    if markers:
+        rows[0]["itemCode"], rows[1]["itemCode"] = "000660", "005930"
+    rows.append({"stockEndType": "etf", "itemCode": "091160", "stockName": "KODEX 반도체"})
+    return rows
+
+
+def fake_get(markers=True, big_ok=True, seen=None):
+    data = semi_stocks(markers=markers)
+
     def get(url, headers=None, timeout=None):
-        if "sise_group.naver" in url:
-            return Resp(LIST_HTML)
-        if "api/stocks/industry/278" in url:
-            if not api_ok:
+        if seen is not None:
+            seen.append((url, (headers or {}).get("Accept")))
+        if "/industry?" in url:
+            return Resp(GROUPS)
+        if "/industry/278?" in url:
+            q = dict(x.split("=") for x in url.split("?")[1].split("&"))
+            page, size = int(q["page"]), int(q["pageSize"])
+            if size == 100 and not big_ok:
                 return Resp({}, 500)
-            return Resp({"stocks": [{"itemCode": "000660", "stockName": "SK하이닉스",
-                                     "stockEndType": "stock"},
-                                    {"itemCode": "005930", "stockName": "삼성전자",
-                                     "stockEndType": "stock"}]})
-        if "sise_group_detail" in url:
-            return Resp(page_codes)
+            return Resp({"stocks": data[(page - 1) * size:page * size]})
         return Resp({}, 404)
     return get
 
 
 print("1. 네이버 업종 읽기")
-groups = universe_src.parse_group_list(LIST_HTML.decode("cp949"))
-check("업종 목록에서 번호 · 이름", groups == [("278", "반도체와반도체장비"), ("999", "은행")],
-      str(groups))
-codes, info = universe_src.fetch_kr_industry(get=fake_get())
-check("모바일 API 로 받음", codes == {"000660", "005930"} and info["how"] == "api", str(info))
-codes, info = universe_src.fetch_kr_industry(get=fake_get(api_ok=False))
-check("API 실패 → PC 페이지", codes == {"000660", "042700"} and info["how"] == "page",
-      str(info))
+seen: list = []
+codes, info = universe_src.fetch_kr_industry(get=fake_get(seen=seen))
+check("반도체 업종 174종목 (ETF 제외)", len(codes) == 174 and "091160" not in codes
+      and info["name"] == "반도체와반도체장비" and info["no"] == "278", str(info))
+check("JSON 으로 요청 (text/html 이면 406)", all(acc == "application/json" for _u, acc in seen))
+codes, info = universe_src.fetch_kr_industry(get=fake_get(big_ok=False))
+check("100개씩 실패 → 50개씩으로", len(codes) == 174, str(info))
 try:
-    universe_src.fetch_kr_industry(get=fake_get(api_ok=False, page_codes=b"<html></html>"))
+    universe_src.fetch_kr_industry(get=fake_get(markers=False))
     check("표지 종목이 없으면 예외", False)
 except universe_src.UniverseError as exc:
     check("표지 종목이 없으면 예외", "SK하이닉스" in str(exc), str(exc))
+try:
+    universe_src.fetch_kr_industry(get=lambda *a, **k: Resp({"groups": []}))
+    check("업종이 없으면 예외", False)
+except universe_src.UniverseError as exc:
+    check("업종이 없으면 예외", "업종 0개" in str(exc), str(exc))
 
 print("2. 줄 ↔ 파일")
 b3 = bars(3)

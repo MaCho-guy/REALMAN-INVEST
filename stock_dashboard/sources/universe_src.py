@@ -177,88 +177,86 @@ def fetch_kr_members(get=None) -> tuple[list[dict], dict]:
 # ── 업종 (반도체) ────────────────────────────────────────────────────────────
 #
 # 2026-11-12 사용자 승인: 차트 조건 탭 한국 350종목에서 반도체 종목을 맨 위에,
-# 분류는 네이버 업종. **응답 모양은 아직 실제로 확인하지 못했습니다** — 그래서
-# 아래 함수는 두 길(모바일 API · PC 업종 페이지)을 차례로 보고, 결과에
-# SK하이닉스나 삼성전자가 없으면 '형식 확인 실패' 로 버립니다 (틀린 분류를
-# 화면에 내느니 없는 편이 낫습니다).
+# 분류는 네이버 업종. 응답 모양은 2026-11-13 survey(market=industry)로 확인:
+#   업종 목록  {"groups": [{"no": 278, "name": "반도체와반도체장비", "totalCount": 174, …}]}
+#   업종 종목  {"stocks": [{itemCode, stockName, stockEndType, marketValue, …}]}
+# PC 업종 페이지(finance.naver.com/sise/sise_group*)는 스크립트로 그리는 페이지라
+# HTML 에 종목이 없습니다 — 쓰지 않습니다. 모바일 API 는 Accept 가 JSON 이어야
+# 받습니다 (text/html 이면 406). 결과에 SK하이닉스 · 삼성전자가 하나도 없으면
+# 분류가 틀린 것으로 보고 버립니다.
 
-GROUP_LIST_URL = "https://finance.naver.com/sise/sise_group.naver?type=upjong"
-GROUP_PAGE_URL = "https://finance.naver.com/sise/sise_group_detail.naver?type=upjong&no={no}"
+GROUPS_API_URL = "https://m.stock.naver.com/api/stocks/industry?page={page}&pageSize={size}"
 GROUP_API_URL = "https://m.stock.naver.com/api/stocks/industry/{no}?page={page}&pageSize={size}"
 #: 분류가 맞는지 보는 표지 종목 — 둘 중 하나는 반도체 업종에 있어야 합니다.
 SEMI_MARKERS = ("000660", "005930")
 
 
-def _get_text(url: str, get=None) -> str:
-    resp = (get or requests.get)(url, headers={**naver.HEADERS, "Accept": "text/html"},
-                                 timeout=TIMEOUT)
-    resp.raise_for_status()
-    raw = resp.content or b""
-    for enc in ("utf-8", "cp949"):          # 네이버 PC 증권은 EUC-KR(cp949)
-        try:
-            return raw.decode(enc)
-        except UnicodeDecodeError:
+def parse_groups(payload) -> list[dict]:
+    """업종 목록 응답 → [{no, name, n}]."""
+    items = payload.get("groups") if isinstance(payload, dict) else payload
+    out = []
+    for it in items if isinstance(items, list) else []:
+        if not isinstance(it, dict) or it.get("no") in (None, ""):
             continue
-    return raw.decode("utf-8", "replace")
-
-
-def parse_group_list(html: str) -> list[tuple[str, str]]:
-    """PC 업종 목록 페이지 → [(번호, 업종 이름)]."""
-    import re  # noqa: PLC0415
-
-    out, seen = [], set()
-    for no, name in re.findall(
-            r"sise_group_detail\.naver\?type=upjong&(?:amp;)?no=(\d+)[\"'][^>]*>\s*([^<]+?)\s*<",
-            html or ""):
-        if no not in seen:
-            seen.add(no)
-            out.append((no, name.strip()))
+        out.append({"no": str(it["no"]), "name": str(it.get("name") or "").strip(),
+                    "n": int(_to_int(it.get("totalCount")))})
     return out
 
 
-def parse_group_codes(html: str) -> list[str]:
-    """PC 업종 상세 페이지 → 종목 코드 (나온 순서, 중복 제거)."""
-    import re  # noqa: PLC0415
+def _to_int(v) -> int:
+    try:
+        return int(str(v).replace(",", ""))
+    except (TypeError, ValueError):
+        return 0
 
-    return list(dict.fromkeys(re.findall(r"/item/main\.naver\?code=(\d{6})", html or "")))
+
+def fetch_group_codes(no: str, expect: int, get=None,
+                      sizes: tuple[int, ...] = (100, 50, 20)) -> list[str]:
+    """업종 하나의 종목 코드. 쪽 크기를 줄여 가며 가장 많이 받은 결과."""
+    best: list[str] = []
+    for size in sizes:
+        got: list[str] = []
+        try:
+            for page in range(1, max(expect, size) // size + 3):
+                rows = universe.parse_naver_stocks(
+                    _get_json(GROUP_API_URL.format(no=no, page=page, size=size), get))
+                fresh = [r["code"] for r in rows if r["code"] not in got]
+                if not fresh:
+                    break
+                got.extend(fresh)
+                if len(rows) < size or (expect and len(got) >= expect):
+                    break
+        except Exception:  # noqa: BLE001 - 이 쪽 크기는 안 받는 것 — 더 작게
+            pass
+        if len(got) > len(best):
+            best = got
+        if expect and len(best) >= expect:
+            break
+    return best
 
 
 def fetch_kr_industry(keyword: str = "반도체", get=None) -> tuple[set[str], dict]:
     """이름에 keyword 가 든 네이버 업종의 종목 코드 — (코드 묶음, 정보).
 
-    정보: {name, no, how(api|page), n}. 실패하면 예외 (UniverseError) —
-    부르는 쪽이 지난 분류로 돌아갑니다.
+    정보: {name, no, n, total}. 실패하면 예외 (UniverseError) — 부르는 쪽이
+    지난 분류로 돌아갑니다.
     """
-    groups = [(no, nm) for no, nm in parse_group_list(_get_text(GROUP_LIST_URL, get))
-              if keyword in nm]
-    if not groups:
-        raise UniverseError(f"업종 목록에서 '{keyword}' 업종을 찾지 못했습니다 "
-                            "(페이지 구조가 바뀌었을 수 있습니다).")
+    groups: list[dict] = []
+    for page in range(1, 4):
+        got = parse_groups(_get_json(GROUPS_API_URL.format(page=page, size=PAGE_SIZE), get))
+        groups.extend(g for g in got if g["no"] not in {x["no"] for x in groups})
+        if len(got) < PAGE_SIZE:
+            break
+    picked = [g for g in groups if keyword in g["name"]]
+    if not picked:
+        raise UniverseError(f"업종 {len(groups)}개 중 '{keyword}' 가 든 업종이 없습니다 "
+                            "(응답 모양이 바뀌었을 수 있습니다).")
     codes: set[str] = set()
-    names, nos, hows = [], [], []
-    for no, nm in groups:
-        got: list[str] = []
-        how = "api"
-        try:
-            for page in range(1, 6):
-                rows = universe.parse_naver_stocks(
-                    _get_json(GROUP_API_URL.format(no=no, page=page, size=PAGE_SIZE), get))
-                fresh = [r["code"] for r in rows if r["code"] not in got]
-                got.extend(fresh)
-                if not fresh or len(rows) < PAGE_SIZE:
-                    break
-        except Exception:  # noqa: BLE001 - PC 페이지로
-            got = []
-        if not got:
-            how = "page"
-            got = parse_group_codes(_get_text(GROUP_PAGE_URL.format(no=no), get))
-        if got:
-            codes.update(got)
-            names.append(nm)
-            nos.append(no)
-            hows.append(how)
-    if not any(m in codes for m in SEMI_MARKERS) and keyword == "반도체":
-        raise UniverseError(f"'{keyword}' 업종 {len(codes)}종목에 SK하이닉스 · 삼성전자가 "
-                            "없습니다 (분류 형식을 확인하지 못함).")
-    return codes, {"name": " · ".join(names), "no": ",".join(nos),
-                   "how": ",".join(dict.fromkeys(hows)), "n": len(codes)}
+    for g in picked:
+        codes.update(fetch_group_codes(g["no"], g["n"], get))
+    total = sum(g["n"] for g in picked)
+    if keyword == "반도체" and not any(m in codes for m in SEMI_MARKERS):
+        raise UniverseError(f"'{keyword}' 업종 {len(codes)}/{total}종목에 SK하이닉스 · "
+                            "삼성전자가 없습니다 (분류를 믿을 수 없음).")
+    return codes, {"name": " · ".join(g["name"] for g in picked),
+                   "no": ",".join(g["no"] for g in picked), "n": len(codes), "total": total}

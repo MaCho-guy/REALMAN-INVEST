@@ -16,18 +16,23 @@ import requests  # noqa: E402
 from sources import naver, universe_src  # noqa: E402
 
 URLS = [
-    universe_src.GROUP_LIST_URL,
-    "https://m.stock.naver.com/api/stocks/industry?page=1&pageSize=100",
-    "https://m.stock.naver.com/api/stocks/industry/278?page=1&pageSize=5",
-    "https://m.stock.naver.com/api/stocks/industry/261?page=1&pageSize=5",
-    universe_src.GROUP_PAGE_URL.format(no=278),
-    universe_src.GROUP_PAGE_URL.format(no=261),
+    universe_src.GROUPS_API_URL.format(page=1, size=100),
+    universe_src.GROUP_API_URL.format(no=278, page=1, size=5),
 ]
+
+
+def _json(text: str):
+    import json  # noqa: PLC0415
+
+    try:
+        return json.loads(text)
+    except ValueError:
+        return {}
 
 
 def show(url: str) -> None:
     print(f"\n=== {url}")
-    for hdr in ({**naver.HEADERS, "Accept": "text/html"},
+    for hdr in ({**naver.HEADERS, "Accept": "application/json"},
                 {"User-Agent": "Mozilla/5.0", "Referer": "https://finance.naver.com/"}):
         try:
             r = requests.get(url, headers=hdr, timeout=15)
@@ -52,8 +57,7 @@ def show(url: str) -> None:
         print(f"  '반도체' 위치 {i}: {near}")
         n_codes = len(re.findall(r"code=(\d{6})", text))
         print(f"  종목 코드 링크 {n_codes}개")
-        print(f"  파서: 업종 {universe_src.parse_group_list(text)[:6]} · "
-              f"코드 {universe_src.parse_group_codes(text)[:6]}")
+        print(f"  파서: 업종 {[g for g in universe_src.parse_groups(_json(text)) if '반도체' in g['name']]}")
 
 
 for u in URLS:

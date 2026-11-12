@@ -1695,6 +1695,18 @@ def build_rules() -> str:
     border-radius: var(--r-chip); padding: 0 5px; white-space: nowrap; }}
   .dash-criteria .cr-foot {{ font-size: var(--fs-2); color: var(--dash-ink-muted);
     line-height: 1.5; margin-top: 7px; max-width: 100ch; }}
+  /* 좁은 화면 — 이름 칸이 조건 칸을 밀어내지 않게 위아래로 쌓습니다 */
+  @media (max-width: 640px) {{
+    .dash-criteria table.cr-table thead {{ display: none; }}
+    .dash-criteria .cr-table tr {{ display: block; padding: 5px 0;
+      border-bottom: 1px solid var(--dash-divider); }}
+    .dash-criteria .cr-table tr:last-child {{ border-bottom: 0; }}
+    .dash-criteria .cr-table td {{ display: block; border: 0 !important; padding: 0;
+      width: auto; }}
+    .dash-criteria .cr-table td.cr-n {{ display: none; }}
+    .dash-criteria .cr-name {{ white-space: normal; }}
+    .dash-terms b {{ display: block; min-width: 0; }}
+  }}
   .dash-terms {{ font-size: var(--fs-2); color: var(--dash-ink-2); line-height: 1.5;
     display: grid; gap: 2px; margin: 2px 0 6px; }}
   .dash-terms b {{ display: inline-block; min-width: 7.5em; color: var(--dash-ink); }}

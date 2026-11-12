@@ -688,6 +688,10 @@ check("stMain 을 꼬리표 이름으로 집지 않음 (실제 앱에서는 <mai
 check("위 여백을 머리띠 높이만큼만", "padding-top: 3.9rem !important" in theme.build_density_rules())
 check("<style> 만 든 칸은 간격을 먹지 않게", "> style:only-child" in theme.build_density_rules())
 check("기준표 스타일", ".dash-criteria" in css and ".dash-terms" in css)
+check("좁은 화면에서는 기준 이름과 조건을 위아래로",
+      ".dash-criteria .cr-table td { display: block;" in css
+      and css.index(".dash-criteria table.cr-table thead { display: none; }")
+      > css.index(".dash-criteria .cr-name { white-space: nowrap;"))
 old_density = config.DENSITY
 config.DENSITY = "roomy"
 roomy = theme.build_css("kr")

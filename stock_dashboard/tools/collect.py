@@ -479,7 +479,19 @@ def build_universe_kr(app, out_dir: str, *, members_fn=None) -> dict:
             "sec": time.time() - t0, "bytes": size_b, "rules": rules}
 
 
-def build_funnel_us(app, out_dir: str, *, caps_fn=None, ohlc_fn=None) -> dict:
+def _eps_trends(symbols, eps_fn=None) -> tuple[dict, float]:
+    """선행 EPS 추정 추이 (야후) — 실패해도 깔때기의 나머지는 갑니다. (결과, 걸린 초)"""
+    from sources import yahoo  # noqa: PLC0415
+
+    t = time.time()
+    try:
+        got = (eps_fn or yahoo.fetch_eps_trend)(list(symbols))
+    except Exception:  # noqa: BLE001
+        got = {}
+    return got or {}, time.time() - t
+
+
+def build_funnel_us(app, out_dir: str, *, caps_fn=None, ohlc_fn=None, eps_fn=None) -> dict:
     """미국 깔때기 — 품질 통과 종목에만 가격(역DCF)과 차트 조건을 겁니다.
 
     전수 심사 파일(universe_us.json — 방금 만들었거나 지난 것)에서 역DCF 입력이
@@ -517,10 +529,11 @@ def build_funnel_us(app, out_dir: str, *, caps_fn=None, ohlc_fn=None) -> dict:
         ohlc, oerr = {}, {s: f"야후 일봉 실패: {type(exc).__name__}" for s in sym.values()}
     charts = {row.ticker: row for row in chart_signals.build_rows(
         [(sym[r["t"]], r.get("n", "")) for r in todo], ohlc, oerr)}
+    eps, t_eps = _eps_trends(sym.values(), eps_fn)
     rows = []
     for r in todo:
         s = sym[r["t"]]
-        rows.append({"t": r["t"],
+        rows.append({"t": r["t"], "f": funnel.eps_part(eps.get(s)),
                      "p": funnel.price_part(r["t"], r["d"], caps.get(s),
                                             financial=r.get("s") == "Financials"),
                      "c": funnel.chart_part(charts[s])})
@@ -531,11 +544,13 @@ def build_funnel_us(app, out_dir: str, *, caps_fn=None, ohlc_fn=None) -> dict:
             "light": sum(1 for r in rows if funnel.is_light(r["p"])),
             "priced": sum(1 for r in rows if funnel.price_known(r["p"])),
             "os": sum(1 for r in rows if funnel.is_oversold(r["c"])),
+            "eps": sum(1 for r in rows if r.get("f") and r["f"].get("c90") is not None),
+            "sec_eps": t_eps,
             "sec": time.time() - t0, "sec_caps": t_caps, "bytes": size_b}
 
 
 def build_funnel_kr(app, out_dir: str, *, screens_fn=None, caps_fn=None, ohlc_fn=None,
-                    force: bool = False) -> dict:
+                    eps_fn=None, force: bool = False) -> dict:
     """한국 깔때기 — 코스피200 + 코스닥150 을 버핏식 품질 기준으로 거르고(DART),
     통과 종목에만 가격(역DCF)과 차트 조건을 겁니다.
 
@@ -609,7 +624,9 @@ def build_funnel_kr(app, out_dir: str, *, screens_fn=None, caps_fn=None, ohlc_fn
         ohlc, oerr = {}, {c: f"일봉 실패: {type(exc).__name__}" for c in codes}
     charts = {row.ticker: row for row in chart_signals.build_rows(
         [(r["t"], r.get("n", "")) for r in todo], ohlc, oerr)}
-    rows = [{"t": r["t"], "p": funnel.price_part(r["t"], r["d"], caps.get(r["t"])),
+    eps, t_eps = _eps_trends(codes, eps_fn)
+    rows = [{"t": r["t"], "f": funnel.eps_part(eps.get(r["t"])),
+             "p": funnel.price_part(r["t"], r["d"], caps.get(r["t"])),
              "c": funnel.chart_part(charts[r["t"]])} for r in todo]
     size_b = _write_out(out_dir, name, universe.dump({
         "screens": screens, "errors": errors, "rows": rows, "q_made": q_made,
@@ -626,6 +643,8 @@ def build_funnel_kr(app, out_dir: str, *, screens_fn=None, caps_fn=None, ohlc_fn
             "priced": sum(1 for r in rows if funnel.price_known(r["p"])),
             "light": sum(1 for r in rows if funnel.is_light(r["p"])),
             "os": sum(1 for r in rows if funnel.is_oversold(r["c"])),
+            "eps": sum(1 for r in rows if r.get("f") and r["f"].get("c90") is not None),
+            "sec_eps": t_eps,
             "sec": time.time() - t0, "sec_q": t_q, "bytes": size_b}
 
 
@@ -665,6 +684,7 @@ def build_universe(app, out_dir: str, markets=("us", "kr")) -> dict:
         else:
             print(f"  미국 깔때기: 품질 통과 {f['n']}종목 → 시가총액 {f['caps']} · 일봉 {f['bars']} · "
                   f"가격 판정 {f['priced']} (부담 낮음 {f['light']}) · 차트 과매도 쪽 {f['os']} · "
+                  f"선행 EPS {f['eps']} ({f['sec_eps']:.0f}초) · "
                   f"{f['sec']:.0f}초 (시가총액 {f['sec_caps']:.0f}초) · {f['bytes'] / 1024:.0f} KB")
     if "kr" in markets:
         try:
@@ -679,7 +699,8 @@ def build_universe(app, out_dir: str, markets=("us", "kr")) -> dict:
                   f"{' · 지난 판정 재사용' if k['reused'] else ''}) · 판정 불가 "
                   f"{k['unknown']}/{k['verdicts']} · 품질 통과(판정 중 7/9 이상) {k['pass7']} · "
                   f"가격 판정 {k['priced']}/{k['todo']} (부담 낮음 {k['light']}) · "
-                  f"차트 과매도 쪽 {k['os']} · {k['sec']:.0f}초 (품질 {k['sec_q']:.0f}초) · "
+                  f"차트 과매도 쪽 {k['os']} · 선행 EPS {k['eps']} ({k['sec_eps']:.0f}초) · "
+                  f"{k['sec']:.0f}초 (품질 {k['sec_q']:.0f}초) · "
                   f"{k['bytes'] / 1024:.0f} KB")
     return out
 

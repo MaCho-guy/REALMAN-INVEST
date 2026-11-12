@@ -1617,6 +1617,39 @@ def _criteria_block(th, *, market: str, quality_min: int | None = None) -> str:
 
 # ── 미국 — 버핏식 품질 기준만 ────────────────────────────────────────────
 
+@swr.cached(6 * 3600, stale=7 * 86_400)
+def load_eps_trend(tickers: tuple[str, ...], use_demo: bool) -> dict:
+    """선행 EPS 추정 추이를 따로 받습니다 — 깔때기 파일에 없는 종목(보유 종목 등)용.
+
+    {티커: funnel.eps_part 결과}. 야후, 종목당 0.3~1초 · 6시간 저장.
+    """
+    if use_demo or not tickers:
+        return {}
+    raw = yahoo.fetch_eps_trend([t.replace(".", "-") for t in tickers])
+    out = {}
+    for t in tickers:
+        part = funnel.eps_part(raw.get(t.replace(".", "-")))
+        if part:
+            out[t] = part
+    return out
+
+
+def _eps_for(tickers: tuple[str, ...], use_demo: bool) -> dict:
+    """티커별 선행 EPS 변화 — 깔때기 파일(미국 · 한국)을 먼저 보고, 없는 것만 따로 받습니다."""
+    out: dict = {}
+    for mkt in ("funnel_us", "funnel_kr"):
+        for r in (_universe_or_none(mkt, use_demo).get("rows") or []):
+            if isinstance(r, dict) and r.get("f") and r.get("t") in tickers:
+                out[r["t"]] = r["f"]
+    missing = tuple(t for t in tickers if t not in out)
+    if missing:
+        try:
+            out.update(load_eps_trend(missing, use_demo))
+        except Exception:  # noqa: BLE001 - 못 받아도 화면은 그대로 (칸만 비움)
+            pass
+    return out
+
+
 def _stage_now(key: str) -> str:
     """깔때기에서 지금 볼 단계 — 'q' 품질 · 'p' 가격까지 · 'c' 차트까지.
 
@@ -1803,13 +1836,16 @@ def _discover_us(use_demo: bool) -> None:
             "성립하면 '경계') · 과거 성장률은 앞 3년 평균 → 뒤 3년 평균, "
             f"연 {config.FUNNEL_HIST_GROWTH_CAP * 100:g}% 까지만 인정 · FCF 에서 주식보상비용 차감 · "
             "금융업은 판정하지 않음 · "
-            "<b>차트</b> = 과매도 쪽 (CCI · 스토캐스틱 · 볼린저)"
+            "<b>차트</b> = 과매도 쪽 (CCI · 스토캐스틱 · 볼린저) · "
+            "<b>선행 EPS 90일</b> = 향후 12개월 EPS 추정(애널리스트 평균 · 야후)이 90일 전보다 "
+            "얼마나 바뀌었나 (올해 · 내년 추정을 남은 달 수로 섞음)"
             + (f" · 가격을 판정하지 못한 {unknown_p}종목(FCF 적자 · 사이클 왜곡 · 과거 성장률 "
                "계산 불가 · 금융업)은 '낮음' 으로 세지 않습니다" if unknown_p else "")),
             unsafe_allow_html=True)
-        extra_heads = ("요구 성장률", "차트")
+        extra_heads = ("선행 EPS 90일", "요구 성장률", "차트")
         names = {k: n for k, n, _r in chart_signals.CONDITIONS}
-        extra = {s_.ticker: [funnel.price_cells(_fp(s_.ticker)),
+        extra = {s_.ticker: [funnel.eps_cells((fmap.get(s_.ticker) or {}).get("f")),
+                             funnel.price_cells(_fp(s_.ticker)),
                              (funnel.chart_cell(_fc(s_.ticker), names), "")]
                  for s_ in passed}
     quality_n = len(passed)
@@ -1937,7 +1973,7 @@ def _kr_quality_block(use_demo: bool) -> None:
         "없는 회사가 많아 <b>주주이익 · 설비투자</b> 두 기준은 대부분 판정 불가입니다 · "
         "<b>가격 부담 낮음</b> = 역DCF 요구 FCF 성장률 ≤ "
         f"과거 실제 성장률(할인율 8~12% 전 구간 · 연 {config.FUNNEL_HIST_GROWTH_CAP * 100:g}% 까지만 인정) · "
-        f"<b>차트</b> = 과매도 쪽"),
+        f"<b>차트</b> = 과매도 쪽 · <b>선행 EPS 90일</b> = 향후 12개월 EPS 추정(야후)의 90일 변화"),
         unsafe_allow_html=True)
     stage = _stage_now("disc_kr_stage")
     st.markdown(ui.render_funnel([
@@ -1957,7 +1993,8 @@ def _kr_quality_block(use_demo: bool) -> None:
     shown = {"q": quality, "p": light, "c": both}[stage]
     held = {c for c, _n in config.watchlist_kr()}
     names = {k: n for k, n, _r in chart_signals.CONDITIONS}
-    extra = {s_.ticker: [funnel.price_cells(_fp(s_.ticker)),
+    extra = {s_.ticker: [funnel.eps_cells((fmap.get(s_.ticker) or {}).get("f")),
+                         funnel.price_cells(_fp(s_.ticker)),
                          (funnel.chart_cell(_fc(s_.ticker), names), "")] for s_ in quality}
     if not shown:
         st.markdown(ui.render_notice(
@@ -1969,7 +2006,8 @@ def _kr_quality_block(use_demo: bool) -> None:
         top = shown[:config.DISCOVER_US_ROWS]
         st.markdown(ui.render_screen_table(
             top, buffett.CRITERIA, held=held, rank_from=1,
-            extra_heads=("요구 성장률", "차트"), extra=extra), unsafe_allow_html=True)
+            extra_heads=("선행 EPS 90일", "요구 성장률", "차트"), extra=extra),
+            unsafe_allow_html=True)
         st.markdown(ui.render_legend(
             "<b>○</b> 통과 · <b>✗</b> 미달 · <b>?</b> 판정 불가 · <b>★</b> 내 관심종목 · "
             "<b>순위</b> = 판정된 기준 중 통과 비율 — 이 목록은 '살 종목' 이 아니라 "
@@ -1981,7 +2019,8 @@ def _kr_quality_block(use_demo: bool) -> None:
             with st.expander(f"나머지 {len(rest)}개 ({len(top) + 1}위부터)", expanded=False):
                 st.markdown(ui.render_screen_table(
                     rest[:300], buffett.CRITERIA, held=held, rank_from=len(top) + 1,
-                    extra_heads=("요구 성장률", "차트"), extra=extra), unsafe_allow_html=True)
+                    extra_heads=("선행 EPS 90일", "요구 성장률", "차트"), extra=extra),
+            unsafe_allow_html=True)
         by_ticker = {s_.ticker: s_ for s_ in shown}
         order = {s_.ticker: i + 1 for i, s_ in enumerate(shown)}
         if st.session_state.get("disc_kr_pick") not in by_ticker:
@@ -4142,6 +4181,9 @@ def render_valuation_tab(data: dict[str, dict[str, Quote]], fx,
     # 둡니다 (사분면 순서 · 번호 표시). 누르면 그 종목이 맨 위에 펼쳐지고, 화면을 다시
     # 불러오지 않습니다 (2026-11-13: 링크 방식은 느렸습니다).
     vmap = {t[0].ticker: t[2] for t in triples}
+    eps_by = _eps_for(tuple(vmap), use_demo)
+    for tk_, v_ in vmap.items():
+        v_.eps = eps_by.get(tk_)
     order_q = {1: 0, 2: 1, 3: 2, 4: 3, 0: 4}
     opts = [t for t, _v in sorted(vmap.items(), key=lambda kv: order_q.get(kv[1].quadrant, 9))]
     picker = getattr(st, "pills", None) or st.segmented_control
@@ -4263,7 +4305,7 @@ FETCH_LABELS = {
     "load_chart_bars": "차트 봉",
     "load_semi_research": "반도체 리포트",
     "load_report_summaries": "AI 요약",
-    "load_universe": "전수 심사",
+    "load_universe": "전수 심사", "load_eps_trend": "선행 EPS 추정",
     "load_daily_brief": "전일 브리핑", "load_briefings": "브리핑 글",
 }
 

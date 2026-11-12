@@ -202,3 +202,75 @@ def chart_cell(c: dict | None, names: dict | None = None) -> str:
     cloud = st.get("cloud", "")
     parts = [x for x in (side, why, cloud) if x]
     return " · ".join(parts) if parts else "해당 없음"
+
+
+# ── 선행 EPS 상승세 ──────────────────────────────────────────────────────────
+#
+# 2026-11-12 사용자: "Forward EPS 상승세를 먼저 보고 싶다 — 향후 12개월 선행 EPS,
+# 기준 기간 90일". 애널리스트 평균 추정치가 90일 사이 올랐는지(상향) 내렸는지(하향).
+#
+# 향후 12개월(NTM) EPS 는 야후가 따로 주지 않아 올해 · 내년 회계연도 추정치를 섞습니다:
+#     NTM = w × 올해 + (1 − w) × 내년,   w = 올해 회계연도가 끝날 때까지 남은 달 ÷ 12
+# 90일 전 값도 **같은 w** 로 섞습니다 — 날짜가 흘러 내년 비중이 커진 효과를 빼고,
+# 추정치 자체가 바뀐 것만 보려는 것입니다.
+
+#: 이 크기(소수) 미만의 변화는 '보합' 으로 적습니다.
+EPS_FLAT = 0.005
+
+
+def eps_part(raw: dict | None, now: float | None = None) -> dict | None:
+    """야후 추정 추이 한 종목 → {n: NTM EPS, c90 · c30: 변화율(소수), w, cur}.
+
+    추정치가 0 이하이면 변화율이 뜻을 잃어 c90 · c30 을 None 으로 둡니다.
+    """
+    import time as _time
+
+    if not raw:
+        return None
+    now = _time.time() if now is None else now
+    fye = raw.get("fye")
+    w = 0.5 if not fye else max(0.0, min(1.0, (float(fye) - now) / (365.25 * 86400)))
+
+    def blend(a, b):
+        if a is None and b is None:
+            return None
+        if a is None or b is None:
+            return a if b is None else b
+        return w * a + (1.0 - w) * b
+
+    n = blend(raw.get("e0"), raw.get("e1"))
+    if n is None:
+        return None
+
+    def chg(old):
+        return (n / old - 1.0) if old is not None and old > 0 and n > 0 else None
+
+    return {"n": n, "c90": chg(blend(raw.get("p0"), raw.get("p1"))),
+            "c30": chg(blend(raw.get("m0"), raw.get("m1"))),
+            "w": round(w, 3), "cur": raw.get("cur") or ""}
+
+
+def eps_arrow(c) -> str:
+    if c is None:
+        return ""
+    return "▲" if c >= EPS_FLAT else ("▼" if c <= -EPS_FLAT else "→")
+
+
+def eps_cells(f: dict | None) -> tuple[str, str]:
+    """(값, 보조 줄) — 표의 '선행 EPS 90일' 칸."""
+    if not f:
+        return "—", ""
+    c = f.get("c90")
+    if c is None:
+        return "—", f"추정 {f['n']:,.2f}" if f.get("n") is not None else ""
+    note = f"추정 {f['n']:,.2f}"
+    if f.get("c30") is not None:
+        note += f" · 30일 {f['c30'] * 100:+,.1f}%"
+    return f"{eps_arrow(c)} {c * 100:+,.1f}%", note
+
+
+def eps_chip(f: dict | None) -> str:
+    """판정 줄에 넣는 짧은 글 — '선행 EPS ▲ +3.2% (90일)'. 없으면 ''."""
+    if not f or f.get("c90") is None:
+        return ""
+    return f"선행 EPS {eps_arrow(f['c90'])} {f['c90'] * 100:+,.1f}% (90일)"

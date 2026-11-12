@@ -1418,13 +1418,27 @@ def render_verdict(v, *, prompt: str = "", show_next: bool = True,
     )
 
 
+def _eps_chip_html(v) -> str:
+    """선행 EPS 상승세 — 판정 줄의 **맨 앞** (사용자 지정 2026-11-12). 없으면 그리지 않습니다."""
+    import funnel as _fn  # noqa: PLC0415
+
+    f = getattr(v, "eps", None)
+    text = _fn.eps_chip(f)
+    if not text:
+        return ""
+    c = f["c90"]
+    cls = "e-up" if c >= _fn.EPS_FLAT else ("e-down" if c <= -_fn.EPS_FLAT else "")
+    return f'<span class="vc ve {cls}" title="향후 12개월 EPS 추정 · 야후">{_esc(text)}</span>'
+
+
 def _verdict_head(v) -> str:
     """카드 맨 위 — 품질 · 가격 판정과 그 근거 한 줄 (늘 보입니다)."""
     state = getattr(v, "price_state", "na")
     moved = getattr(v, "moved_reason", "")
     return (
         '<div class="dash-vhead">'
-        f'<span class="vc">품질 {_esc(v.passed)}/{_esc(v.total)}</span>'
+        + _eps_chip_html(v)
+        + f'<span class="vc">품질 {_esc(v.passed)}/{_esc(v.total)}</span>'
         f'<span class="vc p-{_esc(state)}">가격 {_esc(v.price_word)}</span>'
         f'<span class="vr">{_esc(v.price_reason)}</span>'
         + (f'<span class="vr vm">{_esc(moved)}</span>' if moved else "")

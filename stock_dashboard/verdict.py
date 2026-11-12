@@ -58,6 +58,8 @@ class Verdict:
     prev_hist: float | None = None
     #: 할인율 12% 일 때의 요구 성장률 (경계 판정의 근거)
     band_hi: float | None = None
+    #: 선행 EPS 추정의 변화 (funnel.eps_part) — 판정 줄 맨 앞에 보입니다
+    eps: dict | None = None
 
     @property
     def price_word(self) -> str:

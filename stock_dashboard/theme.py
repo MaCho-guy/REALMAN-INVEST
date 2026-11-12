@@ -1803,6 +1803,8 @@ def build_rules() -> str:
     background: var(--dash-surface); white-space: nowrap; }}
   .dash-vhead .vc.p-light {{ border-color: var(--dash-accent); color: var(--dash-accent); }}
   .dash-vhead .vc.p-na {{ color: var(--dash-ink-muted); font-weight: 500; }}
+  .dash-vhead .vc.ve.e-up {{ border-color: var(--dash-up); color: var(--dash-up); }}
+  .dash-vhead .vc.ve.e-down {{ border-color: var(--dash-down); color: var(--dash-down); }}
   .dash-vhead .vr {{ flex-basis: 100%; font-size: var(--fs-3); color: var(--dash-ink);
     font-variant-numeric: tabular-nums; line-height: 1.45; }}
   .dash-vhead .vr.vm {{ font-size: var(--fs-2); color: var(--dash-ink-muted); }}

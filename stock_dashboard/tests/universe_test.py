@@ -1002,6 +1002,49 @@ check("국내 종목은 번호가 아니라 회사 이름으로 (미국은 티�
       and "삼성전자" in ui.render_quadrant_map([_kv, _uv]) and "005930" not in ui.render_quadrant_map([_kv, _uv])
       and 'nm} ({tk})' in app_src)
 
+print("\n=== 선행 EPS 상승세 — 향후 12개월 추정의 90일 변화 ===")
+_now = 1_794_500_000.0                                  # 2026-11-12 무렵
+_half = _now + 0.5 * 365.25 * 86400                     # 올해 회계연도가 반 남음 → w = 0.5
+_raw = {"e0": 10.0, "e1": 12.0, "m0": 9.9, "m1": 11.9, "p0": 9.5, "p1": 11.5, "fye": _half, "cur": "USD"}
+_e = funnel.eps_part(_raw, now=_now)
+check("NTM = 올해 · 내년 추정을 남은 달 수로 섞는다 (반 남으면 반반)",
+      abs(_e["w"] - 0.5) < 0.01 and abs(_e["n"] - 11.0) < 0.01, str(_e))
+check("90일 변화율 — 같은 비중으로 섞은 90일 전 값과 견준다 (11.0 ÷ 10.5 − 1)",
+      abs(_e["c90"] - (11.0 / 10.5 - 1)) < 1e-6 and abs(_e["c30"] - (11.0 / 10.9 - 1)) < 1e-6)
+_late = funnel.eps_part(dict(_raw, fye=_now + 30 * 86400), now=_now)
+check("회계연도 말이 가까우면 내년 추정의 비중이 커진다", _late["w"] < 0.1 and _late["n"] > 11.8)
+check("추정이 0 이하면 변화율을 내지 않는다 · 자료가 없으면 None",
+      funnel.eps_part(dict(_raw, p0=-1.0, p1=-2.0), now=_now)["c90"] is None
+      and funnel.eps_part(None) is None and funnel.eps_part({"e0": None, "e1": None}) is None)
+check("표의 글 · 판정 줄의 글",
+      funnel.eps_cells(_e)[0].startswith("▲ +4.8%") and "추정 11.00" in funnel.eps_cells(_e)[1]
+      and funnel.eps_chip(_e) == "선행 EPS ▲ +4.8% (90일)"
+      and funnel.eps_cells(None) == ("—", "") and funnel.eps_chip({"n": 1.0, "c90": None}) == ""
+      and funnel.eps_arrow(-0.02) == "▼" and funnel.eps_arrow(0.001) == "→")
+with tempfile.TemporaryDirectory() as out:
+    pathlib.Path(out, "universe_us.json").write_text(universe.dump({
+        "rules": {}, "members": [], "errors": {},
+        "screens": [dict(buffett.to_summary(_all9, s="Utilities", d=_d), t="BRK.B")]}), encoding="utf-8")
+    fe = collect.build_funnel_us(None, out, caps_fn=lambda sy: {x: 2.0e9 for x in sy},
+                                 ohlc_fn=lambda sy: demo_mod.demo_chart_ohlc([(x, x) for x in sy]),
+                                 eps_fn=lambda sy: {x: _raw for x in sy} if list(sy) == ["BRK-B"] else {})
+    _fr = universe.parse(pathlib.Path(out, "funnel_us.json").read_text(encoding="utf-8"))["rows"][0]
+    check("수집기가 선행 EPS 를 깔때기 파일에 싣는다 (야후 표기 BRK-B 로 묻고 BRK.B 로 적음)",
+          fe["eps"] == 1 and _fr["t"] == "BRK.B" and _fr["f"]["n"] > 0 and "c90" in _fr["f"], str(_fr.get("f")))
+    fe2 = collect.build_funnel_us(None, out, caps_fn=lambda sy: {}, ohlc_fn=lambda sy: ({}, {}),
+                                  eps_fn=lambda sy: (_ for _ in ()).throw(RuntimeError("야후 실패")))
+    check("선행 EPS 를 못 받아도 깔때기의 나머지는 간다", fe2["eps"] == 0 and fe2["n"] == 1)
+_fp3 = {"made": 1, "rows": [{"t": "L1", "f": _e, "p": cheap, "c": {"side": "os", "st": {}}}]}
+ste3, he3, _c = run("us", _pay2, funnel_payload=_fp3)
+check("발굴 표 — '선행 EPS 90일' 칸이 맨 앞 (요구 성장률 · 차트 앞)",
+      he3.index("<th>선행 EPS 90일</th>") < he3.index("<th>요구 성장률</th>") < he3.index("<th>차트</th>")
+      and "▲ +4.8%" in he3 and "향후 12개월 EPS 추정" in he3)
+_ve = _vd.build(_all9, _run_dcf(2.0e9)); _ve.eps = _e
+_hv = ui.render_verdict(_ve)
+check("밸류에이션 카드 — 판정 줄 맨 앞에 선행 EPS (없으면 그리지 않음)",
+      _hv.index("선행 EPS ▲ +4.8% (90일)") < _hv.index("품질 9/9") and "e-up" in _hv
+      and "선행 EPS" not in ui.render_verdict(v_light))
+
 print("\n=== 후보 한 줄 — 셈이 맞아야 한다 ===")
 _p = {"members": [{"ticker": f"A{i}", "index": True} for i in range(515)] + [{"ticker": "W", "index": False}],
       "rules": {"S&P 500 구성 종목": {"n": 503}, "나스닥100 에만 있는 종목": {"n": 15}}}

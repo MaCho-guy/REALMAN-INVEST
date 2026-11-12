@@ -355,6 +355,61 @@ def fetch_market_cap(symbol: str) -> float | None:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# 선행 EPS 추정 추이 — 애널리스트 평균 추정치가 최근 90일 사이 어떻게 바뀌었나
+# ──────────────────────────────────────────────────────────────────────────────
+
+def fetch_eps_trend(symbols: list[str]) -> dict[str, dict]:
+    """심볼마다 올해 · 내년 EPS 추정치의 현재값과 30 · 90일 전 값.
+
+    반환: {심볼: {"e0","e1": 현재(올해 · 내년 회계연도), "m0","m1": 30일 전,
+                  "p0","p1": 90일 전, "fye": 올해 회계연도 말(epoch 초), "cur": 통화}}
+    못 받은 심볼은 빠집니다. 6자리 숫자(국내 종목)는 .KS → .KQ 순으로 시도합니다.
+
+    2026-11-13 수집기 환경에서 확인(tools/eps_probe.py, yfinance 1.8.0): eps_trend 의
+    행은 0q · +1q · 0y · +1y, 열은 current · 7daysAgo · 30daysAgo · 60daysAgo · 90daysAgo.
+    미국 · 한국(.KS) 모두 값이 왔고 종목당 0.3~1.0초였습니다.
+    """
+    yf = _import_yfinance()
+    unique = list(dict.fromkeys(s for s in symbols if s))
+
+    def one(sym: str):
+        cands = [f"{sym}.KS", f"{sym}.KQ"] if sym.isdigit() and len(sym) == 6 else [sym]
+        for cand in cands:
+            try:
+                tk = yf.Ticker(cand)
+                df = tk.eps_trend
+                if df is None or getattr(df, "empty", True):
+                    continue
+
+                def cell(row: str, col: str):
+                    try:
+                        return _num(df.loc[row, col])
+                    except Exception:  # noqa: BLE001
+                        return None
+
+                out = {"e0": cell("0y", "current"), "e1": cell("+1y", "current"),
+                       "m0": cell("0y", "30daysAgo"), "m1": cell("+1y", "30daysAgo"),
+                       "p0": cell("0y", "90daysAgo"), "p1": cell("+1y", "90daysAgo")}
+                if out["e0"] is None and out["e1"] is None:
+                    continue
+                try:
+                    info = tk.info or {}
+                except Exception:  # noqa: BLE001
+                    info = {}
+                out["fye"] = _num(info.get("nextFiscalYearEnd"))
+                out["cur"] = str(info.get("financialCurrency") or info.get("currency") or "")
+                return sym, out
+            except Exception:  # noqa: BLE001
+                continue
+        return sym, None
+
+    if not unique:
+        return {}
+    with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(unique))) as pool:
+        return {s: v for s, v in pool.map(one, unique) if v}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # 일봉 — 국내 변동성 스크리너용
 # ──────────────────────────────────────────────────────────────────────────────
 

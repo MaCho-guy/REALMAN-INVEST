@@ -196,6 +196,8 @@ UNIVERSE_URLS = {
 }
 UNIVERSE_URLS["funnel_us"] = os.environ.get("FUNNEL_US_URL", _DATA_RAW + "funnel_us.json")
 UNIVERSE_URLS["funnel_kr"] = os.environ.get("FUNNEL_KR_URL", _DATA_RAW + "funnel_kr.json")
+#: 차트 조건 — 한국 후보 전부(약 350종목)의 지표. 수집기가 하루 두 번 계산합니다 (2026-11-13).
+UNIVERSE_URLS["chart_kr"] = os.environ.get("CHART_KR_URL", _DATA_RAW + "chart_kr.json")
 #: 국내 품질 심사(DART 사업보고서)를 다시 하는 주기(시간) — **일주일에 한 번**.
 #: 350종목 × 사업보고서 4건 = 약 1,400건 (DART 한도는 하루 20,000건)이고,
 #: 2026-11-12 첫 실행에서 **1,143초(19분)** 걸렸습니다. 매일 하면 아침 수집 전체가

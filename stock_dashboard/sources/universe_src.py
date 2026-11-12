@@ -172,3 +172,93 @@ def fetch_kr_members(get=None) -> tuple[list[dict], dict]:
         members.extend(rows)
         rules[label] = {"n": len(rows), "how": how}
     return members, rules
+
+
+# ── 업종 (반도체) ────────────────────────────────────────────────────────────
+#
+# 2026-11-12 사용자 승인: 차트 조건 탭 한국 350종목에서 반도체 종목을 맨 위에,
+# 분류는 네이버 업종. **응답 모양은 아직 실제로 확인하지 못했습니다** — 그래서
+# 아래 함수는 두 길(모바일 API · PC 업종 페이지)을 차례로 보고, 결과에
+# SK하이닉스나 삼성전자가 없으면 '형식 확인 실패' 로 버립니다 (틀린 분류를
+# 화면에 내느니 없는 편이 낫습니다).
+
+GROUP_LIST_URL = "https://finance.naver.com/sise/sise_group.naver?type=upjong"
+GROUP_PAGE_URL = "https://finance.naver.com/sise/sise_group_detail.naver?type=upjong&no={no}"
+GROUP_API_URL = "https://m.stock.naver.com/api/stocks/industry/{no}?page={page}&pageSize={size}"
+#: 분류가 맞는지 보는 표지 종목 — 둘 중 하나는 반도체 업종에 있어야 합니다.
+SEMI_MARKERS = ("000660", "005930")
+
+
+def _get_text(url: str, get=None) -> str:
+    resp = (get or requests.get)(url, headers={**naver.HEADERS, "Accept": "text/html"},
+                                 timeout=TIMEOUT)
+    resp.raise_for_status()
+    raw = resp.content or b""
+    for enc in ("utf-8", "cp949"):          # 네이버 PC 증권은 EUC-KR(cp949)
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", "replace")
+
+
+def parse_group_list(html: str) -> list[tuple[str, str]]:
+    """PC 업종 목록 페이지 → [(번호, 업종 이름)]."""
+    import re  # noqa: PLC0415
+
+    out, seen = [], set()
+    for no, name in re.findall(
+            r"sise_group_detail\.naver\?type=upjong&(?:amp;)?no=(\d+)[\"'][^>]*>\s*([^<]+?)\s*<",
+            html or ""):
+        if no not in seen:
+            seen.add(no)
+            out.append((no, name.strip()))
+    return out
+
+
+def parse_group_codes(html: str) -> list[str]:
+    """PC 업종 상세 페이지 → 종목 코드 (나온 순서, 중복 제거)."""
+    import re  # noqa: PLC0415
+
+    return list(dict.fromkeys(re.findall(r"/item/main\.naver\?code=(\d{6})", html or "")))
+
+
+def fetch_kr_industry(keyword: str = "반도체", get=None) -> tuple[set[str], dict]:
+    """이름에 keyword 가 든 네이버 업종의 종목 코드 — (코드 묶음, 정보).
+
+    정보: {name, no, how(api|page), n}. 실패하면 예외 (UniverseError) —
+    부르는 쪽이 지난 분류로 돌아갑니다.
+    """
+    groups = [(no, nm) for no, nm in parse_group_list(_get_text(GROUP_LIST_URL, get))
+              if keyword in nm]
+    if not groups:
+        raise UniverseError(f"업종 목록에서 '{keyword}' 업종을 찾지 못했습니다 "
+                            "(페이지 구조가 바뀌었을 수 있습니다).")
+    codes: set[str] = set()
+    names, nos, hows = [], [], []
+    for no, nm in groups:
+        got: list[str] = []
+        how = "api"
+        try:
+            for page in range(1, 6):
+                rows = universe.parse_naver_stocks(
+                    _get_json(GROUP_API_URL.format(no=no, page=page, size=PAGE_SIZE), get))
+                fresh = [r["code"] for r in rows if r["code"] not in got]
+                got.extend(fresh)
+                if not fresh or len(rows) < PAGE_SIZE:
+                    break
+        except Exception:  # noqa: BLE001 - PC 페이지로
+            got = []
+        if not got:
+            how = "page"
+            got = parse_group_codes(_get_text(GROUP_PAGE_URL.format(no=no), get))
+        if got:
+            codes.update(got)
+            names.append(nm)
+            nos.append(no)
+            hows.append(how)
+    if not any(m in codes for m in SEMI_MARKERS) and keyword == "반도체":
+        raise UniverseError(f"'{keyword}' 업종 {len(codes)}종목에 SK하이닉스 · 삼성전자가 "
+                            "없습니다 (분류 형식을 확인하지 못함).")
+    return codes, {"name": " · ".join(names), "no": ",".join(nos),
+                   "how": ",".join(dict.fromkeys(hows)), "n": len(codes)}

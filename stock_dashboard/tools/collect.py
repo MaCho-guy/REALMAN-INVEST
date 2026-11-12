@@ -648,8 +648,92 @@ def build_funnel_kr(app, out_dir: str, *, screens_fn=None, caps_fn=None, ohlc_fn
             "sec": time.time() - t0, "sec_q": t_q, "bytes": size_b}
 
 
+def build_chart_kr(app, out_dir: str, *, ohlc_fn=None, semi_fn=None,
+                   keep: dict | None = None) -> dict:
+    """차트 조건 — 한국 후보 전부(코스피200 + 코스닥150 + 관심종목)의 지표 한 줄씩.
+
+    2026-11-12 사용자 승인 ("차트 조건 탭을 한국 350종목 전수로, 반도체 종목을
+    맨 위에, 분류는 네이버 업종"). 화면에서 350종목 일봉을 받으면 느려서
+    수집기가 계산해 chart_kr.json 으로 올리고 화면은 읽기만 합니다.
+
+    keep 에 dict 를 넘기면 받은 일봉을 {코드: 봉} 으로 채워 둡니다 — 바로 뒤의
+    한국 깔때기가 같은 봉을 다시 받지 않게 합니다.
+    반도체 분류는 실패하면 지난 파일의 분류를 다시 씁니다 (표시: 'prev').
+    """
+    import chart_signals  # noqa: PLC0415
+    import universe  # noqa: PLC0415
+    from sources import universe_src  # noqa: PLC0415
+
+    t0 = time.time()
+    name = "chart_kr.json"
+    uni = _read_prev(out_dir, "universe_kr.json")
+    members = [m for m in (uni.get("members") or []) if m.get("code")]
+    if not members:
+        return {"skipped": "한국 후보 목록(universe_kr.json)이 없습니다"}
+    prev = _read_prev(out_dir, name)
+    codes = [m["code"] for m in members]
+    try:
+        ohlc, oerr = (ohlc_fn or app.kr_ohlc_for)(codes)
+    except Exception as exc:  # noqa: BLE001
+        ohlc, oerr = {}, {c: f"일봉 실패: {type(exc).__name__}" for c in codes}
+    t_bars = time.time() - t0
+    if keep is not None:
+        keep.update(ohlc)
+    if len(ohlc) < len(codes) // 2 and prev.get("rows"):
+        return {"skipped": f"일봉을 {len(ohlc)}/{len(codes)}만 받았습니다", "kept": True}
+
+    t1 = time.time()
+    semi_err = ""
+    try:
+        semi, semi_info = (semi_fn or universe_src.fetch_kr_industry)()
+        semi_info = {**semi_info, "src": "naver"}
+    except Exception as exc:  # noqa: BLE001
+        semi_err = redact(f"{type(exc).__name__}: {exc}", secret_values())[:200]
+        old = prev.get("semi") if isinstance(prev.get("semi"), dict) else {}
+        semi = set(old.get("codes") or [])
+        semi_info = {k: old.get(k) for k in ("name", "no", "how") if old.get(k)}
+        semi_info["src"] = "prev" if semi else ""
+        semi_info["prev_made"] = prev.get("made")
+    t_semi = time.time() - t1
+
+    rows = chart_signals.build_rows([(m["code"], m.get("name", "")) for m in members], ohlc,
+                                    {c: str(e)[:160] for c, e in oerr.items()})
+    mk = {m["code"]: m.get("market", "") for m in members}
+    out_rows = []
+    for r in rows:
+        d = chart_signals.row_to_dict(r)
+        d["m"] = mk.get(r.ticker, "")
+        if r.ticker in semi:
+            d["s"] = 1
+        out_rows.append(d)
+    in_list = sorted(c for c in semi if c in set(codes))
+    size_b = _write_out(out_dir, name, universe.dump({
+        "rows": out_rows, "bar": chart_signals.last_bar(rows), "n_members": len(members),
+        "semi": {**semi_info, "codes": sorted(semi), "in_list": len(in_list), "e": semi_err},
+    }))
+    return {"n": len(members), "bars": len(ohlc), "ok": sum(1 for r in rows if r.ok),
+            "os": sum(1 for r in rows if r.ok and r.side == "os"),
+            "semi": len(in_list), "semi_src": semi_info.get("src", ""), "semi_err": semi_err,
+            "semi_name": semi_info.get("name", ""),
+            "sec": time.time() - t0, "sec_bars": t_bars, "sec_semi": t_semi, "bytes": size_b}
+
+
 def build_universe(app, out_dir: str, markets=("us", "kr")) -> dict:
-    """전수 심사 두 시장. 한쪽이 실패해도 다른 쪽은 갑니다."""
+    """전수 심사 두 시장. 한쪽이 실패해도 다른 쪽은 갑니다.
+
+    이 단계 동안만 네이버 일봉 응답을 메모합니다 — 한국 전수 심사(종가)와
+    차트 조건 · 깔때기(고·저·종)가 같은 주소를 다시 받지 않게 (2026-11-13).
+    """
+    from sources import naver  # noqa: PLC0415
+
+    naver.CHART_MEMO = {}
+    try:
+        return _build_universe(app, out_dir, markets)
+    finally:
+        naver.CHART_MEMO = None
+
+
+def _build_universe(app, out_dir: str, markets=("us", "kr")) -> dict:
     out = {}
     for market, fn in (("us", build_universe_us), ("kr", build_universe_kr)):
         if market not in markets:
@@ -686,9 +770,37 @@ def build_universe(app, out_dir: str, markets=("us", "kr")) -> dict:
                   f"가격 판정 {f['priced']} (부담 낮음 {f['light']}) · 차트 과매도 쪽 {f['os']} · "
                   f"선행 EPS {f['eps']} ({f['sec_eps']:.0f}초) · "
                   f"{f['sec']:.0f}초 (시가총액 {f['sec_caps']:.0f}초) · {f['bytes'] / 1024:.0f} KB")
+    kr_bars: dict = {}
     if "kr" in markets:
         try:
-            k = build_funnel_kr(app, out_dir)
+            c = build_chart_kr(app, out_dir, keep=kr_bars)
+        except Exception as exc:  # noqa: BLE001
+            c = {"skipped": f"{type(exc).__name__}: {redact(str(exc), secret_values())[:160]}"}
+        out["chart_kr"] = c
+        if c.get("skipped"):
+            print(f"  한국 차트 조건: 건너뜀 — {c['skipped']}"
+                  + (" (지난 파일 유지)" if c.get("kept") else ""))
+        else:
+            src = {"naver": "네이버 업종", "prev": "지난 분류 재사용", "": "분류 없음"}.get(
+                c["semi_src"], c["semi_src"])
+            print(f"  한국 차트 조건: 후보 {c['n']} → 일봉 {c['bars']} · 계산 {c['ok']} · "
+                  f"과매도 쪽 {c['os']} · 반도체 {c['semi']} ({src} '{c['semi_name']}'"
+                  + (f" · 실패 이유: {c['semi_err']}" if c["semi_err"] else "") + ") · "
+                  f"{c['sec']:.0f}초 (일봉 {c['sec_bars']:.0f}초 · 업종 {c['sec_semi']:.0f}초) · "
+                  f"{c['bytes'] / 1024:.0f} KB")
+
+    def kr_ohlc_reuse(codes):
+        """차트 조건에서 받은 일봉을 다시 씁니다 — 없는 종목만 새로 받습니다."""
+        from sources import naver  # noqa: PLC0415
+
+        have = {c: kr_bars[c] for c in codes if c in kr_bars}
+        need = [c for c in codes if c not in kr_bars]
+        got, errs = naver.fetch_ohlc_many(need) if need else ({}, {})
+        return {**have, **got}, errs
+
+    if "kr" in markets:
+        try:
+            k = build_funnel_kr(app, out_dir, ohlc_fn=kr_ohlc_reuse if kr_bars else None)
         except Exception as exc:  # noqa: BLE001
             k = {"skipped": f"{type(exc).__name__}: {redact(str(exc), secret_values())[:160]}"}
         out["funnel_kr"] = k

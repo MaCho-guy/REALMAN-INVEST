@@ -3384,7 +3384,7 @@ def _side_chip(row) -> str:
             f'<i>{count}</i></span>')
 
 
-def render_chart_table(rows, limit: int = 30, held=()) -> str:
+def render_chart_table(rows, limit: int = 30, held=(), semi=()) -> str:
     """종목 × 조건. 칸마다 **상태 이름**과 값을 적습니다. held 에 든 종목
     (보유·관심)은 이름 앞에 ★ 를 붙입니다.
 
@@ -3411,9 +3411,10 @@ def render_chart_table(rows, limit: int = 30, held=()) -> str:
         ma = "—" if r.disparity is None else f"이격 {r.disparity:.1f}"
         bb = "—" if r.bb_pctb is None else f"{r.bb_pctb:.2f}"
         star = '<i class="ct-star" title="내 종목">★</i>' if r.ticker in held else ""
+        tag = ("<span class='ct-semi'>반도체</span>" if r.ticker in semi else "")
         body.append(
             f"<tr><td class='ht-rank'>{i}</td>"
-            f"<td class='ht-name'>{star}<b>{_esc(r.name)}</b><span>{_esc(r.ticker)}</span></td>"
+            f"<td class='ht-name'>{star}<b>{_esc(r.name)}</b><span>{_esc(r.ticker)}</span>{tag}</td>"
             f"<td class='ct-met'><span class='ct-dots'>{dots}</span>{r.met}/{len(f)}</td>"
             f"<td class='ct-side'>{_side_chip(r)}</td>"
             + _cc_cell(f["cloud"], cloud, nt["cloud"])
@@ -3826,7 +3827,11 @@ def render_chart_detail(row, conditions) -> str:
             f'<span class="cd-rule">{clamp(_esc(rule), limit=24, one=True)}</span></div>')
     legend = ('<div class="cd-legend"><span class="lg-price">종가</span>'
               '<span class="lg-bull">양운</span><span class="lg-bear">음운</span>'
-              f"<span>최근 {len(row.spark)}거래일 · 세로선 오른쪽이 앞 구름</span></div>")
+              f"<span>최근 {len(row.spark)}거래일 · 세로선 오른쪽이 앞 구름</span></div>"
+              if row.spark else
+              # 수집기 파일(chart_kr.json)에서 온 줄은 작은 차트용 봉이 없습니다
+              '<div class="cd-legend"><span>작은 차트 없음 — 위 \'차트\' 칸에서 종목을 '
+              '고르면 봉 차트를 그립니다</span></div>')
     return ('<div class="dash-cdetail">' + render_cloud_chart(row) + legend
             + "".join(lines) + "</div>")
 

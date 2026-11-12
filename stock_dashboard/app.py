@@ -521,6 +521,30 @@ def load_chart_bars(market: str, ticker: str, use_demo: bool):
     return (got.get(ticker) or {}), (errs.get(ticker, "") if not got.get(ticker) else "")
 
 
+def kr_ohlc_for(codes: list[str]) -> tuple[dict, dict]:
+    """국내 일봉 — 네이버 먼저, 못 받은 종목만 야후(.KS/.KQ). ({코드: 봉}, {코드: 이유}).
+
+    화면(load_chart_rows)과 수집기(chart_kr.json)가 같이 씁니다.
+    """
+    ohlc, nerr = naver.fetch_ohlc_many(codes)
+    missing = [c for c in codes if c not in ohlc]
+    yahoo_note = "야후도 비었음"
+    if missing:
+        try:
+            got, _ye = yahoo.fetch_ohlc(
+                kr_screen.all_symbols([(c, "") for c in missing]))
+        except Exception as exc:  # noqa: BLE001
+            got, yahoo_note = {}, f"야후도 실패: {type(exc).__name__}"
+        for code in missing:
+            for sym in kr_screen.yahoo_symbols(code):
+                if got.get(sym):
+                    ohlc[code] = got[sym]
+                    break
+    errs = {c: f"{nerr.get(c, '네이버 실패')} → {yahoo_note}"
+            for c in codes if c not in ohlc}
+    return ohlc, errs
+
+
 @swr.cached(_chart_ttl, stale=6 * 3_600)
 def load_chart_rows(market: str, use_demo: bool):
     """차트 조건 — 후보의 1년 일봉(고·저·종) → 종목별 지표 한 줄.
@@ -536,23 +560,7 @@ def load_chart_rows(market: str, use_demo: bool):
     ohlc: dict = {}
     errs: dict[str, str] = {}
     if market == "kr":
-        codes = [c for c, _n in cands]
-        ohlc, nerr = naver.fetch_ohlc_many(codes)
-        missing = [c for c in codes if c not in ohlc]
-        yahoo_note = "야후도 비었음"
-        if missing:
-            try:
-                got, _ye = yahoo.fetch_ohlc(
-                    kr_screen.all_symbols([(c, "") for c in missing]))
-            except Exception as exc:  # noqa: BLE001
-                got, yahoo_note = {}, f"야후도 실패: {type(exc).__name__}"
-            for code in missing:
-                for sym in kr_screen.yahoo_symbols(code):
-                    if got.get(sym):
-                        ohlc[code] = got[sym]
-                        break
-        errs = {c: f"{nerr.get(c, '네이버 실패')} → {yahoo_note}"
-                for c in codes if c not in ohlc}
+        ohlc, errs = kr_ohlc_for([c for c, _n in cands])
     else:
         try:
             ohlc, errs = yahoo.fetch_ohlc([t for t, _n in cands])
@@ -2323,6 +2331,52 @@ def _render_kchart_block(chosen, held, market: str, use_demo: bool) -> None:
         unsafe_allow_html=True)
 
 
+def _merge_chart_file(rows: list, use_demo: bool) -> tuple[list, set, set, str]:
+    """차트 조건(한국) — 화면이 지금 받은 줄 + 수집기 파일(chart_kr.json)의 나머지 종목.
+
+    (합친 줄, 반도체 코드, 파일에서 온 코드, 안내 글). 2026-11-13 '한국 350종목 전수'.
+    화면이 직접 받는 목록(약 50종목)은 장중 5분마다 다시 계산되는 값을 그대로 쓰고,
+    나머지는 수집기(하루 두 번)가 계산한 값입니다. 파일이 없거나 깨졌으면 지금
+    목록만 보여 줍니다 — 화면은 깨지지 않습니다.
+    """
+    if use_demo:
+        return rows, set(), set(), ""
+    try:
+        payload = load_universe("chart_kr", use_demo) or {}
+    except Exception as exc:  # noqa: BLE001
+        return rows, set(), set(), (f"전수 파일(chart_kr.json)을 읽지 못해 지금 목록 "
+                                    f"{len(rows)}종목만 봅니다 — {type(exc).__name__}")
+    items = payload.get("rows") if isinstance(payload.get("rows"), list) else []
+    if not items:
+        return rows, set(), set(), (f"전수 파일(chart_kr.json)이 아직 없어 지금 목록 "
+                                    f"{len(rows)}종목만 봅니다.")
+    live = {r.ticker for r in rows}
+    extra = []
+    for d in items:
+        r = chart_signals.row_from_dict(d)
+        if r is not None and r.ticker not in live:
+            extra.append(r)
+    semi_info = payload.get("semi") if isinstance(payload.get("semi"), dict) else {}
+    semis = {str(d.get("ticker")) for d in items if isinstance(d, dict) and d.get("s")}
+    made = payload.get("made")
+    when = (dt.datetime.fromtimestamp(float(made), KST).strftime("%m/%d %H:%M")
+            if made else "시각 모름")
+    n_ok = sum(1 for r in extra if r.ok)
+    src = semi_info.get("src") or ""
+    if src == "naver":
+        semi_txt = (f"반도체 {len(semis)}종목은 네이버 업종 "
+                    f"'{_esc_plain(semi_info.get('name') or '')}' 기준으로 맨 위에 둡니다.")
+    elif src == "prev" and semis:
+        semi_txt = (f"반도체 {len(semis)}종목 — 이번 수집에서 네이버 업종을 받지 못해 "
+                    "지난 분류를 다시 썼습니다.")
+    else:
+        semi_txt = "반도체 분류를 받지 못해 순서에 반영하지 않았습니다."
+    note = (f"<b>{when} 수집기 기준</b> · 네이버 일봉(못 받은 종목은 야후) — 지금 목록 "
+            f"{len(rows)}종목은 화면이 직접 계산하고, 나머지 {len(extra)}종목"
+            f"(계산 {n_ok})은 수집기가 하루 두 번(06:30 · 15:50) 계산한 값입니다. {semi_txt}")
+    return rows + extra, semis, {r.ticker for r in extra}, note
+
+
 def render_chart_tab(use_demo: bool, *, market: str = "kr") -> None:
     """차트 조건 — 일목 양운 · CCI · MACD · 스토캐스틱 슬로우 · −DI (일봉).
 
@@ -2331,7 +2385,10 @@ def render_chart_tab(use_demo: bool, *, market: str = "kr") -> None:
     '모두 해당해야 하는 조건' 과 '쪽'(과매도 / 과매수)을 고릅니다.
     """
     conds = chart_signals.CONDITIONS
-    rows = load_chart_rows(market, use_demo)
+    live_rows = load_chart_rows(market, use_demo)
+    rows, semis, from_file, file_note = live_rows, set(), set(), ""
+    if market == "kr":
+        rows, semis, from_file, file_note = _merge_chart_file(list(live_rows), use_demo)
     ok_rows = [r for r in rows if r.ok]
     st.markdown(
         ui.render_section_head(
@@ -2350,7 +2407,8 @@ def render_chart_tab(use_demo: bool, *, market: str = "kr") -> None:
     # 장중이라고 무조건 '잠정' 이라 적지 않습니다 — 받은 일봉의 마지막 봉이
     # 정말 오늘 것인지 날짜로 확인합니다 (출처가 장중 봉을 안 줄 수 있음).
     if not use_demo:
-        kind, note = calendar_events.bar_note(chart_signals.last_bar(rows), market)
+        # 장중 봉 판정은 화면이 직접 받은 줄로만 합니다 (파일 줄은 수집 시각의 봉)
+        kind, note = calendar_events.bar_note(chart_signals.last_bar(live_rows), market)
         if kind == "live":
             age = load_chart_rows.age(market, use_demo)
             when = ("" if age is None else
@@ -2362,6 +2420,8 @@ def render_chart_tab(use_demo: bool, *, market: str = "kr") -> None:
     st.markdown(ui.render_chart_counts(
         chart_signals.counts(rows), len(ok_rows), len(rows), conds),
         unsafe_allow_html=True)
+    if file_note:
+        st.markdown(ui.render_footnote(file_note), unsafe_allow_html=True)
 
     names = {k: n for k, n, _r in conds}
     keys = list(names)
@@ -2393,6 +2453,8 @@ def render_chart_tab(use_demo: bool, *, market: str = "kr") -> None:
     held = {i.symbol for i in config.SECTION_WATCHLIST.instruments
             if config.in_market(i, market)}
     only_held = st.toggle("내 종목만", value=False, key=f"chart_held_{market}")
+    only_semi = (st.toggle(f"반도체만 ({len(semis)})", value=False,
+                           key=f"chart_semi_{market}") if semis else False)
 
     # 쪽이 어떻게 갈렸는지 — 고르기 전에 숫자로 보여 줍니다. 건수는 설명 문구를
     # 꺼도(기본) 보여야 해서 legend 로, 기준은 접어 둡니다.
@@ -2437,12 +2499,23 @@ def render_chart_tab(use_demo: bool, *, market: str = "kr") -> None:
     chosen = chart_signals.select(rows, required, side)
     if only_held:
         chosen = [r for r in chosen if r.ticker in held]
+    if only_semi:
+        chosen = [r for r in chosen if r.ticker in semis]
+    elif semis:
+        # 반도체를 맨 위로 — 같은 묶음 안의 순서(해당 수 · 쪽 지표 수 · CCI)는 그대로
+        chosen = sorted(chosen, key=lambda r: r.ticker not in semis)
     label = (" + ".join(names[k] for k in required)
              if required else "조건을 고르지 않음 — 해당 수 많은 순")
     if side:
         label += f" · {side_names[side]}"
     if only_held:
         label += " · 내 종목만"
+    if only_semi:
+        label += " · 반도체만"
+    elif semis:
+        label += " · 반도체 먼저"
+    if len(chosen) > 30:
+        label += " · 표는 앞 30종목"
     st.markdown(ui.render_notice(
         f"<b>{len(chosen)}종목</b> · {label}"), unsafe_allow_html=True)
 
@@ -2456,7 +2529,7 @@ def render_chart_tab(use_demo: bool, *, market: str = "kr") -> None:
             "'국내 데이터 출처 확인' 으로 연결을 확인하십시오."),
             unsafe_allow_html=True)
     else:
-        st.markdown(ui.render_chart_table(chosen, held=held),
+        st.markdown(ui.render_chart_table(chosen, held=held, semi=semis),
                     unsafe_allow_html=True)
         _render_kchart_block(chosen, held, market, use_demo)
         for idx, row in enumerate(chosen[:12]):

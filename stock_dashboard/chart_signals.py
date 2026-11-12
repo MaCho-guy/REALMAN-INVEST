@@ -865,3 +865,37 @@ def select(rows: list[ChartRow], required: tuple[str, ...] = (),
     else:
         out.sort(key=lambda r: (-r.met, r.cci if r.cci is not None else 0.0))
     return out
+
+
+# ── 파일로 옮기기 (수집기 → chart_kr.json → 화면) ───────────────────────────
+#
+# 2026-11-13 차트 조건 탭 한국 350종목 전수. 수집기가 계산한 줄을 파일에 싣고
+# 화면은 다시 만듭니다. 작은 차트용 봉(spark)은 싣지 않습니다 — 350종목이면
+# 파일이 1MB 를 넘습니다. 차트는 표 아래 '차트' 칸에서 고른 종목만 받습니다.
+
+_ROW_SKIP = ("spark", "spark_a", "spark_b", "ichi")
+
+
+def _r(v):
+    return round(v, 4) if isinstance(v, float) else v
+
+
+def row_to_dict(row: ChartRow) -> dict:
+    out = {k: _r(getattr(row, k)) for k in ChartRow.__dataclass_fields__ if k not in _ROW_SKIP}
+    out["ichi"] = {k: _r(getattr(row.ichi, k)) for k in Ichimoku.__dataclass_fields__}
+    return {k: v for k, v in out.items() if v not in (None, "", {}, [])}
+
+
+def row_from_dict(d: dict) -> ChartRow | None:
+    """파일의 한 줄 → ChartRow. 모르는 키는 버리고, 깨진 줄은 None."""
+    if not isinstance(d, dict) or not d.get("ticker"):
+        return None
+    try:
+        known = {k: v for k, v in d.items()
+                 if k in ChartRow.__dataclass_fields__ and k not in _ROW_SKIP}
+        ichi = d.get("ichi") if isinstance(d.get("ichi"), dict) else {}
+        known["ichi"] = Ichimoku(**{k: v for k, v in ichi.items()
+                                    if k in Ichimoku.__dataclass_fields__})
+        return ChartRow(**known)
+    except (TypeError, ValueError):
+        return None

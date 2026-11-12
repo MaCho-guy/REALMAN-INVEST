@@ -166,6 +166,29 @@ CHART_URL = ("https://fchart.stock.naver.com/sise.nhn"
 INTEGRATION_URL = "https://m.stock.naver.com/api/stock/{code}/integration"
 
 
+#: 수집기 한 번 실행 안에서 같은 일봉 응답을 다시 받지 않게 하는 메모 ({(코드, 개수): 글}).
+#: None 이면 끔 (화면 서버 — 장중에 새 봉을 받아야 합니다). 수집기만 켭니다:
+#: 전수 심사(종가)와 차트 조건(고·저·종)이 **같은 주소**를 350종목씩 받습니다 (2026-11-13).
+CHART_MEMO: dict | None = None
+
+
+def _chart_text(code: str, count: int) -> str:
+    """fchart 응답 글. 메모가 켜져 있으면 성공한 응답을 다시 씁니다."""
+    key = (code, count)
+    if CHART_MEMO is not None and key in CHART_MEMO:
+        return CHART_MEMO[key]
+    resp = requests.get(CHART_URL.format(code=code, count=count),
+                        headers=HEADERS, timeout=TIMEOUT)
+    resp.raise_for_status()
+    # 이 엔드포인트는 EUC-KR 로 옵니다. 숫자만 쓰므로 깨져도 무방하지만
+    # 이름까지 쓰려면 인코딩을 맞춥니다.
+    resp.encoding = resp.encoding or "euc-kr"
+    text = resp.text
+    if CHART_MEMO is not None and 'data="' in (text or ""):
+        CHART_MEMO[key] = text
+    return text
+
+
 def parse_chart_xml(text: str) -> tuple[list[float], list[float], str]:
     """fchart 응답 → (종가, 거래량, 이름).
 
@@ -211,15 +234,10 @@ def fetch_daily(code: str, count: int = 300, dates: dict | None = None
     dates 에 dict 를 넘기면 {코드: 마지막 봉 날짜} 를 채워 줍니다.
     """
     try:
-        resp = requests.get(CHART_URL.format(code=code, count=count),
-                            headers=HEADERS, timeout=TIMEOUT)
-        resp.raise_for_status()
-        # 이 엔드포인트는 EUC-KR 로 옵니다. 숫자만 쓰므로 깨져도 무방하지만
-        # 이름까지 쓰려면 인코딩을 맞춥니다.
-        resp.encoding = resp.encoding or "euc-kr"
-        closes, vols, _name = parse_chart_xml(resp.text)
+        text = _chart_text(code, count)
+        closes, vols, _name = parse_chart_xml(text)
         if dates is not None and closes:
-            dates[code] = last_bar_date(resp.text)
+            dates[code] = last_bar_date(text)
     except requests.RequestException as exc:
         return [], [], f"네이버 일봉 요청 실패: {type(exc).__name__}"
     except Exception as exc:  # noqa: BLE001
@@ -347,10 +365,7 @@ def parse_chart_ohlc(text: str) -> dict[str, list[float]]:
 
 def fetch_ohlc(code: str, count: int = 300) -> tuple[dict[str, list[float]], str]:
     try:
-        resp = requests.get(CHART_URL.format(code=code, count=count),
-                            headers=HEADERS, timeout=TIMEOUT)
-        resp.raise_for_status()
-        data = parse_chart_ohlc(resp.text)
+        data = parse_chart_ohlc(_chart_text(code, count))
     except requests.RequestException as exc:
         return {}, f"네이버 일봉 요청 실패: {type(exc).__name__}"
     except Exception as exc:  # noqa: BLE001

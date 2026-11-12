@@ -84,6 +84,7 @@ def _parse_one_table(body: str) -> list[dict]:
     if c_sect is None:
         c_sect = col("industry", avoid=("sub",))
     c_cik = col("cik")
+    c_sub = col("sub-industry", "sub industry", "subsector", "sub-sector")
     out, seen = [], set()
     for row in rows:
         if not _TD.findall(row):
@@ -100,8 +101,11 @@ def _parse_one_table(body: str) -> list[dict]:
             return cells[c] if c is not None and c < len(cells) else ""
         cik = at(c_cik).lstrip("0")
         seen.add(ticker)
-        out.append({"ticker": ticker, "name": at(c_name), "sector": at(c_sect),
-                    "cik": int(cik) if cik.isdigit() else None})
+        item = {"ticker": ticker, "name": at(c_name), "sector": at(c_sect),
+                "cik": int(cik) if cik.isdigit() else None}
+        if at(c_sub):
+            item["sub"] = at(c_sub)      # 세부 업종 — 차트 조건의 반도체 분류용 (파일에는 안 씀)
+        out.append(item)
     return out
 
 

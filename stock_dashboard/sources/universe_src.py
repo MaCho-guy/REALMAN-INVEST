@@ -264,3 +264,26 @@ def fetch_kr_industry(keyword: str = "반도체", get=None) -> tuple[set[str], d
                             "(목록을 덜 받았거나 분류를 믿을 수 없음).")
     return codes, {"name": " · ".join(g["name"] for g in picked),
                    "no": ",".join(g["no"] for g in picked), "n": len(codes), "total": total}
+
+
+# ── 미국 반도체 (차트 조건, 2026-11-13) ─────────────────────────────────────
+#
+# 위키백과 구성 종목 표의 세부 업종(GICS Sub-Industry: "Semiconductors" ·
+# "Semiconductor Materials & Equipment")으로 가릅니다. 엔비디아 · AMD 가 둘 다
+# 있어야 채택합니다.
+
+US_SEMI_MARKERS = ("NVDA", "AMD")
+
+
+def fetch_us_semis(get=None) -> tuple[set[str], dict]:
+    """미국 반도체 티커 (위키백과 표 표기, BRK.B 식) — (묶음, 정보)."""
+    members, _rules = fetch_us_members(get)
+    subs = {m["ticker"]: m.get("sub", "") for m in members}
+    if not any(subs.values()):
+        raise UniverseError("구성 종목 표에 세부 업종 칸이 없습니다 (표 구조가 바뀌었을 수 있음).")
+    codes = {t for t, sub in subs.items() if "semiconductor" in sub.lower()}
+    lost = [m for m in US_SEMI_MARKERS if m not in codes]
+    if lost:
+        raise UniverseError(f"반도체 {len(codes)}종목에 표지 종목 {', '.join(lost)} 이 없습니다.")
+    names = sorted({sub for sub in subs.values() if "semiconductor" in sub.lower()})
+    return codes, {"name": " · ".join(names), "n": len(codes), "total": len(codes)}

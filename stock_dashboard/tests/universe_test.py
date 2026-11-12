@@ -61,8 +61,9 @@ SP = ('<table class="wikitable sortable" id="constituents"><tbody><tr>'
       '<td>1</td><td>x</td></tr>'
       '</tbody></table><table id="changes"><tr><td>ZZZ</td></tr></table>')
 rows = universe.parse_index_table(SP)
-check("티커 · 이름 · 업종 · CIK", rows[0] == {"ticker": "MMM", "name": "3M",
-                                         "sector": "Industrials", "cik": 66740}, str(rows[:1]))
+check("티커 · 이름 · 업종 · CIK · 세부 업종", rows[0] == {
+    "ticker": "MMM", "name": "3M", "sector": "Industrials", "cik": 66740,
+    "sub": "Industrial Conglomerates"}, str(rows[:1]))
 check("점이 든 티커 · 같은 티커는 한 번 · 다른 표는 안 읽음",
       [r["ticker"] for r in rows] == ["MMM", "BRK.B"] and rows[1]["cik"] == 1067983)
 NDX = ('<table class="wikitable sortable" id="constituents"><tr><th>Ticker</th><th>Company</th>'

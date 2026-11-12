@@ -648,32 +648,58 @@ def build_funnel_kr(app, out_dir: str, *, screens_fn=None, caps_fn=None, ohlc_fn
             "sec": time.time() - t0, "sec_q": t_q, "bytes": size_b}
 
 
-def build_chart_kr(app, out_dir: str, *, ohlc_fn=None, semi_fn=None,
-                   keep: dict | None = None) -> dict:
-    """차트 조건 — 한국 후보 전부(코스피200 + 코스닥150 + 관심종목)의 지표 한 줄씩.
+def build_chart_kr(app, out_dir: str, **kw) -> dict:
+    """차트 조건 — 한국 (build_chart 참고)."""
+    return build_chart(app, out_dir, "kr", **kw)
 
-    2026-11-12 사용자 승인 ("차트 조건 탭을 한국 350종목 전수로, 반도체 종목을
-    맨 위에, 분류는 네이버 업종"). 화면에서 350종목 일봉을 받으면 느려서
-    수집기가 계산해 chart_kr.json 으로 올리고 화면은 읽기만 합니다.
 
-    keep 에 dict 를 넘기면 받은 일봉을 {코드: 봉} 으로 채워 둡니다 — 바로 뒤의
-    한국 깔때기가 같은 봉을 다시 받지 않게 합니다.
+def build_chart_us(app, out_dir: str, **kw) -> dict:
+    """차트 조건 — 미국 (build_chart 참고)."""
+    return build_chart(app, out_dir, "us", **kw)
+
+
+def _yahoo_sym(ticker: str) -> str:
+    return ticker.replace(".", "-")             # 야후 표기 (BRK.B → BRK-B)
+
+
+def build_chart(app, out_dir: str, market: str, *, ohlc_fn=None, semi_fn=None,
+                keep: dict | None = None) -> dict:
+    """차트 조건 — 한 시장의 후보 전부에 지표 한 줄씩 → chart_{market}.json.
+
+    한국: universe_kr.json 의 후보 (코스피200 + 코스닥150 + 관심종목) · 네이버 일봉
+          (못 받은 종목은 야후) · 반도체 = 네이버 업종.
+    미국: universe_us.json 의 후보 (S&P 500 + 나스닥100) · 야후 일봉 · 반도체 =
+          위키백과 표의 GICS 세부 업종. 티커는 야후 표기(BRK-B)로 싣습니다.
+
+    2026-11-12 사용자 승인 (한국) · 2026-11-13 "같은 방식으로" (미국). 화면에서
+    수백 종목의 일봉을 받으면 느려서 수집기가 계산해 올리고 화면은 읽기만 합니다.
+    keep 에 dict 를 넘기면 받은 일봉을 {코드/심볼: 봉} 으로 채워 둡니다 — 바로 뒤의
+    깔때기가 같은 봉을 다시 받지 않게 합니다.
     반도체 분류는 실패하면 지난 파일의 분류를 다시 씁니다 (표시: 'prev').
     """
     import chart_signals  # noqa: PLC0415
     import universe  # noqa: PLC0415
-    from sources import universe_src  # noqa: PLC0415
+    from sources import universe_src, yahoo  # noqa: PLC0415
 
     t0 = time.time()
-    name = "chart_kr.json"
-    uni = _read_prev(out_dir, "universe_kr.json")
-    members = [m for m in (uni.get("members") or []) if m.get("code")]
+    name = f"chart_{market}.json"
+    src_file = f"universe_{market}.json"
+    uni = _read_prev(out_dir, src_file)
+    key = "code" if market == "kr" else "ticker"
+    members = [m for m in (uni.get("members") or []) if m.get(key)]
     if not members:
-        return {"skipped": "한국 후보 목록(universe_kr.json)이 없습니다"}
+        return {"skipped": f"후보 목록({src_file})이 없습니다"}
     prev = _read_prev(out_dir, name)
-    codes = [m["code"] for m in members]
+    if market == "kr":
+        codes = [m["code"] for m in members]
+        default_ohlc = app.kr_ohlc_for
+        default_semi = universe_src.fetch_kr_industry
+    else:
+        codes = [_yahoo_sym(m["ticker"]) for m in members]
+        default_ohlc = yahoo.fetch_ohlc
+        default_semi = universe_src.fetch_us_semis
     try:
-        ohlc, oerr = (ohlc_fn or app.kr_ohlc_for)(codes)
+        ohlc, oerr = (ohlc_fn or default_ohlc)(codes)
     except Exception as exc:  # noqa: BLE001
         ohlc, oerr = {}, {c: f"일봉 실패: {type(exc).__name__}" for c in codes}
     t_bars = time.time() - t0
@@ -685,30 +711,35 @@ def build_chart_kr(app, out_dir: str, *, ohlc_fn=None, semi_fn=None,
     t1 = time.time()
     semi_err = ""
     try:
-        semi, semi_info = (semi_fn or universe_src.fetch_kr_industry)()
-        semi_info = {**semi_info, "src": "naver"}
+        semi, semi_info = (semi_fn or default_semi)()
+        semi = {_yahoo_sym(c) for c in semi} if market == "us" else set(semi)
+        semi_info = {**semi_info, "src": "web" if market == "us" else "naver"}
     except Exception as exc:  # noqa: BLE001
         semi_err = redact(f"{type(exc).__name__}: {exc}", secret_values())[:200]
         old = prev.get("semi") if isinstance(prev.get("semi"), dict) else {}
         semi = set(old.get("codes") or [])
-        semi_info = {k: old.get(k) for k in ("name", "no", "how") if old.get(k)}
+        semi_info = {k: old.get(k) for k in ("name", "no", "total") if old.get(k)}
         semi_info["src"] = "prev" if semi else ""
         semi_info["prev_made"] = prev.get("made")
     t_semi = time.time() - t1
 
-    rows = chart_signals.build_rows([(m["code"], m.get("name", "")) for m in members], ohlc,
-                                    {c: str(e)[:160] for c, e in oerr.items()})
-    mk = {m["code"]: m.get("market", "") for m in members}
+    rows = chart_signals.build_rows(
+        [(c, m.get("name", "") or c) for c, m in zip(codes, members)], ohlc,
+        {c: str(e)[:160] for c, e in oerr.items()})
+    mk = {c: m.get("market", "") if market == "kr" else m.get("sector", "")
+          for c, m in zip(codes, members)}
     out_rows = []
     for r in rows:
         d = chart_signals.row_to_dict(r)
-        d["m"] = mk.get(r.ticker, "")
+        if mk.get(r.ticker):
+            d["m"] = mk[r.ticker]
         if r.ticker in semi:
             d["s"] = 1
         out_rows.append(d)
     in_list = sorted(c for c in semi if c in set(codes))
     size_b = _write_out(out_dir, name, universe.dump({
         "rows": out_rows, "bar": chart_signals.last_bar(rows), "n_members": len(members),
+        "market": market,
         "semi": {**semi_info, "codes": sorted(semi), "in_list": len(in_list), "e": semi_err},
     }))
     return {"n": len(members), "bars": len(ohlc), "ok": sum(1 for r in rows if r.ok),
@@ -757,9 +788,40 @@ def _build_universe(app, out_dir: str, markets=("us", "kr")) -> dict:
                   f"{r.get('bytes', 0) / 1024:.0f} KB")
             for name, info in (r.get("rules") or {}).items():
                 print(f"    규칙: {name} {info.get('n', 0)} ({info.get('how', '')})")
+    def print_chart(label: str, c: dict) -> None:
+        if c.get("skipped"):
+            print(f"  {label} 차트 조건: 건너뜀 — {c['skipped']}"
+                  + (" (지난 파일 유지)" if c.get("kept") else ""))
+            return
+        src = {"naver": "네이버 업종", "web": "위키백과 GICS 세부 업종",
+               "prev": "지난 분류 재사용", "": "분류 없음"}.get(c["semi_src"], c["semi_src"])
+        print(f"  {label} 차트 조건: 후보 {c['n']} → 일봉 {c['bars']} · 계산 {c['ok']} · "
+              f"과매도 쪽 {c['os']} · 반도체 {c['semi']} ({src} '{c['semi_name']}'"
+              + (f" · 실패 이유: {c['semi_err']}" if c["semi_err"] else "") + ") · "
+              f"{c['sec']:.0f}초 (일봉 {c['sec_bars']:.0f}초 · 업종 {c['sec_semi']:.0f}초) · "
+              f"{c['bytes'] / 1024:.0f} KB")
+
+    us_bars: dict = {}
     if "us" in markets:
         try:
-            f = build_funnel_us(app, out_dir)
+            c = build_chart_us(app, out_dir, keep=us_bars)
+        except Exception as exc:  # noqa: BLE001
+            c = {"skipped": f"{type(exc).__name__}: {redact(str(exc), secret_values())[:160]}"}
+        out["chart_us"] = c
+        print_chart("미국", c)
+
+    def us_ohlc_reuse(symbols):
+        """차트 조건에서 받은 일봉을 다시 씁니다 — 없는 심볼만 새로 받습니다."""
+        from sources import yahoo  # noqa: PLC0415
+
+        have = {s_: us_bars[s_] for s_ in symbols if s_ in us_bars}
+        need = [s_ for s_ in symbols if s_ not in us_bars]
+        got, errs = yahoo.fetch_ohlc(need) if need else ({}, {})
+        return {**have, **got}, errs
+
+    if "us" in markets:
+        try:
+            f = build_funnel_us(app, out_dir, ohlc_fn=us_ohlc_reuse if us_bars else None)
         except Exception as exc:  # noqa: BLE001
             f = {"skipped": f"{type(exc).__name__}: {redact(str(exc), secret_values())[:160]}"}
         out["funnel_us"] = f
@@ -777,17 +839,7 @@ def _build_universe(app, out_dir: str, markets=("us", "kr")) -> dict:
         except Exception as exc:  # noqa: BLE001
             c = {"skipped": f"{type(exc).__name__}: {redact(str(exc), secret_values())[:160]}"}
         out["chart_kr"] = c
-        if c.get("skipped"):
-            print(f"  한국 차트 조건: 건너뜀 — {c['skipped']}"
-                  + (" (지난 파일 유지)" if c.get("kept") else ""))
-        else:
-            src = {"naver": "네이버 업종", "prev": "지난 분류 재사용", "": "분류 없음"}.get(
-                c["semi_src"], c["semi_src"])
-            print(f"  한국 차트 조건: 후보 {c['n']} → 일봉 {c['bars']} · 계산 {c['ok']} · "
-                  f"과매도 쪽 {c['os']} · 반도체 {c['semi']} ({src} '{c['semi_name']}'"
-                  + (f" · 실패 이유: {c['semi_err']}" if c["semi_err"] else "") + ") · "
-                  f"{c['sec']:.0f}초 (일봉 {c['sec_bars']:.0f}초 · 업종 {c['sec_semi']:.0f}초) · "
-                  f"{c['bytes'] / 1024:.0f} KB")
+        print_chart("한국", c)
 
     def kr_ohlc_reuse(codes):
         """차트 조건에서 받은 일봉을 다시 씁니다 — 없는 종목만 새로 받습니다."""

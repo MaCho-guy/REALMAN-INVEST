@@ -51,6 +51,10 @@ class Resp:
         self.content = body if isinstance(body, bytes) else json.dumps(body).encode()
         self.status = status
 
+    @property
+    def text(self):
+        return self.content.decode("utf-8")
+
     def raise_for_status(self):
         if self.status >= 400:
             raise RuntimeError(self.status)
@@ -294,9 +298,78 @@ src = open("tools/collect.py", encoding="utf-8").read()
 check("수집기는 전수 단계 동안만 메모", "naver.CHART_MEMO = {}" in src
       and "finally:\n        naver.CHART_MEMO = None" in src)
 
-print("6. 미국 탭은 그대로")
-check("미국은 파일을 읽지 않음", "if market == \"kr\":\n        rows, semis, from_file, file_note"
-      in open("app.py", encoding="utf-8").read())
+print("6. 미국 — 위키백과 세부 업종 · chart_us.json")
+
+
+def wiki_table(rows):
+    body = "".join(f"<tr><td>{t}</td><td>{n}</td><td>{sec}</td><td>{sub}</td><td>{i}</td></tr>"
+                   for i, (t, n, sec, sub) in enumerate(rows, 1))
+    return ('<table id="constituents"><tr><th>Symbol</th><th>Security</th><th>GICS Sector</th>'
+            f'<th>GICS Sub-Industry</th><th>CIK</th></tr>{body}</table>')
+
+
+SP_ROWS = [("NVDA", "Nvidia", "Information Technology", "Semiconductors"),
+           ("AMD", "Advanced Micro Devices", "Information Technology", "Semiconductors"),
+           ("AMAT", "Applied Materials", "Information Technology",
+            "Semiconductor Materials & Equipment"),
+           ("BRK.B", "Berkshire", "Financials", "Multi-Sector Holdings")]
+SP_ROWS += [(f"T{i}", f"Co{i}", "Industrials", "Machinery") for i in range(600)]
+
+
+def wiki_get(rows):
+    def get(url, headers=None, timeout=None):
+        if "S%26P" in url:
+            return Resp(wiki_table(rows).encode())
+        return Resp(b"<html></html>")
+    return get
+
+
+us_codes, us_info = universe_src.fetch_us_semis(get=wiki_get(SP_ROWS))
+check("미국 반도체 = 세부 업종에 Semiconductor", us_codes == {"NVDA", "AMD", "AMAT"}, str(us_info))
+try:
+    universe_src.fetch_us_semis(get=wiki_get([r for r in SP_ROWS if r[0] != "AMD"]))
+    check("미국 표지 종목(AMD) 없으면 예외", False)
+except universe_src.UniverseError as exc:
+    check("미국 표지 종목(AMD) 없으면 예외", "AMD" in str(exc), str(exc))
+
+us_members = [{"ticker": t, "name": n, "sector": sec, "index": True}
+              for t, n, sec, _s in SP_ROWS[:516]]
+with open(os.path.join(tmp, "universe_us.json"), "w", encoding="utf-8") as fh:
+    fh.write(universe.dump({"members": us_members}))
+us_bars = {m["ticker"].replace(".", "-"): bars(i) for i, m in enumerate(us_members) if i != 9}
+asked: list = []
+
+
+def us_ohlc(symbols):
+    asked.extend(symbols)
+    return ({x: us_bars[x] for x in symbols if x in us_bars},
+            {x: "일봉이 비어 있습니다." for x in symbols if x not in us_bars})
+
+
+keep_us: dict = {}
+t = time.time()
+ru = collect.build_chart_us(app, tmp, ohlc_fn=us_ohlc, keep=keep_us,
+                            semi_fn=lambda: (us_codes, us_info))
+sec = time.time() - t
+check("미국 516종목 계산", ru.get("n") == 516 and ru.get("ok") == 515, str(ru))
+check("미국 계산 시간(통신 제외) 5초 이내", sec < 5, f"{sec:.2f}초")
+check("야후 표기로 요청 (BRK.B → BRK-B)", "BRK-B" in asked and "BRK.B" not in asked)
+pu = universe.parse(open(os.path.join(tmp, "chart_us.json"), encoding="utf-8").read())
+check("미국 반도체 표시", {x["ticker"] for x in pu["rows"] if x.get("s")} == {"NVDA", "AMD", "AMAT"})
+size = os.path.getsize(os.path.join(tmp, "chart_us.json"))
+check("미국 파일 크기 600KB 이내", size < 600 * 1024, f"{size / 1024:.0f} KB")
+check("미국 일봉을 깔때기용으로 남김", len(keep_us) == 515)
+
+live_us = chart_signals.build_rows([("NVDA", "NVIDIA"), ("QQQ", "QQQ")],
+                                   {"NVDA": bars(5), "QQQ": bars(6)})
+app.load_universe = lambda key, use_demo: pu if key == "chart_us" else {}
+mu, su, fu, nu = app._merge_chart_file(live_us, False, "us")
+check("미국 합치기 (ETF 는 지금 목록에만)", len(mu) == 2 + 515 and "NVDA" not in fu, str(len(mu)))
+check("미국 안내 — 야후 · 위키백과", "야후 일봉" in nu and "위키백과" in nu, nu[:90])
+app.load_universe = orig_load
+
+src = open("tools/collect.py", encoding="utf-8").read()
+check("미국 깔때기도 같은 일봉을 다시 씀", "ohlc_fn=us_ohlc_reuse if us_bars else None" in src)
 check("상세 칸 — 작은 차트 없을 때 안내", "작은 차트 없음" in ui.render_chart_detail(
     r2, chart_signals.CONDITIONS))
 

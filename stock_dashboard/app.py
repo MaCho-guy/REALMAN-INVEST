@@ -1152,13 +1152,25 @@ def _attach_dcf(screens: list, use_demo: bool, *, currency: str = "USD",
     """스크리닝 결과에 역DCF 와 판단 재료를 붙입니다."""
     usable = [s for s in screens if s.ok]
     caps = load_market_caps(tuple(s.ticker for s in usable), use_demo)
+    # 금융업은 FCF 기반 역DCF 를 적용하지 않습니다 — 업종은 전수 심사 파일에서 읽습니다
+    # (미국만. 파일이 없으면 구분하지 못해 예전처럼 계산합니다).
+    fin: set[str] = set()
+    if currency == "USD":
+        fin = {m.get("ticker") for m in (_universe_or_none("us", use_demo).get("members") or [])
+               if m.get("sector") == "Financials"}
     out = []
     for screen in usable:
         inputs = rdcf.inputs_from_screen(
             screen, caps.get(screen.ticker), currency=currency,
             market_cap_source=cap_source or ("데모 데이터" if use_demo else "yfinance"))
+        # 종목 발굴 깔때기와 같은 FCF — 주식보상비용을 뺀 값 (계정이 있는 회사만)
+        adj = funnel.dcf_inputs(screen)
+        if adj and adj.get("sbc"):
+            inputs.fcf_history = [(int(y), float(v)) for y, v in adj["f"]]
+            inputs.sources["FCF"] += " − 주식보상비용"
         result = rdcf.run(inputs)
-        out.append((screen, result, vd.build(screen, result)))
+        out.append((screen, result,
+                    vd.build(screen, result, financial=screen.ticker in fin)))
     return out
 
 

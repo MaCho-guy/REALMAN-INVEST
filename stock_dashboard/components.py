@@ -1304,13 +1304,19 @@ def render_dcf_cells(result) -> str:
         ("요구 성장률 (할인율 10%)", result.growth_label),
         ("할인율 8~12% 구간", result.band_label),
     ]
-    span = result.gap_span
-    if span is not None:
-        hist = result.historical_cagr[span]
-        cells.append((f"과거 {span}년 실제", f"연 {hist * 100:,.1f}%"))
-    gap = result.gap
-    if gap is not None:
-        cells.append(("격차", f"{gap * 100:+,.1f}%p"))
+    # 과거 성장률 — 판단 요약(verdict) · 종목 발굴 깔때기와 같은 값을 보입니다:
+    # 6년치 이상이면 앞 3년 평균 → 뒤 3년 평균, 아니면 시작 해 · 끝 해 두 점.
+    import funnel as _fn  # noqa: PLC0415
+
+    hist, span = _fn.trend_growth(result.inputs.fcf_history)
+    label = "실제 (앞·뒤 3년 평균)"
+    if span is None:
+        span, label = result.gap_span, "실제"
+        hist = result.historical_cagr[span] if span is not None else None
+    if hist is not None:
+        cells.append((f"과거 {span}년 {label}", f"연 {hist * 100:,.1f}%"))
+        if result.implied_growth is not None:
+            cells.append(("격차", f"{(result.implied_growth - hist) * 100:+,.1f}%p"))
     if result.fcf_base is not None:
         label = "기준 FCF" + (" (3년 평균)" if result.normalized else "")
         cells.append((label, f"{result.fcf_base / 1e9:,.1f}B"))

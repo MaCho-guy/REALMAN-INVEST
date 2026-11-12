@@ -853,6 +853,41 @@ check("국내 규칙 — 조사에서 나온 표준ID 가 들어 있다",
 check("한국 화면 — 비율로 본다고 적는다", "판정된 기준 가운데 78% 이상 통과" in hk
       and "주주이익 · 설비투자" in hk and "판정 중 78% 이상 통과" in hk)
 
+print("\n=== 밸류에이션 탭 — 가격 축이 깔때기와 같은 규칙 ===")
+import reverse_dcf as _rdcf
+import verdict as _vd
+
+
+def _run_dcf(cap, hist=None):
+    return _rdcf.run(_rdcf.Inputs(ticker="V", market_cap=cap, net_debt=0.0,
+                                  fcf_history=[(int(y), float(v)) for y, v in (hist or _fcf)]))
+
+
+v_light = _vd.build(_all9, _run_dcf(2.0e9))
+v_heavy = _vd.build(_all9, _run_dcf(2.0e10))
+check("싸면 ① (품질 통과 · 가격 부담 낮음), 비싸면 ②",
+      (v_light.quadrant, v_light.price_state) == (1, "light")
+      and (v_heavy.quadrant, v_heavy.price_state) == (2, "heavy"))
+check("과거 성장률은 앞 3년 평균 → 뒤 3년 평균 (7년)",
+      v_light.historical_span == 7 and abs(v_light.historical_growth - 0.08) < 0.005)
+_edge_cap = next((c for c in (x * 1e8 for x in range(20, 120))
+                  if _vd.build(_all9, _run_dcf(c)).price_state == "edge"), None)
+v_edge = _vd.build(_all9, _run_dcf(_edge_cap)) if _edge_cap else None
+check("할인율 10% 에서만 성립하면 '경계' — ①이 아니라 ②이고 그 이유를 적는다",
+      v_edge is not None and v_edge.quadrant == 2
+      and any("경계" in c and "12%" in c for c in v_edge.caveats), str(_edge_cap))
+v_fin = _vd.build(_all9, _run_dcf(2.0e9), financial=True)
+check("금융업은 가격을 판정하지 않는다 (사분면 없음 · 사유 표시)",
+      v_fin.quadrant == 0 and v_fin.implied_growth is None and "금융업" in v_fin.dcf_error)
+_fast = [[2016 + i, round(100e6 * 1.30 ** i)] for i in range(10)]      # 과거 연 30%
+v_cap = _vd.build(_all9, _run_dcf(6.0e10, _fast))
+check("과거 성장률 상한 15% — 과거 30% 여도 요구가 15% 를 넘으면 낮음이 아니다",
+      v_cap.implied_growth > 0.15 and v_cap.implied_growth < v_cap.historical_growth
+      and v_cap.price_state == "heavy" and any("까지만" in c for c in v_cap.caveats),
+      f"요구 {v_cap.implied_growth:.3f} · 과거 {v_cap.historical_growth:.3f}")
+check("밸류에이션 탭이 주식보상비용을 뺀 FCF 를 쓴다 (깔때기와 같은 입력)",
+      'funnel.dcf_inputs(screen)' in app_src and 'financial=screen.ticker in fin' in app_src)
+
 print("\n=== 후보 한 줄 — 셈이 맞아야 한다 ===")
 _p = {"members": [{"ticker": f"A{i}", "index": True} for i in range(515)] + [{"ticker": "W", "index": False}],
       "rules": {"S&P 500 구성 종목": {"n": 503}, "나스닥100 에만 있는 종목": {"n": 15}}}

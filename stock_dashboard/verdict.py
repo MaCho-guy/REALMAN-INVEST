@@ -22,6 +22,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import config
+import funnel
 import reverse_dcf as rdcf
 
 
@@ -45,6 +47,9 @@ class Verdict:
 
     #: ① ~ ④, 또는 판정 불가면 0
     quadrant: int = 0
+    #: 가격 축의 판정 — 'light' 낮음 · 'edge' 경계 · 'heavy' 높음 · 'na' 판정 안 함.
+    #: 종목 발굴 깔때기와 **같은 규칙**(funnel.price_state)입니다.
+    price_state: str = "na"
 
     #: 통과·탈락한 기준 이름
     passed_names: list[str] = field(default_factory=list)
@@ -139,7 +144,7 @@ NEXT_CHECKS = {
 
 
 def build(screen, dcf: rdcf.Result | None, *,
-          quality_threshold: int | None = None) -> Verdict:
+          quality_threshold: int | None = None, financial: bool = False) -> Verdict:
     """스크리닝 결과 + 역DCF 를 하나의 판단 재료로 묶습니다.
 
     quality_threshold: 사업 축의 기준선. 기본은 전체의 3분의 2.
@@ -160,26 +165,37 @@ def build(screen, dcf: rdcf.Result | None, *,
         unknown_names=[c.criterion.name for c in screen.checks if not c.known],
     )
 
-    if dcf is not None and dcf.ok:
+    # 가격 축 — 2026-11-12 부터 종목 발굴 깔때기와 같은 규칙(funnel.py)으로 봅니다.
+    # 전에는 할인율 10% 하나 · 과거 성장률은 시작 해와 끝 해 두 점이었습니다.
+    band_hi = None
+    if financial:
+        v.dcf_error = "금융업 — FCF 기반 역DCF 를 적용하지 않습니다."
+    elif dcf is not None and dcf.ok:
         v.implied_growth = dcf.implied_growth
         v.growth_band = dcf.band_label
+        trend, tspan = funnel.trend_growth(dcf.inputs.fcf_history)
         span = dcf.gap_span
-        if span is not None:
+        if tspan is not None:                # 6년치 이상 — 앞 3년 평균 → 뒤 3년 평균
+            v.historical_growth, v.historical_span = trend, tspan
+        elif span is not None:
             v.historical_growth = dcf.historical_cagr[span]
             v.historical_span = span
+        band = [x for x in dcf.sensitivity.values() if x is not None]
+        band_hi = max(band) if len(band) >= 2 else None
     elif dcf is not None:
         v.dcf_error = dcf.error
+    v.price_state = funnel.price_state(
+        {"g": v.implied_growth, "h": v.historical_growth, "hi": band_hi})
 
-    # 사분면
+    # 사분면 — '낮음' 은 할인율 8~12% 전 구간에서 요구 ≤ 과거(상한까지)일 때만
     quality_ok = v.passed >= threshold
-    gap = v.gap
-    if gap is None:
+    if v.price_state == "na":
         v.quadrant = 0
-    elif quality_ok and gap <= 0:
+    elif quality_ok and v.price_state == "light":
         v.quadrant = 1
     elif quality_ok:
         v.quadrant = 2
-    elif gap <= 0:
+    elif v.price_state == "light":
         v.quadrant = 3
     else:
         v.quadrant = 4
@@ -192,6 +208,17 @@ def build(screen, dcf: rdcf.Result | None, *,
         )
 
     # 이 요약을 그대로 믿기 어려운 이유들
+    cap = config.FUNNEL_HIST_GROWTH_CAP
+    if v.price_state == "edge" and band_hi is not None:
+        v.caveats.append(
+            f"**가격은 '경계' 입니다.** 할인율 10% 에서는 요구 성장률이 과거 성장률 이하지만, "
+            f"12% 로 보면 연 {band_hi * 100:,.1f}% 가 되어 넘습니다 — '부담 낮음' 으로 세지 않았습니다."
+        )
+    if v.historical_growth is not None and v.historical_growth > cap:
+        v.caveats.append(
+            f"과거 FCF 성장률 연 {v.historical_growth * 100:,.1f}% 는 **연 {cap * 100:g}% 까지만** "
+            "인정했습니다 — 과거의 고성장이 그대로 이어진다고 보지 않습니다."
+        )
     if v.unknown:
         v.caveats.append(
             f"기준 {v.unknown}개는 **판정 불가**입니다 "

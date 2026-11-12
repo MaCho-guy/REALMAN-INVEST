@@ -1132,6 +1132,79 @@ def diagnose_research_detail() -> None:
                     print(f"    {key}: {show(val, 160)!r}")
 
 
+def diagnose_universe_sources() -> None:
+    """종목 발굴 후보의 출처 — S&P 500 목록과 네이버 시가총액 순위가 어떤 모양으로 오는지.
+
+    2026-11-12 "근본 해결안" (손으로 고른 후보 → 규칙으로 정한 후보) 을 만들기
+    전에 실제 응답을 보려고 만든 것입니다. 주소 일부는 추측입니다.
+    """
+    import json as _json
+    import re as _re
+
+    import requests as _rq
+    from sources import naver as _nv
+
+    head("후보 출처 — S&P 500 · 시가총액 순위")
+    ua = {"User-Agent": "stock-dashboard/1.0 (personal dashboard)"}
+    url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+    try:
+        r = _rq.get(url, headers=ua, timeout=15)
+        text = r.text
+        print(f"위키백과: HTTP {r.status_code} · {len(text):,}자 · constituents 표 "
+              f"{'있음' if 'id=\"constituents\"' in text else '없음'}")
+        i = text.find('id="constituents"')
+        if i >= 0:
+            body = text[i:text.find("</table>", i)]
+            rows = _re.findall(r"<tr[^>]*>(.*?)</tr>", body, _re.S)
+            print(f"  줄 {len(rows)}개")
+            for row in rows[:3]:
+                print("  줄:", _re.sub(r"\s+", " ", row)[:900])
+    except Exception as exc:  # noqa: BLE001
+        print(f"위키백과 실패: {type(exc).__name__}: {exc}")
+
+    hdr = {**_nv.HEADERS, "Accept": "application/json"}
+
+    def show(value, limit=90):
+        t = str(value).replace("\n", " ")
+        return t if len(t) <= limit else t[:limit] + "…"
+
+    for u in (
+        "https://m.stock.naver.com/api/stocks/marketValue/KOSPI?page=1&pageSize=3",
+        "https://m.stock.naver.com/api/stocks/marketValue/KOSDAQ?page=1&pageSize=3",
+        "https://m.stock.naver.com/api/stocks/marketValue/KOSPI?page=2&pageSize=100",
+        "https://m.stock.naver.com/api/stocks/marketValue/KOSPI?page=1&pageSize=200",
+        "https://m.stock.naver.com/api/index/KPI200/enrollStocks?page=1&pageSize=3",
+        "https://m.stock.naver.com/api/index/KOSDAQ150/enrollStocks?page=1&pageSize=3",
+        "https://m.stock.naver.com/api/stocks/marketValue/all?page=1&pageSize=3",
+    ):
+        try:
+            r = _rq.get(u, headers=hdr, timeout=10)
+        except Exception as exc:  # noqa: BLE001
+            print(f"\n{u}\n  실패 {type(exc).__name__}")
+            continue
+        print(f"\n{u}\n  HTTP {r.status_code} · {len(r.content):,}B")
+        try:
+            data = r.json()
+        except Exception:  # noqa: BLE001
+            print(f"  JSON 아님: {r.text[:120]!r}")
+            continue
+        if isinstance(data, dict):
+            print("  맨 위 칸:", {k: (f"list[{len(v)}]" if isinstance(v, list) else show(v, 40))
+                               for k, v in data.items()})
+            items = next((v for v in data.values() if isinstance(v, list) and v), [])
+        else:
+            items = data if isinstance(data, list) else []
+            print(f"  list[{len(items)}]")
+        for it in items[:2]:
+            print("  항목:", show(_json.dumps(it, ensure_ascii=False), 1200))
+        if len(items) > 3:
+            kinds: dict = {}
+            for it in items:
+                k = (it.get("stockEndType"), it.get("stockType")) if isinstance(it, dict) else "?"
+                kinds[k] = kinds.get(k, 0) + 1
+            print("  종류별:", kinds, "· 마지막:", show(_json.dumps(items[-1], ensure_ascii=False), 200))
+
+
 def ichimoku_trace(dates, highs, lows, closes, offsets=(25, 26)) -> list[str]:
     """일목 구름 계산을 줄글로 풉니다 — HTS 와 한 칸씩 맞춰 볼 수 있게.
 

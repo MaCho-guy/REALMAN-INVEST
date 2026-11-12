@@ -205,6 +205,103 @@ check("섹터 온도 · 차트 조건 화면이 '언제까지 반영됐나' 를 
       src.count("calendar_events.bar_note(") == 2)
 check("차트의 '장중 잠정' 은 날짜를 확인한 뒤에만", 'if kind == "live":' in src)
 
+print("\n=== 등락률 — 전일 종가를 날짜로 확인 ===")
+from sources import yahoo  # noqa: E402
+
+D = dt.date
+# 2026-11-12 실제로 본 것: 가격은 5,430 근처로 같은데 등락률이 +3.69% ↔ +0.97%
+full = [(D(2026, 11, 9), 5300.0), (D(2026, 11, 10), 5239.0), (D(2026, 11, 11), 5375.0),
+        (D(2026, 11, 12), 5427.41)]
+price, prev, ok = yahoo.pick_price_prev(full, "kr")
+check("봉이 이어지면 어제 종가와 비교 (+0.97%)",
+      ok and prev == 5375.0 and abs((price / prev - 1) * 100 - 0.975) < 0.01, f"{price} / {prev}")
+holed = [r for r in full if r[0] != D(2026, 11, 11)]          # 야후가 어제 봉을 빠뜨림
+price, prev, ok = yahoo.pick_price_prev(holed, "kr")
+check("어제 봉이 빠지면 그제 종가를 전일 종가로 믿지 않는다 (+3.59% 가 될 뻔)",
+      not ok and prev == 5239.0 and abs((price / prev - 1) * 100 - 3.6) < 0.05, f"{price} / {prev} · {ok}")
+nan = float("nan")
+price, prev, ok = yahoo.pick_price_prev(
+    [(D(2026, 11, 10), 5239.0), (D(2026, 11, 11), nan), (D(2026, 11, 12), 5427.41)], "kr")
+check("어제 종가가 비어(NaN) 와도 같다", not ok and price == 5427.41)
+check("주말을 사이에 둔 금 → 월은 이어진 것",
+      yahoo.bars_adjacent(D(2026, 11, 6), D(2026, 11, 9), "kr"))
+hol = next(d for d in sorted(cal.NYSE_HOLIDAYS) if d.startswith("2026-11"))
+hy, hm, hd = map(int, hol.split("-"))
+before, after = D(hy, hm, hd) - dt.timedelta(days=1), D(hy, hm, hd) + dt.timedelta(days=1)
+check(f"휴장일({hol})을 사이에 둔 봉도 이어진 것 — 그 시장에서만",
+      yahoo.bars_adjacent(before, after, "us") and not yahoo.bars_adjacent(before, after, "kr"))
+check("어느 시장인지 모르면 평일은 전부 거래일로", not yahoo.bars_adjacent(before, after, ""))
+check("심볼로 시장을 가린다",
+      yahoo._market_of("^KS11") == "kr" and yahoo._market_of("069500.KS") == "kr"
+      and yahoo._market_of("^GSPC") == "us" and yahoo._market_of("NQ=F") == ""
+      and yahoo._market_of("KRW=X") == "")
+check("봉이 하나뿐이면 전일 종가 없음", yahoo.pick_price_prev([(D(2026, 11, 12), 100.0)], "kr") == (100.0, None, False))
+check("빈 값", yahoo.pick_price_prev([], "kr") == (None, None, False))
+
+
+class _Idx:
+    def __init__(self, day):
+        self._d = day
+
+    def date(self):
+        return self._d
+
+
+class _Col(list):
+    def tolist(self):
+        return list(self)
+
+
+class _Hist:
+    empty = False
+
+    def __init__(self, rows):
+        self.index = [_Idx(d) for d, _c in rows]
+        self._close = _Col(c for _d, c in rows)
+
+    def __contains__(self, key):
+        return key == "Close"
+
+    def __getitem__(self, key):
+        return self._close
+
+
+class _Ticker:
+    def __init__(self, rows, fast=None):
+        self._rows, self._fast = rows, fast
+
+    def history(self, **_kw):
+        return _Hist(self._rows)
+
+    @property
+    def fast_info(self):
+        if self._fast is None:
+            raise RuntimeError("fast_info 없음")
+        return self._fast
+
+
+check("이어지면 일봉의 전일 종가", yahoo._from_history(_Ticker(full), "^KS11") == (5427.41, 5375.0))
+check("빠졌으면 야후가 따로 주는 전일 종가를 쓴다",
+      yahoo._from_history(_Ticker(holed, {"previousClose": 5375.0}), "^KS11") == (5427.41, 5375.0))
+check("그것도 없으면 비워 둔다 (틀린 등락률보다 '—')",
+      yahoo._from_history(_Ticker(holed), "^KS11") == (5427.41, None))
+
+print("\n=== 값의 모양이 바뀐 받기 — 옛 저장값을 쓰지 않는다 ===")
+import swr  # noqa: E402
+
+swr.DISK = False
+old_fn = swr.cached(3_600, disk=False)(lambda: "옛 모양")
+old_fn.name = "load_shape"
+new_fn = swr.cached(3_600, disk=False, version=2)(lambda: "새 모양")
+new_fn.name = "load_shape"
+check("번호가 키에 들어간다", old_fn.key((), {}) != new_fn.key((), {}) and "#v2|" in new_fn.key((), {}))
+old_fn()
+check("옛 값이 남아 있어도 새로 받는다", new_fn() == "새 모양")
+new_fn.clear()
+check("비우기도 번호를 따른다", new_fn.age() is None and old_fn.age() is not None)
+check("한국 지표 · 수출 통계에 번호를 올렸다",
+      "@swr.cached(3_600, version=2)" in src and "@swr.cached(21_600, version=2)" in src)
+
 print("\n=== 분석 실행 안내 ===")
 check("화면 3분의 1 을 차지하던 노란 경고가 없다", "분석 실행 불가" not in src)
 check("한 줄 안내 + 접어 둔 설치 방법",

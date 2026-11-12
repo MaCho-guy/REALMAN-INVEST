@@ -769,7 +769,7 @@ def load_liquidity(use_demo: bool, key_fp: str = ""):
     return nl, extra
 
 
-@swr.cached(3_600)
+@swr.cached(3_600, version=2)       # 2: 값의 모양이 바뀜 (억 달러 · %p · 몇 월분)
 def load_kr_macro(use_demo: bool, key_fp: str = ""):
     """한국 경제지표 (FRED 경유). 계열 ID 는 전부 미검증입니다."""
     if use_demo:
@@ -846,7 +846,7 @@ def load_kr_companies(codes: tuple[str, ...], use_demo: bool,
     return out
 
 
-@swr.cached(21_600)
+@swr.cached(21_600, version=2)      # 2: 제목 검색으로 찾기 — 저장된 '못 찾음' 을 버림
 def load_kr_exports(use_demo: bool):
     """한국 반도체 수출. 월 1회 발표라 캐시를 6시간으로 둡니다.
 

@@ -335,7 +335,7 @@ class Cached:
 
     def __init__(self, fn: Callable, ttl, stale: float,
                  keep: Callable[[object], bool] | None, disk: bool,
-                 wait_fresh: float = 0.0):
+                 wait_fresh: float = 0.0, version: int = 0):
         self.fn = fn
         #: ttl 은 숫자이거나 **함수**(인자를 받아 초를 돌려줌)입니다. 장중에는
         #: 5분, 장이 닫히면 1시간처럼 때에 따라 달라지는 것에 씁니다.
@@ -347,6 +347,11 @@ class Cached:
         #: 묵은 값을 주기 전에 새 값을 이만큼(초) 기다려 봅니다. 시세처럼
         #: '옛 값이 잠깐이라도 보이면 곤란한' 것에 씁니다. 0 이면 안 기다림.
         self.wait_fresh = float(wait_fresh)
+        #: 돌려주는 값의 **모양이나 계산이 바뀌면** 올리는 번호. 키에 들어가므로
+        #: 올리면 메모리·임시 폴더·스냅샷에 남은 옛 값을 쓰지 않습니다.
+        #: (우리 자료형이 든 값은 코드 해시로 저절로 걸러지지만, 글자·숫자만
+        #: 든 값은 걸러 낼 근거가 없어 이 번호가 필요합니다.)
+        self.version = int(version)
         self.name = fn.__name__
         self.module = _module_name(fn)
         functools.update_wrapper(self, fn)
@@ -362,7 +367,11 @@ class Cached:
 
     # ── 키 ────────────────────────────────────────────────────────────────
     def key(self, args: tuple, kwargs: dict) -> str:
-        return f"{self.module}.{self.name}|{args!r}|{sorted(kwargs.items())!r}"
+        return f"{self._prefix()}{args!r}|{sorted(kwargs.items())!r}"
+
+    def _prefix(self) -> str:
+        tag = f"#v{self.version}" if self.version else ""
+        return f"{self.module}.{self.name}{tag}|"
 
     # ── 받기 ──────────────────────────────────────────────────────────────
     def _fetch(self, key: str, args, kwargs, e: _Entry) -> None:
@@ -503,7 +512,7 @@ class Cached:
         return None if e is None or not e.ok else time.time() - e.at
 
     def clear(self) -> None:
-        prefix = f"{self.module}.{self.name}|"
+        prefix = self._prefix()
         with _store_lock:
             for k in [k for k in _store if k.startswith(prefix)]:
                 if DISK:
@@ -516,7 +525,8 @@ class Cached:
 
 def cached(ttl, *, stale: float | None = None,
            keep: Callable[[object], bool] | None = None,
-           disk: bool = True, wait_fresh: float = 0.0) -> Callable[[Callable], Cached]:
+           disk: bool = True, wait_fresh: float = 0.0,
+           version: int = 0) -> Callable[[Callable], Cached]:
     """데코레이터.
 
     ttl    이 시간 안이면 저장된 값을 그대로 (초)
@@ -525,13 +535,14 @@ def cached(ttl, *, stale: float | None = None,
     keep   새 값을 받아들일지. False 면 직전 값을 유지 (빈 결과가
            좋은 값을 덮지 않게)
     disk   임시 폴더에 사본을 남길지
+    version 값의 모양·계산이 바뀌면 올립니다 — 옛 저장값을 쓰지 않게
     """
     def deco(fn: Callable) -> Cached:
         if stale is not None:
             window = stale
         else:
             window = 6 * 3_600 if callable(ttl) else ttl * 6
-        return Cached(fn, ttl, window, keep, disk, wait_fresh)
+        return Cached(fn, ttl, window, keep, disk, wait_fresh, version)
     return deco
 
 

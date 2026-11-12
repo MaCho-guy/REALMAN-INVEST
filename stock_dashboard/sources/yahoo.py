@@ -58,20 +58,96 @@ def _num(value: object) -> float | None:
     return out
 
 
-def _from_history(ticker) -> tuple[float | None, float | None]:
-    """info 가 비었을 때의 최후 수단: 최근 5영업일 종가로 가격/전일종가를 구합니다."""
+def _market_of(symbol: str) -> str:
+    """심볼이 어느 시장의 휴장일을 따르나 — 'kr' · 'us' · '' (모름: 평일은 다 거래일)."""
+    sym = (symbol or "").upper()
+    if sym.endswith((".KS", ".KQ")) or sym in ("^KS11", "^KQ11", "^KS200"):
+        return "kr"
+    if sym.endswith(("=F", "=X")) or "-USD" in sym:
+        return ""
+    if sym.startswith("^") or sym.isalpha():
+        return "us"
+    return ""
+
+
+def bars_adjacent(prev_day, last_day, market: str = "") -> bool:
+    """두 봉 사이에 **빠진 거래일이 없는가**.
+
+    사이에 낀 날이 전부 주말이거나 그 시장의 휴장일이면 True. 평일이 하나라도
+    끼어 있으면 봉이 하나 빠진 것입니다.
+    """
+    import datetime as _dt  # noqa: PLC0415
+
+    try:
+        import calendar_events as _ce  # noqa: PLC0415
+        holidays = {"kr": _ce.KRX_HOLIDAYS, "us": _ce.NYSE_HOLIDAYS}.get(market, {})
+    except Exception:  # noqa: BLE001
+        holidays = {}
+    day = prev_day + _dt.timedelta(days=1)
+    while day < last_day:
+        if day.weekday() < 5 and day.isoformat() not in holidays:
+            return False
+        day += _dt.timedelta(days=1)
+    return True
+
+
+def pick_price_prev(rows: list, market: str = "") -> tuple[float | None, float | None, bool]:
+    """[(날짜, 종가)] → (가격, 전일 종가, 전일 종가를 믿을 수 있나).
+
+    2026-11-12 실제 화면: 같은 코스피 5,430 근처에서 등락률이 6분 사이에
+    +3.69% → +0.97% 로 바뀌었습니다. 야후가 일봉 5일치에서 **어제 봉을
+    빠뜨린 채** 돌려준 적이 있고, '끝에서 두 번째 종가' 를 전일 종가로
+    쓰던 코드는 그걸 그제 종가와 비교해 이틀치 등락을 하루치처럼 보였습니다.
+    이제 두 봉의 **날짜**를 보고, 사이에 거래일이 빠졌으면 믿지 않습니다.
+    """
+    clean = [(d, float(c)) for d, c in rows if c is not None and c == c and c > 0]
+    if not clean:
+        return None, None, False
+    last_day, price = clean[-1]
+    if len(clean) == 1:
+        return price, None, False
+    prev_day, prev = clean[-2]
+    try:
+        ok = bars_adjacent(prev_day, last_day, market)
+    except Exception:  # noqa: BLE001 - 날짜를 못 읽으면 예전처럼
+        ok = True
+    return price, prev, ok
+
+
+def _from_history(ticker, symbol: str = "") -> tuple[float | None, float | None]:
+    """최근 5영업일 일봉으로 가격/전일 종가를 구합니다.
+
+    전일 종가는 봉 날짜가 이어질 때만 일봉에서 가져옵니다. 봉이 빠졌으면
+    야후가 따로 주는 전일 종가(fast_info)를 쓰고, 그것도 없으면 **비워
+    둡니다** — 틀린 등락률보다 '—' 가 낫습니다.
+    """
     try:
         hist = ticker.history(period="5d", interval="1d", auto_adjust=False)
     except Exception:  # noqa: BLE001 - 야후는 다양한 예외를 던집니다
         return None, None
     if hist is None or hist.empty or "Close" not in hist:
         return None, None
-    closes = [c for c in hist["Close"].tolist() if c == c]
-    if not closes:
-        return None, None
-    if len(closes) == 1:
-        return closes[-1], None
-    return closes[-1], closes[-2]
+    rows = []
+    for stamp, close in zip(list(hist.index), hist["Close"].tolist()):
+        try:
+            day = stamp.date() if hasattr(stamp, "date") else stamp
+        except Exception:  # noqa: BLE001
+            day = None
+        rows.append((day, close))
+    if any(d is None for d, _c in rows):
+        closes = [c for _d, c in rows if c == c]
+        if not closes:
+            return None, None
+        return closes[-1], (closes[-2] if len(closes) > 1 else None)
+    price, prev, trusted = pick_price_prev(rows, _market_of(symbol))
+    if price is None or trusted:
+        return price, prev
+    try:
+        fast = ticker.fast_info
+        alt = _num(fast.get("previousClose")) or _num(fast.get("regularMarketPreviousClose"))
+    except Exception:  # noqa: BLE001
+        alt = None
+    return price, alt
 
 
 def _fetch_one(symbol: str) -> Quote:
@@ -106,7 +182,7 @@ def _fetch_one(symbol: str) -> Quote:
 
     # 그래도 없으면 히스토리
     if price is None:
-        h_price, h_prev = _from_history(ticker)
+        h_price, h_prev = _from_history(ticker, symbol)
         price = price or h_price
         prev = prev or h_prev
 
@@ -182,7 +258,7 @@ def _fetch_light(symbol: str) -> Quote:
     프리·애프터장 가격과 장 상태는 이 경로에서 나오지 않습니다.
     """
     yf = _import_yfinance()
-    price, prev = _from_history(yf.Ticker(symbol))
+    price, prev = _from_history(yf.Ticker(symbol), symbol)
     if price is None:
         return _fetch_one(symbol)
     return Quote(symbol=symbol, price=price, prev_close=prev,

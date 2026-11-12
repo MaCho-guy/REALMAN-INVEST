@@ -39,7 +39,8 @@ PROMPT = """첨부한 PDF 는 한국 증권사의 리포트다. 한국어로 요
 
 규칙:
 - 문서에 적힌 내용만 쓴다. 문서에 없는 해석이나 배경 지식을 더하지 않는다.
-- 투자의견, 목표주가, 매수·매도 권유는 옮기지 않는다.
+- 투자의견, 목표주가, 매수·매도 권유, 업종 비중 의견(비중확대·축소), 추천 종목은 옮기지 않는다.
+- 문서의 일부(앞쪽)만 받았을 수 있다. 받은 쪽에 있는 내용만 쓴다.
 - 문장을 그대로 베끼지 말고 짧게 다시 쓴다.
 - 전체 450자 이내. 머리말이나 맺음말을 붙이지 않는다."""
 
@@ -82,7 +83,7 @@ def targets(lists: dict, existing: dict, per_list: int, max_new: int) -> list:
     queues = []
     for reports in lists.values():
         q = [r for r in list(reports)[:per_list]
-             if key_of(r) and key_of(r) not in existing
+             if key_of(r) and (key_of(r) not in existing or needs_redo(existing[key_of(r)]))
              and str(getattr(r, "pdf", "") or "").startswith(("https://", "http://"))]
         if q:
             queues.append(q)
@@ -110,7 +111,18 @@ def entry(report, summary: str, model: str, usage: dict | None = None) -> dict:
         "model": model, "at": int(time.time()),
         "input_tokens": int(usage.get("input_tokens") or 0),
         "output_tokens": int(usage.get("output_tokens") or 0),
+        "pages_total": int(usage.get("pages_total") or 0),
+        "pages_sent": int(usage.get("pages_sent") or 0),
     }
+
+
+def needs_redo(item: dict) -> bool:
+    """저장된 요약이 잘린 것인가 — 그렇다면 다시 요약합니다.
+
+    2026-11-12 첫 실행(max_tokens 700)에서 출력이 딱 700 토큰에 끊긴 요약이
+    저장됐습니다. 그때는 쪽수 칸이 없었으므로 그것으로 가립니다.
+    """
+    return (not item.get("pages_sent")) and int(item.get("output_tokens") or 0) == 700
 
 
 def clean(text: str, limit: int = 900) -> str:

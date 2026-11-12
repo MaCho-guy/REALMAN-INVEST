@@ -42,7 +42,18 @@ def rep(kind, rid, title="제목", pdf="https://x.test/a.pdf", broker="가증권
     return Report(kind=kind, title=title, broker=broker, date=date, pdf=pdf, research_id=rid)
 
 
-PDF = b"%PDF-1.4 fake"
+def make_pdf(pages: int) -> bytes:
+    import io
+    from pypdf import PdfWriter
+    w = PdfWriter()
+    for _ in range(pages):
+        w.add_blank_page(width=200, height=200)
+    buf = io.BytesIO()
+    w.write(buf)
+    return buf.getvalue()
+
+
+PDF = make_pdf(3)
 SUMMARY = ("**핵심 주장**\n- 가격이 오른다고 본다\n\n근거 숫자\n- DRAM 계약가 +12% (3쪽)\n"
            "가정 · 위험\n- 수요 가정이 바뀌면 달라진다")
 
@@ -50,6 +61,8 @@ print("\n=== 요청 모양 (Messages API · PDF) ===")
 body = claude_api.build_request(PDF, "요약해라", "claude-haiku-5-5", 700)
 doc, text = body["messages"][0]["content"]
 check("document 블록이 먼저, 글이 뒤", doc["type"] == "document" and text["type"] == "text")
+check("effort 를 낮춰 생각을 줄임 · thinking 칸은 보내지 않음",
+      body["output_config"] == {"effort": "low"} and "thinking" not in body)
 check("PDF 를 base64 로", doc["source"] == {
     "type": "base64", "media_type": "application/pdf",
     "data": base64.standard_b64encode(PDF).decode()})
@@ -72,6 +85,8 @@ except claude_api.ClaudeError:
 
 os.environ["ANTHROPIC_API_KEY"] = FAKE_KEY
 got, usage = claude_api.summarize_pdf(PDF, "p", model="claude-haiku-5-5", post=fake_post)
+check("쪽수를 사용량에 적음", usage["pages_total"] == 3 and usage["pages_sent"] == 3)
+check("기본 max_tokens 에 생각할 여유", seen["body"]["max_tokens"] >= 2000)
 check("주소 · 머리글", seen["url"] == "https://api.anthropic.com/v1/messages"
       and seen["headers"]["x-api-key"] == FAKE_KEY
       and seen["headers"]["anthropic-version"] == "2023-06-01")
@@ -116,6 +131,79 @@ check("환경변수에 없어도 sk-ant 모양이면 지움",
       safe.scrub(f"key={OTHER}!") .count("Z" * 30) == 0 and "sk-ant-***" in safe.scrub(f"x {OTHER} y"),
       safe.scrub(f"x {OTHER} y"))
 check("ANTHROPIC_API_KEY 가 지울 이름 목록에", "ANTHROPIC_API_KEY" in safe.SECRET_ENVS)
+
+print("\n=== 쪽수 자르기 · 글 없는 응답 (2026-11-12 첫 실제 실행) ===")
+from pypdf import PdfReader  # noqa: E402
+import io  # noqa: E402
+
+big = make_pdf(45)
+cut, total, sent = claude_api.trim_pdf(big, 30)
+check("45쪽 → 앞 30쪽", (total, sent) == (45, 30) and len(PdfReader(io.BytesIO(cut)).pages) == 30)
+same, total, sent = claude_api.trim_pdf(PDF, 30)
+check("짧으면 그대로", same == PDF and (total, sent) == (3, 3))
+try:
+    claude_api.trim_pdf(b"%PDF-1.4 broken", 30)
+    check("깨진 PDF 는 보내지 않음", False)
+except claude_api.ClaudeError:
+    check("깨진 PDF 는 보내지 않음", True)
+seen.clear()
+got, usage = claude_api.summarize_pdf(big, "p", model="m", max_pages=10, post=fake_post)
+sent_pdf = base64.standard_b64decode(seen["body"]["messages"][0]["content"][0]["source"]["data"])
+check("보내는 PDF 가 실제로 잘려 있음", len(PdfReader(io.BytesIO(sent_pdf)).pages) == 10
+      and usage["pages_total"] == 45 and usage["pages_sent"] == 10)
+
+
+def post_thinking_only(url, json, headers, timeout):  # noqa: A002
+    return {"type": "message", "content": [{"type": "thinking", "thinking": "", "signature": "x"}],
+            "usage": {"input_tokens": 150000, "output_tokens": 700}, "stop_reason": "max_tokens"}
+
+
+try:
+    claude_api.summarize_pdf(PDF, "p", model="m", post=post_thinking_only)
+    check("생각만 하고 끝난 응답은 실패", False)
+except claude_api.ClaudeError as exc:
+    check("생각만 하고 끝난 응답은 실패 — 이유를 적음",
+          "stop_reason=max_tokens" in str(exc) and "thinking" in str(exc) and "150,000" in str(exc),
+          str(exc))
+
+
+def post_cut(url, json, headers, timeout):  # noqa: A002
+    return {"type": "message", "content": [{"type": "text", "text": "핵심 주장\n- 가격이"}],
+            "usage": {"input_tokens": 30000, "output_tokens": 3000}, "stop_reason": "max_tokens"}
+
+
+tries = []
+
+
+def post_no_effort(url, json, headers, timeout):  # noqa: A002
+    tries.append("output_config" in json)
+    if "output_config" in json:
+        return {"type": "error", "error": {"type": "invalid_request_error",
+                                           "message": "output_config.effort: not supported"}}
+    return fake_post(url, json, headers, timeout)
+
+
+got, _u = claude_api.summarize_pdf(PDF, "p", model="m", post=post_no_effort)
+check("effort 칸을 거절하면 그 칸만 빼고 한 번 더", tries == [True, False] and got == SUMMARY)
+
+try:
+    claude_api.summarize_pdf(PDF, "p", model="m", post=post_cut)
+    check("잘린 요약은 저장하지 않게 실패로", False)
+except claude_api.ClaudeError as exc:
+    check("잘린 요약은 저장하지 않게 실패로", "잘렸습니다" in str(exc))
+
+old_cut = {"summary": "핵심 주장\n- 3Q26 실적은", "output_tokens": 700, "input_tokens": 33532}
+new_ok = {"summary": "s", "output_tokens": 700, "pages_sent": 12, "pages_total": 12}
+check("첫 실행의 잘린 요약은 다시 요약 대상", rs.needs_redo(old_cut) and not rs.needs_redo(new_ok)
+      and not rs.needs_redo({"summary": "s", "output_tokens": 596}))
+redo = rs.targets({"삼성": [rep("company", "97245")]}, {"company:97245": old_cut}, 5, 9)
+check("다시 요약 대상이 목록에 들어감", [rs.key_of(r) for r in redo] == ["company:97245"])
+e = rs.entry(rep("industry", "1"), SUMMARY, "m", {"pages_total": 45, "pages_sent": 30})
+check("저장 항목에 쪽수", e["pages_total"] == 45 and e["pages_sent"] == 30)
+check("설정 — 쪽수 · 입력 토큰 상한", 5 <= config.SUMMARY_MAX_PAGES <= 60
+      and 100_000 <= config.SUMMARY_MAX_INPUT_TOKENS <= 2_000_000)
+check("지시문 — 업종 비중 의견도 옮기지 않게", "비중" in rs.PROMPT)
+check("requirements 에 pypdf", "pypdf" in pathlib.Path("requirements.txt").read_text(encoding="utf-8"))
 
 print("\n=== 이름 · 저장 · 대상 고르기 ===")
 check("이름 — 산업 / 종목", rs.key_of(rep("industry", "46967")) == "industry:46967"
@@ -182,10 +270,12 @@ def fetch(url):
     return PDF
 
 
-def summarize(pdf, prompt, *, model):
+def summarize(pdf, prompt, *, model, max_pages):
     calls["sum"] += 1
     assert prompt == rs.PROMPT and model == config.SUMMARY_MODEL
-    return SUMMARY, {"input_tokens": 7000, "output_tokens": 300}
+    assert max_pages == config.SUMMARY_MAX_PAGES
+    return SUMMARY, {"input_tokens": 7000, "output_tokens": 300,
+                     "pages_total": 40, "pages_sent": 30}
 
 
 def missing():
@@ -223,7 +313,7 @@ with tempfile.TemporaryDirectory() as out:
 with tempfile.TemporaryDirectory() as out:
     n = {"i": 0}
 
-    def flaky(pdf, prompt, *, model):
+    def flaky(pdf, prompt, *, model, max_pages):
         n["i"] += 1
         if n["i"] == 2:
             raise claude_api.ClaudeError(f"API 오류: overloaded_error — {FAKE_KEY}")
@@ -237,7 +327,7 @@ with tempfile.TemporaryDirectory() as out:
 with tempfile.TemporaryDirectory() as out:
     n = {"i": 0}
 
-    def no_credit(pdf, prompt, *, model):
+    def no_credit(pdf, prompt, *, model, max_pages):
         n["i"] += 1
         raise claude_api.ClaudeError("API 오류: invalid_request_error — Your credit balance is too low")
 
@@ -246,6 +336,30 @@ with tempfile.TemporaryDirectory() as out:
     check("잔액 부족이면 첫 건에서 멈춤", n["i"] == 1 and r["new"] == 0 and r["skipped"], str(r))
     check("아무것도 없으면 파일을 만들지 않음",
           not os.path.exists(os.path.join(out, "summaries.json")))
+
+many_data = {"industry": [rep("industry", str(i)) for i in range(1, 11)], "stocks": {}}
+with tempfile.TemporaryDirectory() as out:
+    n = {"i": 0}
+
+    def empty(pdf, prompt, *, model, max_pages):
+        n["i"] += 1
+        raise claude_api.ClaudeError("응답에 글이 없습니다 (stop_reason=max_tokens)")
+
+    r = collect.summarize_reports(FakeApp(many_data), out, fetch=fetch, summarize=empty,
+                                  load_existing=missing)
+    check("연달아 3건 실패하면 멈춤 (돈만 나가지 않게)", n["i"] == 3 and r["skipped"], str(r))
+
+with tempfile.TemporaryDirectory() as out:
+    n = {"i": 0}
+
+    def heavy(pdf, prompt, *, model, max_pages):
+        n["i"] += 1
+        return SUMMARY, {"input_tokens": 250_000, "output_tokens": 500}
+
+    r = collect.summarize_reports(FakeApp(many_data), out, fetch=fetch, summarize=heavy,
+                                  load_existing=missing)
+    check("입력 토큰 상한에 닿으면 멈춤", n["i"] == 3 and r["new"] == 3 and "상한" in r["skipped"],
+          f"{n['i']}건 · {r['skipped']}")
 
 with tempfile.TemporaryDirectory() as out:
     class Broken:
@@ -286,6 +400,10 @@ r2 = rep("industry", "2")
 r2.preview = "두 번째 미리보기"
 html = ui.render_report_cards([r1, r2], summaries=summaries)
 check("요약이 있는 카드에 'AI 요약' 표시", html.count("rp-ai") == 1 and "AI 요약 · claude-haiku-5-5" in html)
+part = {"industry:1": {**summaries["industry:1"], "pages_total": 84, "pages_sent": 30}}
+check("일부만 읽었으면 카드에 적음",
+      "앞 30쪽만 읽음 (전체 84쪽)" in ui.render_report_cards([r1], summaries=part)
+      and "쪽만 읽음" not in html)
 check("요약이 있으면 미리보기 대신", "본문 앞부분" not in html and "두 번째 미리보기" in html)
 check("줄머리와 항목", '<div class="ai-h">근거 숫자</div>' in html
       and "<li>DRAM 계약가 +12% (3쪽)</li>" in html)

@@ -3536,6 +3536,12 @@ def render_ai_summary(item: dict) -> str:
         return ""
     model = str(item.get("model") or "").strip()
     tag = "AI 요약" + (f" · {_esc(model)}" if model else "")
+    try:
+        total, sent = int(item.get("pages_total") or 0), int(item.get("pages_sent") or 0)
+    except (TypeError, ValueError):
+        total = sent = 0
+    if total and sent and sent < total:
+        tag += f" · 앞 {sent}쪽만 읽음 (전체 {total}쪽)"
     return (f'<div class="rp-ai"><span class="ai-tag">{tag}</span>'
             + "".join(parts) + "</div>")
 

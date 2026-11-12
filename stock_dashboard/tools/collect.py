@@ -275,13 +275,26 @@ def summarize_reports(app, out_dir: str, *, fetch=None, summarize=None,
     print(f"  요약할 새 리포트 {len(todo)}건 (이미 있는 요약 {len(existing)}건)")
     fetch = fetch or fetch_bytes
     summarize = summarize or claude_api.summarize_pdf
+    spent = 0
+    streak = 0          # 연달아 실패한 횟수 — 같은 문제로 돈만 나가는 것을 막습니다
     for r in todo:
+        if spent >= config.SUMMARY_MAX_INPUT_TOKENS:
+            report["skipped"] = f"입력 토큰 상한 {config.SUMMARY_MAX_INPUT_TOKENS:,} 도달"
+            print(f"  → 입력 토큰 상한에 닿았습니다 ({spent:,}). 남은 리포트는 다음 번에.")
+            break
         try:
-            text, usage = summarize(fetch(r.pdf), rsum.PROMPT, model=config.SUMMARY_MODEL)
+            text, usage = summarize(fetch(r.pdf), rsum.PROMPT, model=config.SUMMARY_MODEL,
+                                    max_pages=config.SUMMARY_MAX_PAGES)
         except Exception as exc:  # noqa: BLE001 - 한 건 실패가 나머지를 막지 않게
             why = redact(f"{type(exc).__name__}: {exc}", secret_values())[:160]
             report["failed"].append(f"{r.broker} 「{r.title[:24]}」 — {why}")
             print(f"  ✗ {r.date} {r.broker} — {why}")
+            streak += 1
+            if streak >= 3:
+                # 글 없는 응답도 입력 토큰은 청구됩니다 (2026-11-12: 9건 연속)
+                report["skipped"] = "연속 3건 실패로 중단"
+                print("  → 연달아 3건 실패했습니다. 남은 리포트는 보내지 않습니다.")
+                break
             if any(w in why for w in ("authentication_error", "permission_error",
                                       "credit balance", "billing")):
                 # 키가 틀렸거나 잔액이 없으면 남은 건도 똑같이 실패합니다 — 그만.
@@ -291,8 +304,12 @@ def summarize_reports(app, out_dir: str, *, fetch=None, summarize=None,
             continue
         existing[rsum.key_of(r)] = rsum.entry(r, text, config.SUMMARY_MODEL, usage)
         report["new"] += 1
+        streak = 0
+        spent += int(usage.get("input_tokens") or 0)
+        pages = (f" · {usage.get('pages_sent')}/{usage.get('pages_total')}쪽"
+                 if usage.get("pages_total") else "")
         print(f"  ✓ {r.date} {r.broker} 「{r.title[:30]}」 "
-              f"입력 {usage.get('input_tokens', 0):,} · 출력 {usage.get('output_tokens', 0):,} 토큰")
+              f"입력 {usage.get('input_tokens', 0):,} · 출력 {usage.get('output_tokens', 0):,} 토큰{pages}")
     if existing:
         save()
     return report

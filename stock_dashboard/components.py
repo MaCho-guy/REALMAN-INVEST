@@ -1180,6 +1180,15 @@ def render_criteria_table(rows, *, title: str = "", intro: str = "",
             + "".join(body) + f"</tbody></table>{foot_html}</div>")
 
 
+def render_legend(html: str) -> str:
+    """표·차트를 읽는 데 꼭 필요한 한 줄 (기호 풀이 · 분류 건수).
+
+    render_footnote 는 '설명 문구 표시' 가 꺼져 있으면(기본) 숨겨집니다.
+    기호의 뜻이나 분류 결과처럼 **없으면 표를 못 읽는 글**은 이쪽으로 냅니다.
+    """
+    return f'<div class="dash-legend">{_safe_inline(html)}</div>' if html else ""
+
+
 def render_terms(terms) -> str:
     """낱말 풀이 한 묶음 — [(낱말, 뜻)]."""
     if not terms:

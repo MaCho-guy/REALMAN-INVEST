@@ -1611,8 +1611,10 @@ def _discover_us(use_demo: bool) -> None:
     # 한눈표 — 어느 종목이 어느 기준에서 걸렸는지. 펼치지 않고 비교합니다.
     st.markdown(ui.render_screen_table(passed, buffett.CRITERIA),
                 unsafe_allow_html=True)
+    st.markdown(ui.render_legend(
+        "<b>○</b> 통과 · <b>✗</b> 미달 · <b>?</b> 판정 불가(숫자 5년치 미만) — "
+        "종목별 숫자는 아래에서 펼칩니다."), unsafe_allow_html=True)
     st.markdown(ui.render_footnote(
-        "○ 통과 · ✗ 미달 · ? 판정 불가. 종목별 숫자는 아래에서 펼칩니다. "
         "<b>52주 위치(신고가)는 기준에 넣지 않았습니다</b> — 최근 많이 오른 것과 "
         "사업의 질은 다른 질문이고, 가격은 밸류에이션 탭에서 공시 숫자와 견줍니다."),
         unsafe_allow_html=True)
@@ -1964,22 +1966,45 @@ def render_chart_tab(use_demo: bool, *, market: str = "kr") -> None:
             if config.in_market(i, market)}
     only_held = st.toggle("내 종목만", value=False, key=f"chart_held_{market}")
 
-    # 쪽이 어떻게 갈렸는지 — 고르기 전에 숫자로 보여 줍니다
+    # 쪽이 어떻게 갈렸는지 — 고르기 전에 숫자로 보여 줍니다. 건수는 설명 문구를
+    # 꺼도(기본) 보여야 해서 legend 로, 기준은 접어 둡니다.
     tally = {"os": 0, "ob": 0, "mixed": 0, "": 0}
     for r in ok_rows:
         tally[r.side] = tally.get(r.side, 0) + 1
-    st.markdown(ui.render_footnote(
-        f"<b>쪽 분류</b> — 과매도 {tally['os']} · 과매수 {tally['ob']} · "
-        f"엇갈림 {tally['mixed']} · 어느 쪽도 아님 {tally['']} (계산된 {len(ok_rows)}종목). "
-        f"기준: CCI {chart_signals.CCI_OVERSOLD:g} / +{chart_signals.CCI_OVERBOUGHT:g}, "
-        f"스토캐스틱 %K {chart_signals.STOCH_OVERSOLD:g} / {chart_signals.STOCH_OVERBOUGHT:g}, "
-        f"볼린저 %B {chart_signals.BB_NEAR:g} / {1 - chart_signals.BB_NEAR:g}. "
-        "셋 중 하나라도 그쪽 상태이고 반대쪽이 없으면 그쪽입니다. "
-        "'탈출' 은 기준선을 나온 지 3봉 이내이고 아직 가운데 선"
-        f"(CCI {chart_signals.CCI_MID:g} · %K {chart_signals.STOCH_MID:g})을 넘지 않은 때까지만 세고, "
-        "근거가 '탈출'뿐인데 다른 지표가 이미 가운데 선을 넘었으면 그쪽으로 치지 않습니다. "
-        "MACD 는 방향 지표라 쪽을 가르지 않습니다."),
+    st.markdown(ui.render_legend(
+        f"<b>쪽 분류</b> — 과매도 <b>{tally['os']}</b> · 과매수 <b>{tally['ob']}</b> · "
+        f"엇갈림 {tally['mixed']} · 어느 쪽도 아님 {tally['']} "
+        f"(계산된 {len(ok_rows)}종목 · CCI · 스토캐스틱 · 볼린저 %B 기준)"),
         unsafe_allow_html=True)
+    with st.expander("과매도 · 과매수를 가르는 기준", expanded=False):
+        st.markdown(ui.render_criteria_table(
+            [{"short": f"CCI({chart_signals.CCI_WINDOW})",
+              "rule": f"과매도 {chart_signals.CCI_OVERSOLD:g} 이하 · 과매수 "
+                      f"+{chart_signals.CCI_OVERBOUGHT:g} 이상 · 가운데 선 "
+                      f"{chart_signals.CCI_MID:g} · 근접 {chart_signals.CCI_NEAR_LOW:g} / "
+                      f"+{chart_signals.CCI_NEAR:g}"},
+             {"short": "스토캐스틱 %K",
+              "rule": f"과매도 {chart_signals.STOCH_OVERSOLD:g} 이하 · 과매수 "
+                      f"{chart_signals.STOCH_OVERBOUGHT:g} 이상 · 가운데 선 "
+                      f"{chart_signals.STOCH_MID:g} · 근접 {chart_signals.STOCH_NEAR_LOW:g} / "
+                      f"{chart_signals.STOCH_NEAR:g}"},
+             {"short": "볼린저 %B",
+              "rule": f"하단 근접 {chart_signals.BB_NEAR:g} 이하 · 이탈 0 미만 / 상단 근접 "
+                      f"{1 - chart_signals.BB_NEAR:g} 이상 · 돌파 1 초과"},
+             {"short": "상태 이름",
+              "rule": "근접(기준선 가까이에서 그쪽으로 가는 중) → 진입(최근 3봉 안에 "
+                      "기준선을 넘음) → 구간 → 탈출 시도(구간 안에서 전일보다 돌아섬) → "
+                      "탈출(최근 3봉 안에 기준선을 나왔고 아직 가운데 선 전). 과매수 쪽은 "
+                      "'이탈'"},
+             {"short": "종목의 쪽",
+              "rule": "세 지표 중 하나라도 그쪽 상태이고 반대쪽이 없으면 그쪽 (표의 n/3 은 "
+                      "그쪽 지표 수). 둘 다 있으면 엇갈림. 근거가 '탈출'뿐인데 CCI 나 %K 가 "
+                      "이미 가운데 선을 넘었으면 그쪽으로 치지 않음"},
+             {"short": "MACD",
+              "rule": "쪽을 가르는 데 쓰지 않음 — 방향 지표라 과매도·과매수 기준선이 없음. "
+                      "'좁혀짐' = MACD 선과 시그널선의 차이가 전일보다 줄어듦"}],
+            intro="기준선 숫자는 <code>chart_signals.py</code> 맨 위에서 바꿉니다."),
+            unsafe_allow_html=True)
 
     chosen = chart_signals.select(rows, required, side)
     if only_held:

@@ -1745,6 +1745,10 @@ def build_rules() -> str:
     .dash-kchart .kc-dates {{ padding-right: 46px; }}
     .dash-kchart .kc-title {{ gap: 0 7px; }}
   }}
+  /* 기호 풀이 · 분류 건수 — 설명 문구를 꺼도 남는 한 줄 */
+  .dash-legend {{ font-size: var(--fs-2); color: var(--dash-ink-2); line-height: 1.5;
+    margin: 2px 0 6px; }}
+  .dash-legend b {{ color: var(--dash-ink); }}
   /* 차트 조건 — 종목의 쪽 (과매도 / 과매수 / 엇갈림) */
   .dash-ctable td.ct-side {{ text-align: center; white-space: nowrap; }}
   .dash-ctable .ct-sd {{ display: inline-block; font-size: var(--fs-2); font-weight: 700;

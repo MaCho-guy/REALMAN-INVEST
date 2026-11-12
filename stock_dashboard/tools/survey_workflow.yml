@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       market:
-        description: "us (SEC) · kr (DART) · eps (야후 선행 EPS 추이 확인)"
+        description: "us (SEC) · kr (DART) · eps (야후 선행 EPS 추이 확인) · industry (네이버 업종 응답 확인)"
         default: "us"
 
 permissions:
@@ -36,6 +36,8 @@ jobs:
             python stock_dashboard/tools/kr_account_survey.py
           elif [ "$MARKET" = "eps" ]; then
             python stock_dashboard/tools/eps_probe.py
+          elif [ "$MARKET" = "industry" ]; then
+            python stock_dashboard/tools/industry_probe.py
           else
             python stock_dashboard/tools/tag_survey.py
           fi

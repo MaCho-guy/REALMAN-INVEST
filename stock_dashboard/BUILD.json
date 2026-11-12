@@ -64,6 +64,7 @@
  "tools/diagnose.py": "fddb3112e94c",
  "tools/discover_hyperliquid.py": "4d0a584bc62f",
  "tools/eps_probe.py": "d0f13dc162b4",
+ "tools/industry_probe.py": "820996b59799",
  "tools/kr_account_survey.py": "bb0f6287714e",
  "tools/names.py": "6e65eaff5bbb",
  "tools/preview.py": "605ebd37096b",

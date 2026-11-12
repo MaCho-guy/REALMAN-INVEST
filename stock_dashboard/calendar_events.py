@@ -148,6 +148,43 @@ def is_open(market: str, now: dt.datetime | None = None) -> bool:
     return start <= local.time() < end
 
 
+def market_today(market: str, now: dt.datetime | None = None) -> dt.date:
+    """그 시장의 '오늘' 날짜 (한국은 서울, 미국은 뉴욕 기준)."""
+    from zoneinfo import ZoneInfo  # noqa: PLC0415
+
+    now = now or dt.datetime.now(dt.timezone.utc)
+    zone = "Asia/Seoul" if market == "kr" else "America/New_York"
+    return now.astimezone(ZoneInfo(zone)).date()
+
+
+def bar_note(last_bar: str, market: str, now: dt.datetime | None = None
+             ) -> tuple[str, str]:
+    """일봉의 마지막 봉 날짜로 '이 숫자가 언제까지 반영됐나' 를 말합니다.
+
+    (종류, 문구). 종류:
+      live    장이 열려 있고 오늘 봉이 들어 있음 — 장중 잠정치
+      behind  장이 열려 있는데 오늘 봉이 없음 — **오늘 움직임 미반영**
+      closed  장이 닫혀 있음 — 마지막 종가 기준
+      ""      날짜를 모름
+    """
+    if not last_bar:
+        return "", ""
+    try:
+        day = dt.date.fromisoformat(last_bar[:10])
+    except ValueError:
+        return "", ""
+    today = market_today(market, now)
+    label = f"{day.month}/{day.day:02d}"
+    if is_open(market, now):
+        if day >= today:
+            return "live", (f"<b>장중 잠정</b> — 오늘({label}) 봉이 지금 가격으로 "
+                            "들어 있습니다. 종가에 달라질 수 있습니다.")
+        return "behind", (f"<b>{label} 종가까지만 반영됐습니다</b> — 오늘 장중 "
+                          "움직임은 아직 들어 있지 않습니다. 지금 가격은 화면 위 "
+                          "시세 띠를 보십시오.")
+    return "closed", f"{label} 종가 기준입니다."
+
+
 def previous_trading_day(d: dt.date, holidays: dict) -> dt.date:
     """d 가 주말·휴장이면 그 앞 거래일."""
     while d.weekday() >= 5 or d.isoformat() in holidays:

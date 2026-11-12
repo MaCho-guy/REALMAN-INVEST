@@ -46,6 +46,12 @@ import re
 from dataclasses import dataclass, field
 
 BOARD_URL = "https://www.motir.go.kr/kor/article/ATCL3f49a5a8c"
+#: 제목 검색 (searchCondition=1 이 '제목'). 2026-11-12 실제 페이지로 확인:
+#: 목록 첫 쪽에는 최근 열 건만 나와, 매달 1일에 올라오는 수출입동향 글은
+#: 며칠 지나면 밀려나 '찾지 못했습니다' 가 됐습니다. 검색 결과는 최신순입니다.
+SEARCH_PARAMS = {"pageIndex": "1", "searchCondition": "1", "searchKeyword": "수출입"}
+#: 같은 낱말이 들어가지만 다른 자료 — 건너뜁니다 (ICT 수출입 동향은 매달 14일쯤).
+TITLE_SKIP: tuple[str, ...] = ("정보통신", "ICT", "고시", "참고자료")
 TIMEOUT = 15
 
 #: 보도자료 제목에 이 말이 들어간 글을 찾습니다. 공백은 무시합니다.
@@ -196,8 +202,11 @@ def find_article_links(html: str) -> list[tuple[str, str]]:
         href, label = m.group(1), re.sub(r"<[^>]+>", "", m.group(2))
         label = " ".join(label.split())
         squashed = label.replace(" ", "")
-        if any(h.replace(" ", "") in squashed for h in TITLE_HINTS):
-            out.append((label, href))
+        if not any(h.replace(" ", "") in squashed for h in TITLE_HINTS):
+            continue
+        if any(skip.lower() in squashed.lower() for skip in TITLE_SKIP):
+            continue
+        out.append((label, href.replace("&amp;", "&")))
     return out
 
 
@@ -216,18 +225,28 @@ def fetch_latest(*, session=None) -> SemiExports:
         "User-Agent": "Mozilla/5.0 (compatible; stock-dashboard/1.0)",
         "Accept-Language": "ko,en;q=0.8",
     }
-    try:
-        res = get(BOARD_URL, headers=headers, timeout=TIMEOUT)
-        res.raise_for_status()
-    except Exception as exc:  # noqa: BLE001
+    # 제목 검색을 먼저, 그래도 없으면 목록 첫 쪽 (검색이 막힌 경우를 대비)
+    links: list[tuple[str, str]] = []
+    last_exc: Exception | None = None
+    for params in (SEARCH_PARAMS, None):
+        try:
+            res = (get(BOARD_URL, params=params, headers=headers, timeout=TIMEOUT)
+                   if params else get(BOARD_URL, headers=headers, timeout=TIMEOUT))
+            res.raise_for_status()
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            continue
+        links = find_article_links(res.text)
+        if links:
+            break
+    if not links and last_exc is not None:
         raise ExportsError(
-            f"목록 페이지를 받지 못했습니다: {type(exc).__name__}: {exc}") from exc
-
-    links = find_article_links(res.text)
+            f"목록 페이지를 받지 못했습니다: {type(last_exc).__name__}: "
+            f"{last_exc}") from last_exc
     if not links:
         raise ExportsError(
-            "목록에서 '수출입동향' 글을 찾지 못했습니다. "
-            "페이지 구조가 바뀌었거나 차단되었을 수 있습니다.")
+            "제목 검색과 목록 첫 쪽 어디에서도 '수출입 동향' 글을 찾지 "
+            "못했습니다. 페이지 구조가 바뀌었거나 차단되었을 수 있습니다.")
 
     title, href = links[0]
     url = href if href.startswith("http") else (

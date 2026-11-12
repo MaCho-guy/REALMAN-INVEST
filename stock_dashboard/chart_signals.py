@@ -457,6 +457,8 @@ class ChartRow:
     name: str = ""
     bars: int = 0
     price: float | None = None
+    #: 마지막 봉 날짜 'YYYY-MM-DD' ('' = 모름). 장중에 오늘 봉이 들어왔는지 가립니다.
+    last_bar: str = ""
     ichi: Ichimoku = field(default_factory=Ichimoku)
     cci: float | None = None
     cci_signal: float | None = None
@@ -595,9 +597,21 @@ def build_rows(candidates, ohlc_by_ticker: dict, errors: dict | None = None
             rows.append(ChartRow(ticker, name,
                                  error=errors.get(ticker) or "일봉을 받지 못했습니다."))
             continue
-        rows.append(build_row(ticker, name, d["high"], d["low"], d["close"],
-                              d.get("volume")))
+        row = build_row(ticker, name, d["high"], d["low"], d["close"],
+                        d.get("volume"))
+        row.last_bar = str(d.get("last_date") or "")
+        rows.append(row)
     return rows
+
+
+def last_bar(rows: list[ChartRow]) -> str:
+    """줄들의 마지막 봉 날짜 중 **가장 흔한 것** ('' = 모름)."""
+    seen: dict[str, int] = {}
+    for r in rows:
+        d = getattr(r, "last_bar", "")
+        if d:
+            seen[d] = seen.get(d, 0) + 1
+    return max(seen, key=seen.get) if seen else ""
 
 
 def counts(rows: list[ChartRow]) -> dict[str, int]:

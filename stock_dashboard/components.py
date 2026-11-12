@@ -939,6 +939,15 @@ def render_macro_spark(history: list[tuple[str, float]], *,
     )
 
 
+def _tag_label(key: str) -> str:
+    """재무 계정의 내부 이름을 화면 표기로 (국내 쪽은 이미 한국어라 그대로)."""
+    try:
+        import buffett  # noqa: PLC0415
+        return buffett.tag_label(key)
+    except Exception:  # noqa: BLE001
+        return key
+
+
 def render_macro_card(reading, *, hit: bool = False, show_why: bool = True) -> str:
     """지표 한 칸. hit=True 면 임계값을 건드린 상태입니다."""
     spec = reading.spec
@@ -1123,7 +1132,7 @@ def render_screen(screen, *, show_source: bool = False,
     if screen.missing_tags:
         missing = (
             '<div class="dash-screen-err">공시에서 못 찾은 계정: '
-            + _esc(", ".join(screen.missing_tags))
+            + _esc(", ".join(_tag_label(t) for t in screen.missing_tags))
             + "</div>"
         )
 

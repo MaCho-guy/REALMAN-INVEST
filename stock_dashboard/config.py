@@ -1446,6 +1446,18 @@ KR_MACRO_SERIES: tuple[tuple[str, str], ...] = (
     ("KORLOLITONOSTSAM", "한국 OECD 경기선행지수"),
 )
 
+#: 계열마다 **값을 어떻게 읽나**. 2026-11-12 실제 화면: 수출액이
+#: '100,418,800,000.00' 으로, 금리가 '3.17 (+23.8% YoY)' 로 나왔습니다 —
+#: 달러 원단위를 그대로 찍고, 금리의 전년비를 % 로 낸 것입니다.
+#:   index  지수 — 레벨은 기준연도에 따라 달라 뜻이 없으므로 전년동월비를 앞에
+#:   usd    달러 금액 — 억 달러로
+#:   rate   금리(%) — 변화는 %p
+KR_MACRO_KIND: dict[str, str] = {
+    "KORCPIALLMINMEI": "index", "KORPROINDMISMEI": "index",
+    "XTEXVA01KRM667S": "usd", "XTIMVA01KRM667S": "usd",
+    "IR3TIB01KRM156N": "rate", "KORLOLITONOSTSAM": "index",
+}
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 한국 섹터별 뉴스

@@ -568,17 +568,35 @@ def load_sector_heat(use_demo: bool):
     specs = config.KR_SECTOR_ETFS
     if use_demo:
         return demo_mod.demo_sector_heat(specs)
+    # 2026-11-12 실제 화면: 코스피가 +3.7% 인 장중에 KODEX 200 의 '1일' 이
+    # +0.8% 였습니다 — 야후 일봉이 **어제까지**였고, 화면은 그걸 모르고
+    # '1일' 이라고 적었습니다. 네이버 일봉을 먼저 받고(차트 조건과 같은
+    # 출처), 마지막 봉 날짜를 같이 들고 와서 화면이 '언제까지 반영됐는지'
+    # 적게 합니다. 못 받은 종목만 야후로 메웁니다.
     syms = {s[0]: f"{s[0]}.KS" for s in specs}
-    try:
-        closes_by_sym, errs = yahoo.fetch_closes(list(syms.values()))
-    except Exception as exc:  # noqa: BLE001
-        return [sector_heat.SectorRow(code=s[0], label=s[1],
-                                      error=f"일봉 실패: {exc}")
-                for s in specs]
+    codes = list(syms)
+    dates: dict[str, str] = {}
+    closes, _vols, nerr = naver.fetch_daily_many(codes, dates=dates)
+    errors = {c: nerr.get(c, "") for c in codes if c not in closes}
+    missing = [c for c in codes if c not in closes]
+    if missing:
+        ydates: dict[str, str] = {}
+        try:
+            got, yerr = yahoo.fetch_closes([syms[c] for c in missing], dates=ydates)
+        except Exception as exc:  # noqa: BLE001
+            got, yerr = {}, {syms[c]: f"{type(exc).__name__}: {exc}" for c in missing}
+        for code in missing:
+            sym = syms[code]
+            if got.get(sym):
+                closes[code] = got[sym]
+                dates[code] = ydates.get(sym, "")
+                errors.pop(code, None)
+            else:
+                errors[code] = (f"{nerr.get(code, '네이버 실패')} → "
+                                f"야후: {yerr.get(sym, '비었음')}")
     names = load_sector_names(tuple(syms.items()))
-    closes = {code: closes_by_sym.get(sym) or [] for code, sym in syms.items()}
-    errors = {code: errs.get(sym, "") for code, sym in syms.items()}
-    return sector_heat.build(specs, closes, names, errors)
+    closes = {code: closes.get(code) or [] for code in codes}
+    return sector_heat.build(specs, closes, names, errors, dates)
 
 
 @swr.cached(3_600)
@@ -758,21 +776,11 @@ def load_kr_macro(use_demo: bool, key_fp: str = ""):
         return demo_mod.demo_kr_macro(config.KR_MACRO_SERIES)
     series, errors = fred.fetch_many(
         [sid for sid, _l in config.KR_MACRO_SERIES], years=3)
-    rows = []
-    for sid, label in config.KR_MACRO_SERIES:
-        ser = series.get(sid)
-        if ser is None or len(ser.observations) < 13:
-            rows.append((label, "—",
-                         (errors.get(sid) or "관측치 부족")[:46]))
-            continue
-        obs = ser.observations
-        last, year_ago = obs[-1].value, obs[-13].value
-        yoy = ((last / year_ago - 1.0) * 100.0) if year_ago else None
-        rows.append((
-            label,
-            f"{last:,.2f}" + (f"  ({yoy:+.1f}% YoY)" if yoy is not None else ""),
-            obs[-1].date.isoformat()))
-    return rows
+    return [
+        macro_mod.kr_macro_row(label, config.KR_MACRO_KIND.get(sid, "index"),
+                               series.get(sid), errors.get(sid, ""))
+        for sid, label in config.KR_MACRO_SERIES
+    ]
 
 
 @swr.cached(1_800)
@@ -1653,15 +1661,18 @@ def render_chart_tab(use_demo: bool, *, market: str = "kr") -> None:
             "봉이 완성되지 않아 값과 거래량 배수가 마감 때와 다릅니다."),
         unsafe_allow_html=True,
     )
-    live = (not use_demo) and calendar_events.is_open(market)
-    if live:
-        age = load_chart_rows.age(market, use_demo)
-        when = ("" if age is None else
-                f" · {dt.datetime.fromtimestamp(time.time() - age, KST):%H:%M} 기준")
-        st.markdown(ui.render_notice(
-            f"<b>장중 잠정</b>{when} — 오늘 봉을 지금 가격으로 넣어 계산했습니다. "
-            f"{config.CHART_TTL_OPEN_SEC // 60}분마다 다시 계산하며, 조건은 "
-            "<b>종가에 달라질 수 있습니다.</b>"), unsafe_allow_html=True)
+    # 장중이라고 무조건 '잠정' 이라 적지 않습니다 — 받은 일봉의 마지막 봉이
+    # 정말 오늘 것인지 날짜로 확인합니다 (출처가 장중 봉을 안 줄 수 있음).
+    if not use_demo:
+        kind, note = calendar_events.bar_note(chart_signals.last_bar(rows), market)
+        if kind == "live":
+            age = load_chart_rows.age(market, use_demo)
+            when = ("" if age is None else
+                    f" {dt.datetime.fromtimestamp(time.time() - age, KST):%H:%M} 기준 · ")
+            note += (f" ({when}{config.CHART_TTL_OPEN_SEC // 60}분마다 다시 "
+                     "계산합니다.)")
+        if note:
+            st.markdown(ui.render_notice(note), unsafe_allow_html=True)
     st.markdown(ui.render_chart_counts(
         chart_signals.counts(rows), len(ok_rows), len(rows), conds),
         unsafe_allow_html=True)
@@ -2196,6 +2207,10 @@ def render_sector_heat_tab(use_demo: bool) -> None:
             "있습니다."),
         unsafe_allow_html=True,
     )
+    if not use_demo:
+        _kind, note = calendar_events.bar_note(sector_heat.as_of(rows), "kr")
+        if note:
+            st.markdown(ui.render_notice(note), unsafe_allow_html=True)
     st.markdown(ui.render_sector_heat_summary(rows), unsafe_allow_html=True)
     st.markdown(ui.render_sector_heat(rows), unsafe_allow_html=True)
     st.markdown(
@@ -3867,13 +3882,18 @@ def render_analysis_tab(*, embed: bool = False,
 
     # ── 실행 환경 상태 ────────────────────────────────────────────────────────
     if not cli.available:
-        st.warning(
-            f"**분석 실행 불가** — {cli.summary}\n\n"
-            "설치 후에도 버튼이 비활성이면, 터미널에서 `claude` 를 한 번 실행해 "
-            "로그인을 마치고 이 앱을 재시작하십시오. "
-            "이미 생성된 분석은 아래에서 그대로 볼 수 있습니다.",
-            icon="🔌",
-        )
+        # 2026-11-12 실제 화면: 설치 안내가 든 노란 경고 상자가 휴대폰에서
+        # 화면 3분의 1(288px)을 차지했습니다. 배포한 서버에는 claude CLI 를
+        # 깔 수 없으니 그 안내는 대부분의 경우 쓸모가 없습니다 — 한 줄로
+        # 줄이고, 설치 방법은 PC 에서 돌릴 때만 필요하므로 접어 둡니다.
+        st.markdown(ui.render_notice(
+            "<b>이 서버에서는 분석을 새로 실행할 수 없습니다</b> — 이미 만든 "
+            "분석은 아래에서 그대로 볼 수 있습니다."), unsafe_allow_html=True)
+        with st.expander("PC 에서 직접 실행하려면", expanded=False):
+            st.markdown(
+                f"{cli.summary}\n\n"
+                "설치 후에도 버튼이 비활성이면, 터미널에서 `claude` 를 한 번 "
+                "실행해 로그인을 마치고 이 앱을 재시작하십시오.")
     else:
         st.caption(f"🔌 {cli.summary} · {cli.path}")
 

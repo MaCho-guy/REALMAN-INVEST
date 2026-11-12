@@ -1106,14 +1106,29 @@ def demo_liquidity():
     return nl, extra
 
 
+def _cfg_kr_kind(sid: str) -> str:
+    import config as _config  # noqa: PLC0415
+    return _config.KR_MACRO_KIND.get(sid, "index")
+
+
 def demo_kr_macro(specs):
     rows = []
     for idx, (sid, label) in enumerate(specs):
         rnd = random.Random(f"krm-{sid}")
         val = rnd.uniform(90, 130)
         yoy = rnd.uniform(-4, 9)
-        rows.append((label, f"{val:,.2f}  ({yoy:+.1f}% YoY)", "2026-09-01"))
-    rows[-1] = (specs[-1][1], "—", "(데모) 계열이 중단됐을 수 있습니다")
+        kind = _cfg_kr_kind(sid)
+        if kind == "rate":
+            text = f"{rnd.uniform(2.4, 3.6):,.2f}%  (1년 전보다 {rnd.uniform(-0.6, 0.6):+.2f}%p)"
+            note = "9월분"
+        elif kind == "usd":
+            text = f"{rnd.uniform(550, 1100):,.1f}억 달러  (전년동월비 {yoy * 4:+.1f}%)"
+            note = "9월분"
+        else:
+            text, note = f"전년동월비 {yoy:+.1f}%", f"9월분 · 지수 {val:,.1f}"
+        rows.append((label, text, note))
+    rows[-1] = (specs[-1][1], "—", "(데모) 최근 3년 관측치가 없습니다 — "
+                "FRED 에서 중단된 계열일 수 있습니다")
     return rows
 
 

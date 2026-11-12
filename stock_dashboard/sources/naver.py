@@ -188,8 +188,28 @@ def parse_chart_xml(text: str) -> tuple[list[float], list[float], str]:
     return closes, vols, (m.group(1) if m else "")
 
 
-def fetch_daily(code: str, count: int = 300) -> tuple[list[float], list[float], str]:
-    """6자리 코드 → (종가 목록, 거래량 목록, 오류). 오래된 것부터."""
+def last_bar_date(text: str) -> str:
+    """fchart 응답의 **마지막 봉 날짜** ('YYYY-MM-DD', 없으면 '').
+
+    2026-11-12 실제 화면에서 섹터 온도의 '1일' 이 +0.8% 인데 같은 시각
+    코스피는 +3.7% 였습니다 — 받은 일봉이 어제까지였던 것입니다. 종가만
+    보면 마지막 봉이 오늘인지 어제인지 알 수 없어, 날짜를 따로 꺼냅니다.
+    """
+    import re
+
+    found = re.findall(r'data="(\d{8})\|', text or "")
+    if not found:
+        return ""
+    d = found[-1]
+    return f"{d[:4]}-{d[4:6]}-{d[6:]}"
+
+
+def fetch_daily(code: str, count: int = 300, dates: dict | None = None
+                ) -> tuple[list[float], list[float], str]:
+    """6자리 코드 → (종가 목록, 거래량 목록, 오류). 오래된 것부터.
+
+    dates 에 dict 를 넘기면 {코드: 마지막 봉 날짜} 를 채워 줍니다.
+    """
     try:
         resp = requests.get(CHART_URL.format(code=code, count=count),
                             headers=HEADERS, timeout=TIMEOUT)
@@ -198,6 +218,8 @@ def fetch_daily(code: str, count: int = 300) -> tuple[list[float], list[float], 
         # 이름까지 쓰려면 인코딩을 맞춥니다.
         resp.encoding = resp.encoding or "euc-kr"
         closes, vols, _name = parse_chart_xml(resp.text)
+        if dates is not None and closes:
+            dates[code] = last_bar_date(resp.text)
     except requests.RequestException as exc:
         return [], [], f"네이버 일봉 요청 실패: {type(exc).__name__}"
     except Exception as exc:  # noqa: BLE001
@@ -207,10 +229,14 @@ def fetch_daily(code: str, count: int = 300) -> tuple[list[float], list[float], 
     return closes, vols, ""
 
 
-def fetch_daily_many(codes: list[str], count: int = 300
+def fetch_daily_many(codes: list[str], count: int = 300,
+                     dates: dict | None = None,
                      ) -> tuple[dict[str, list[float]], dict[str, list[float]],
                                 dict[str, str]]:
-    """여러 종목 동시에. ({코드: 종가}, {코드: 거래량}, {코드: 오류})."""
+    """여러 종목 동시에. ({코드: 종가}, {코드: 거래량}, {코드: 오류}).
+
+    dates 에 dict 를 넘기면 {코드: 마지막 봉 날짜} 를 채워 줍니다.
+    """
     closes: dict[str, list[float]] = {}
     vols: dict[str, list[float]] = {}
     errs: dict[str, str] = {}
@@ -219,7 +245,7 @@ def fetch_daily_many(codes: list[str], count: int = 300
         return closes, vols, errs
     with ThreadPoolExecutor(max_workers=min(8, len(unique))) as pool:
         for code, (c, v, e) in zip(unique, pool.map(
-                lambda x: fetch_daily(x, count), unique)):
+                lambda x: fetch_daily(x, count, dates), unique)):
             if c:
                 closes[code], vols[code] = c, v
             if e:
@@ -306,6 +332,8 @@ def parse_chart_ohlc(text: str) -> dict[str, list[float]]:
         out["low"].append(min(low, close))
         out["close"].append(close)
         out["volume"].append(_num(parts[5]) or 0.0)
+    if out["close"]:
+        out["last_date"] = last_bar_date(text)     # 문자열 — 마지막 봉이 언제 것인가
     return out
 
 

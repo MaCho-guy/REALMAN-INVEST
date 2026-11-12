@@ -277,8 +277,18 @@ def fetch_market_cap(symbol: str) -> float | None:
 # 일봉 — 국내 변동성 스크리너용
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _last_index_date(hist) -> str:
+    """일봉 표의 마지막 줄 날짜 ('YYYY-MM-DD', 못 읽으면 '')."""
+    try:
+        last = hist.index[-1]
+        return str(last.date() if hasattr(last, "date") else last)[:10]
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def fetch_closes(symbols: list[str], *, period: str = "1y",
                  volumes: dict[str, list[float]] | None = None,
+                 dates: dict[str, str] | None = None,
                  ) -> tuple[dict[str, list[float]], dict[str, str]]:
     """심볼마다 일봉 종가 목록을 가져옵니다.
 
@@ -309,6 +319,8 @@ def fetch_closes(symbols: list[str], *, period: str = "1y",
                                           auto_adjust=True)
             if hist is None or hist.empty or "Close" not in hist:
                 return sym, [], [], "일봉이 비어 있습니다."
+            if dates is not None:
+                dates[sym] = _last_index_date(hist)
             rows = list(zip(hist["Close"].tolist(),
                             (hist["Volume"].tolist()
                              if "Volume" in hist
@@ -376,6 +388,8 @@ def fetch_ohlc(symbols: list[str], *, period: str = "1y"
                 d["low"].append(min(float(lo), float(cl)))
                 d["close"].append(float(cl))
                 d["volume"].append(0.0 if (vo is None or vo != vo) else float(vo))
+            if d["close"]:
+                d["last_date"] = _last_index_date(hist)   # 문자열
             return sym, (d if d["close"] else None), (
                 "" if d["close"] else "유효한 종가가 없습니다.")
         except Exception as exc:  # noqa: BLE001

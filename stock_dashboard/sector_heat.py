@@ -54,6 +54,7 @@ class SectorRow:
     returns: dict[str, float | None] = field(default_factory=dict)
     band_52w: float | None = None  # 52주 구간 내 위치 (0~100)
     rel_1m: float | None = None    # 기준선 대비 1개월 초과수익 (%p)
+    as_of: str = ""               # 마지막 봉 날짜 'YYYY-MM-DD' ('' = 모름)
     error: str = ""
 
     @property
@@ -95,7 +96,8 @@ def band_position(closes: list[float], window: int = 252) -> float | None:
 
 def build(specs, closes_by_code: dict[str, list[float]],
           names_by_code: dict[str, str] | None = None,
-          errors: dict[str, str] | None = None) -> list[SectorRow]:
+          errors: dict[str, str] | None = None,
+          dates_by_code: dict[str, str] | None = None) -> list[SectorRow]:
     """설정 + 받아온 일봉 → 업종 줄 목록 (기준선 대비 1개월 순)."""
     names_by_code = names_by_code or {}
     errors = errors or {}
@@ -107,7 +109,8 @@ def build(specs, closes_by_code: dict[str, list[float]],
         row = SectorRow(code=code, label=label, keywords=keywords,
                         benchmark=bench,
                         yahoo_name=names_by_code.get(code, ""),
-                        closes=list(closes))
+                        closes=list(closes),
+                        as_of=str((dates_by_code or {}).get(code) or ""))
         if not closes:
             row.error = errors.get(code) or "일봉을 받지 못했습니다."
         else:
@@ -169,3 +172,12 @@ def summary_line(rows: list[SectorRow]) -> str:
 def mismatched(rows: list[SectorRow]) -> list[SectorRow]:
     """야후 이름이 기대와 다른 줄 — 종목코드가 틀렸을 가능성."""
     return [r for r in rows if r.name_ok is False]
+
+
+def as_of(rows: list[SectorRow]) -> str:
+    """줄들의 마지막 봉 날짜 중 가장 흔한 것 ('' = 모름)."""
+    seen: dict[str, int] = {}
+    for r in rows:
+        if r.as_of:
+            seen[r.as_of] = seen.get(r.as_of, 0) + 1
+    return max(seen, key=seen.get) if seen else ""

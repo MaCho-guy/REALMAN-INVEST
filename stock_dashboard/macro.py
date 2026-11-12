@@ -494,3 +494,48 @@ def attach_context(readings: list[Reading], *, next_releases: dict | None = None
             if value is not None:
                 r.live_value, r.live_change = float(value), change
     return readings
+
+
+#: 이 날수보다 오래된 월간 관측은 '갱신이 멈춘 계열' 로 봅니다.
+KR_DEAD_DAYS = 150
+
+
+def kr_macro_row(label: str, kind: str, series: Series | None, error: str = "",
+                 today: dt.date | None = None) -> tuple[str, str, str]:
+    """한국 지표 한 줄 → (이름, 값, 메모). 화면은 세 칸을 그대로 찍습니다.
+
+    값의 모양은 kind 가 정합니다 (config.KR_MACRO_KIND). 전년비는 '13번째
+    앞 관측' 이 아니라 **1년 전 같은 달**과 비교합니다 — 중간에 빠진 달이
+    있으면 13번째 앞이 1년 전이 아닙니다 (미국 CPI 에서 겪은 문제).
+    """
+    today = today or dt.date.today()
+    obs = series.observations if series is not None else []
+    if not obs:
+        why = (error or "최근 3년 관측치가 없습니다").strip()
+        return label, "—", (why[:60] + " — FRED 에서 중단된 계열일 수 있습니다"
+                            if "관측" in why else why[:90])
+    last = obs[-1]
+    base = series.year_ago_base(last.date)
+    when = (f"{last.date.month}월분" if last.date.year == today.year
+            else f"{last.date.year}년 {last.date.month}월분")
+    notes = [when]
+    if (today - last.date).days > KR_DEAD_DAYS:
+        notes.append("갱신이 멈춘 계열로 보입니다")
+    if base is None:
+        notes.append("1년 전 값이 없어 전년비 생략")
+
+    if kind == "rate":
+        value = f"{last.value:,.2f}%"
+        if base is not None:
+            value += f"  (1년 전보다 {last.value - base.value:+.2f}%p)"
+    elif kind == "usd":
+        value = f"{last.value / 1e8:,.1f}억 달러"
+        if base is not None and base.value:
+            value += f"  (전년동월비 {(last.value / base.value - 1) * 100:+.1f}%)"
+    else:                                    # index
+        if base is not None and base.value:
+            value = f"전년동월비 {(last.value / base.value - 1) * 100:+.1f}%"
+            notes.insert(1, f"지수 {last.value:,.1f}")
+        else:
+            value = f"지수 {last.value:,.1f}"
+    return label, value, " · ".join(notes)

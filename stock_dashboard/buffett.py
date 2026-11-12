@@ -116,6 +116,33 @@ TAGS: dict[str, tuple[str, ...]] = {
 #: companyfacts 에서 보관할 태그 전체 (응답이 커서 추려냅니다)
 KEEP_TAGS: set[str] = {tag for cands in TAGS.values() for tag in cands}
 
+#: 화면에 적을 계정 이름. 2026-11-12 실제 화면에 '공시에서 못 찾은 계정:
+#: long_term_investments' 처럼 내부 이름이 그대로 나왔습니다 (국내는 한국어).
+TAG_LABELS: dict[str, str] = {
+    "net_income": "순이익", "revenue": "매출", "gross_profit": "매출총이익",
+    "cost_of_revenue": "매출원가", "operating_income": "영업이익",
+    "interest_expense": "이자비용", "depreciation": "감가상각비",
+    "capex": "설비투자(CapEx)", "operating_cash_flow": "영업현금흐름",
+    "dividends_paid": "배당금 지급", "buybacks": "자사주 매입",
+    "equity": "자기자본", "total_assets": "총자산", "total_liabilities": "총부채",
+    "long_term_debt": "장기차입금", "short_term_debt": "단기차입금",
+    "cash": "현금성자산", "long_term_investments": "장기투자자산",
+    "short_term_investments": "단기투자자산", "shares": "발행주식수",
+    "eps": "주당순이익(EPS)", "income_tax": "법인세", "pretax_income": "세전이익",
+    "inventory": "재고자산", "receivables": "매출채권", "goodwill": "영업권",
+    "intangibles": "무형자산", "retained_earnings": "이익잉여금",
+    "current_assets": "유동자산", "current_liabilities": "유동부채",
+    "sga": "판매관리비", "rnd": "연구개발비",
+    "assets": "총자산", "liabilities": "총부채",
+    "dep_amort": "감가상각비", "tax_expense": "법인세비용",
+}
+
+
+def tag_label(key: str) -> str:
+    """내부 계정 이름 → 화면 표기. 모르는 이름은 밑줄만 띄어 그대로."""
+    return TAG_LABELS.get(key) or key.replace("_", " ")
+
+
 FLOW_KEYS = ("net_income", "revenue", "gross_profit", "cost_of_revenue",
              "dep_amort", "capex", "operating_cash_flow",
              "operating_income", "interest_expense", "tax_expense",

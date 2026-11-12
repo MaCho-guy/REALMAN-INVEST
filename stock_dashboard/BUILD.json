@@ -1,7 +1,7 @@
 {
  ".streamlit/config.toml": "828c4b602b76",
  "analysis_store.py": "7d31ffeea27a",
- "app.py": "711ee0720a8e",
+ "app.py": "8a96a472bec3",
  "brief.py": "1e671e646678",
  "briefing_store.py": "2abbbd2fd029",
  "buffett.py": "fd3e9c0df189",
@@ -9,7 +9,7 @@
  "buildstamp.py": "a90725c6a788",
  "calendar_events.py": "ccff39a1e8ac",
  "chart_signals.py": "3af1aa6bcb43",
- "components.py": "919ffbb9f8f7",
+ "components.py": "eeb4918cf60c",
  "compute.py": "326ce3cdaaab",
  "config.py": "73371b066c12",
  "cycle.py": "6fc5004f1a34",

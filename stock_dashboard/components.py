@@ -1448,8 +1448,11 @@ def render_quadrant_map(verdicts, *, href_fn=None) -> str:
     if not verdicts:
         return ""
     buckets: dict[int, list[str]] = {1: [], 2: [], 3: [], 4: [], 0: []}
+    href_by = {}
     for v in verdicts:
-        buckets[v.quadrant].append(v.ticker)
+        label = verdict_name(v)
+        buckets[v.quadrant].append(label)
+        href_by[label] = v.ticker
 
     # 표가 아니라 2×2 칸입니다. 2026-11-12 폰 화면: 표는 좁은 화면에서 줄마다 카드로
     # 세워져 '지도' 가 아니게 되고, 합친 칸('판정 안 함')에는 엉뚱한 머리글
@@ -1460,7 +1463,8 @@ def render_quadrant_map(verdicts, *, href_fn=None) -> str:
         def one(n: str) -> str:
             if href_fn is None:
                 return _esc(n)
-            return f'<a class="qk" href="{_esc(href_fn(n))}" target="_self">{_esc(n)}</a>'
+            return (f'<a class="qk" href="{_esc(href_fn(href_by.get(n, n)))}" '
+                    f'target="_self">{_esc(n)}</a>')
 
         body = ", ".join(one(n) for n in names) if names else "—"
         return (f'<div class="qc {cls}"><span class="qt">{title}</span>'
@@ -1479,6 +1483,20 @@ def render_quadrant_map(verdicts, *, href_fn=None) -> str:
 
 
 _QUAD_MARK = {0: "판정 안 함", 1: "①", 2: "②", 3: "③", 4: "④"}
+#: 누르는 칸의 짧은 표시 (판정 안 함은 '–')
+QUAD_SHORT = {0: "–", 1: "①", 2: "②", 3: "③", 4: "④"}
+
+
+def verdict_name(v) -> str:
+    """화면에 적을 종목 이름 — 국내 종목(6자리 코드)은 **회사 이름**, 나머지는 티커.
+
+    2026-11-13 폰 확인: 사분면 지도에 국내 종목이 '005930' 같은 번호로 나왔습니다.
+    """
+    ticker = str(getattr(v, "ticker", "") or "")
+    name = str(getattr(v, "name", "") or "")
+    if ticker.isdigit() and name and name != ticker:
+        return name
+    return ticker
 
 
 def render_rule_change(verdicts, *, limit: int = 15) -> str:
@@ -1495,7 +1513,7 @@ def render_rule_change(verdicts, *, limit: int = 15) -> str:
         body = "위치가 바뀐 종목이 없습니다"
     else:
         body = " · ".join(
-            f"<b>{_esc(v.ticker)}</b> {_QUAD_MARK[v.prev_quadrant]} → {_QUAD_MARK[v.quadrant]}"
+            f"<b>{_esc(verdict_name(v))}</b> {_QUAD_MARK[v.prev_quadrant]} → {_QUAD_MARK[v.quadrant]}"
             for v in moved[:limit])
         if len(moved) > limit:
             body += f" 외 {len(moved) - limit}종목"

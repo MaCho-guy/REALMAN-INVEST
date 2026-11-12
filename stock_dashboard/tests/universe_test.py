@@ -441,6 +441,7 @@ class FakeSt:
         self.sector_opts = None
         self.pick_opts, self._pick, self.session_state = None, pick, {}
         self.query_params = {"stage": url_stage} if url_stage else {}
+        self.seg = {}
 
     def markdown(self, html, **k):
         self.md.append(html)
@@ -467,7 +468,7 @@ class FakeSt:
 
     def segmented_control(self, label, keys, default=None, key=None, format_func=None,
                           label_visibility=None):
-        [format_func(k) for k in keys]
+        self.seg[key] = (label, [format_func(k) for k in keys], label_visibility)
         return self.choice or default
 
 
@@ -764,7 +765,8 @@ _fpay = {"made": 1_794_470_000, "rows": [
     {"t": "L2", "p": cheap, "c": {"side": "ob", "st": {"cci": "과매수 진입"}}},
     {"t": "D1", "p": dear, "c": {"side": "os", "st": {"stoch": "과매도 구간"}}}]}
 stq, hq, _c = run("us", _pay2, funnel_payload=_fpay)
-check("단계표에 가격 · 차트 단계가 이어진다", "가격 부담 낮음" in hq and "차트 과매도 쪽" in hq
+check("가격 · 차트 단계는 숫자와 함께 고르는 칸에 있다",
+      stq.seg["disc_stage"][1] == ["품질 통과 (3)", "+ 가격 부담 낮음 (2)", "+ 차트 과매도 쪽 (1)"]
       and "요구 성장률" in hq and "<th>차트</th>" in hq and "까지만 인정" in hq and "전 구간에서" in hq
       and "주식보상비용" in hq)
 check("기본은 품질 통과 전부", hq.count('class="sc-rk"') == 3)
@@ -971,26 +973,34 @@ check("접는 칸의 모양 — 두 줄 · 누르면 펼침",
       and "-webkit-line-clamp: 2" in _th2.build_css("kr") and '"더 보기"' in _th2.build_css("kr"))
 
 print("\n=== 숫자 칸을 누르면 넘어간다 (2026-11-12 사용자 보고) ===")
-check("단계 칸이 링크다 — 품질 · 가격 · 차트 (후보 · 재무 받음은 아님)",
-      hq.count('class="fn-step') >= 5 and hq.count("fn-link") == 3
-      and 'href="?m=us&amp;s=discover&amp;stage=p" target="_self"' in hq
-      and 'href="?m=us&amp;s=discover&amp;stage=c"' in hq and "fn-on" in hq)
+# 2026-11-13: 링크는 화면을 통째로 다시 불러와 느렸습니다 — 고르는 칸 하나로 합칩니다.
+check("단계표에는 누를 수 없는 칸만 (후보 · 재무 받음 · 통과) — 링크 없음",
+      hq.count('class="fn-step') == 3 and "fn-link" not in hq and "<a " not in hq.split("dash-funnel")[1].split("</div></div>")[0])
+check("가격 · 차트 단계는 고르는 칸으로 — 이름표가 보이고 '바로 바뀐다' 고 적는다",
+      stq.seg["disc_stage"][2] is None and "바로 바뀝니다" in stq.seg["disc_stage"][0])
 stu, hu, _c = run("us", _pay2, funnel_payload=_fpay, url_stage="p")
-check("주소의 stage=p 로 들어오면 '가격 부담 낮음' 목록이 열린다 (고르는 칸도 같은 값)",
-      hu.count('class="sc-rk"') == 2 and "품질 통과 + 가격 부담 낮음" in hu
-      and hu.split("stage=p")[0].rsplit("<a", 1)[1].count("fn-on") == 1, "")
+check("주소의 stage=p 로 들어와도 '가격 부담 낮음' 목록이 열린다 (예전 링크 호환)",
+      hu.count('class="sc-rk"') == 2 and "품질 통과 + 가격 부담 낮음" in hu)
 stu2, hu2, _c = run("us", _pay2, funnel_payload=_fpay, url_stage="zzz")
 check("이상한 stage 값은 무시한다 (품질 단계)", hu2.count('class="sc-rk"') == 3)
 check("깔때기 파일이 없으면 링크도 없다", "fn-link" not in hn)
-check("한국 품질 깔때기의 단계 칸도 링크", 'href="?m=kr&amp;s=discover&amp;stage=p"' in hk
-      and hk.count("fn-link") >= 3)
+check("한국 품질 깔때기도 같다 — 링크 없음 · 고르는 칸에 숫자",
+      "fn-link" not in hk and len(stk.seg["disc_kr_stage"][1]) == 3
+      and stk.seg["disc_kr_stage"][1][1].startswith("+ 가격 부담 낮음 ("))
 _qm2 = ui.render_quadrant_map([v_moved, v_same], href_fn=lambda t: f"?m=us&s=valuation&pick={t}")
 check("사분면의 종목 이름이 그 종목으로 가는 링크다",
       '<a class="qk" href="?m=us&amp;s=valuation&amp;pick=EDGE" target="_self">EDGE</a>' in _qm2
       and "<a " not in ui.render_quadrant_map([v_moved]).split("dash-legend")[0])
-check("밸류에이션 탭 — 고른 종목을 맨 위로 올려 펼친다",
-      'pick = st.query_params.get("pick", "")' in app_src
-      and "key=lambda t: t[0].ticker != pick" in app_src)
+check("밸류에이션 탭 — 누르는 칸으로 종목을 골라 맨 위에 펼친다 (다시 불러오지 않음)",
+      'key="val_pick"' in app_src and "key=lambda t: t[0].ticker != pick" in app_src
+      and 'getattr(st, "pills", None) or st.segmented_control' in app_src
+      and "pick=" not in app_src.split("def render_valuation_tab")[1].split("\ndef ")[0])
+_kv = _vd.build(_all9, _run_dcf(2.0e9)); _kv.ticker, _kv.name = "005930", "삼성전자"
+_uv = _vd.build(_all9, _run_dcf(2.0e9)); _uv.ticker, _uv.name = "MSFT", "Microsoft"
+check("국내 종목은 번호가 아니라 회사 이름으로 (미국은 티커)",
+      ui.verdict_name(_kv) == "삼성전자" and ui.verdict_name(_uv) == "MSFT"
+      and "삼성전자" in ui.render_quadrant_map([_kv, _uv]) and "005930" not in ui.render_quadrant_map([_kv, _uv])
+      and 'nm} ({tk})' in app_src)
 
 print("\n=== 후보 한 줄 — 셈이 맞아야 한다 ===")
 _p = {"members": [{"ticker": f"A{i}", "index": True} for i in range(515)] + [{"ticker": "W", "index": False}],

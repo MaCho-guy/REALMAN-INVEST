@@ -1761,25 +1761,19 @@ def _discover_us(use_demo: bool) -> None:
     light = [s_ for s_ in passed if funnel.is_light(_fp(s_.ticker))]
     both = [s_ for s_ in light if funnel.is_oversold(_fc(s_.ticker))]
 
-    # 단계 칸을 누르면 그 단계의 목록으로 갑니다 (주소의 stage). 아래 고르는 칸과
-    # 같은 값입니다 — 2026-11-12 "숫자 칸을 눌러도 안 넘어간다".
+    # 가격 · 차트 단계는 이 표에 그리지 않고 **바로 아래 고르는 칸**에 숫자와 함께 둡니다.
+    # 2026-11-12~13 폰 확인: 표의 숫자 칸은 눌러도 반응이 없었고(글자뿐), 링크로
+    # 바꾸니 화면을 통째로 다시 불러와 느렸습니다. 고르는 칸은 다시 불러오지 않습니다.
     stage = _stage_now("disc_stage") if fmap else "q"
 
-    def _sh(code: str) -> str:
-        return f"?m=us&s=discover&stage={code}" if fmap else ""
-
-    # 어디서 얼마나 줄었는지 — 후보 → 재무 받음 → 통과 (→ 가격 → 차트)
+    # 어디서 얼마나 줄었는지 — 후보 → 재무 받음 → 통과
     st.markdown(ui.render_funnel([
         kr_screen.FunnelStep("후보", n_members),
         kr_screen.FunnelStep("재무 받음", len(usable),
                              "못 받은 종목은 아래 '이유 보기'" if errors else ""),
-        kr_screen.FunnelStep(f"{quality_min}개 이상 통과", len(passed_all),
-                             href=_sh("q"), on=stage == "q"),
+        kr_screen.FunnelStep(f"{quality_min}개 이상 통과", len(passed_all)),
     ] + ([kr_screen.FunnelStep(universe.sector_label(pick_sector), len(passed))]
-         if pick_sector else [])
-      + ([kr_screen.FunnelStep("가격 부담 낮음", len(light), href=_sh("p"), on=stage == "p"),
-          kr_screen.FunnelStep("차트 과매도 쪽", len(both), href=_sh("c"), on=stage == "c")]
-         if fmap else []),
+         if pick_sector else []),
         errors, title="단계별로 남은 종목"),
         unsafe_allow_html=True)
     if sectors and not pick_sector:
@@ -1795,8 +1789,9 @@ def _discover_us(use_demo: bool) -> None:
                        "p": f"+ 가격 부담 낮음 ({len(light)})",
                        "c": f"+ 차트 과매도 쪽 ({len(both)})"}
         stage = st.segmented_control(
-            "어디까지 좁혀서 볼까", list(stage_names), default=stage, key="disc_stage",
-            format_func=lambda k: stage_names[k], label_visibility="collapsed") or "q"
+            "어디까지 좁혀 볼지 누르세요 (바로 바뀝니다)", list(stage_names),
+            default=stage, key="disc_stage",
+            format_func=lambda k: stage_names[k]) or "q"
         made_f = fpay.get("made")
         unknown_p = sum(1 for s_ in passed if not funnel.price_known(_fp(s_.ticker)))
         st.markdown(ui.render_legend(
@@ -1949,20 +1944,16 @@ def _kr_quality_block(use_demo: bool) -> None:
         kr_screen.FunnelStep("후보", int(fpay.get("n_members") or len(all_screens) + len(errors))),
         kr_screen.FunnelStep("재무 받음", len(usable),
                              "못 받은 종목은 아래 '이유 보기'" if errors else ""),
-        kr_screen.FunnelStep(f"판정 중 {bar} 이상 통과", len(quality),
-                             href="?m=kr&s=discover&stage=q", on=stage == "q"),
-        kr_screen.FunnelStep("가격 부담 낮음", len(light),
-                             href="?m=kr&s=discover&stage=p", on=stage == "p"),
-        kr_screen.FunnelStep("차트 과매도 쪽", len(both),
-                             href="?m=kr&s=discover&stage=c", on=stage == "c"),
+        kr_screen.FunnelStep(f"판정 중 {bar} 이상 통과", len(quality)),
     ], errors, title="단계별로 남은 종목"), unsafe_allow_html=True)
 
     stage_names = {"q": f"품질 통과 ({len(quality)})",
                    "p": f"+ 가격 부담 낮음 ({len(light)})",
                    "c": f"+ 차트 과매도 쪽 ({len(both)})"}
     stage = st.segmented_control(
-        "어디까지 좁혀서 볼까", list(stage_names), default=stage, key="disc_kr_stage",
-        format_func=lambda k: stage_names[k], label_visibility="collapsed") or "q"
+        "어디까지 좁혀 볼지 누르세요 (바로 바뀝니다)", list(stage_names),
+        default=stage, key="disc_kr_stage",
+        format_func=lambda k: stage_names[k]) or "q"
     shown = {"q": quality, "p": light, "c": both}[stage]
     held = {c for c, _n in config.watchlist_kr()}
     names = {k: n for k, n, _r in chart_signals.CONDITIONS}
@@ -4036,7 +4027,9 @@ def _valuation_label(screen, result, price, *, held: bool) -> str:
     st.expander 의 제목은 **평문만** 들어갑니다(HTML 이 안 먹습니다).
     그래서 기호로 구분합니다.
     """
-    parts = [f"{screen.ticker}"]
+    # 국내 종목은 번호(005930)가 아니라 회사 이름으로 — 번호는 뒤에 작게 남깁니다
+    tk, nm = str(screen.ticker), str(getattr(screen, "name", "") or "")
+    parts = [f"{nm} ({tk})" if tk.isdigit() and nm and nm != tk else tk]
     if held:
         parts.append("보유")
     parts.append(f"질 {screen.passed_count}/{len(buffett.CRITERIA)}")
@@ -4144,22 +4137,19 @@ def render_valuation_tab(data: dict[str, dict[str, Quote]], fx,
             "사분면 지도", "사업의 질(가로) × 가격의 기대(세로)", len(verdicts)),
         unsafe_allow_html=True,
     )
-    # 사분면의 종목 이름을 누르면 그 종목 칸이 맨 위에 펼쳐져 열립니다 (주소의 pick).
-    # 2026-11-12 "칸을 눌러도 안 넘어간다" — 종목 이름이 글자뿐이었습니다.
-    from urllib.parse import quote as _q  # noqa: PLC0415
-
-    m_now = st.query_params.get("m", "") or ("us" if market == "us" else "kr")
-    pick = st.query_params.get("pick", "")
-    st.markdown(ui.render_quadrant_map(
-        verdicts, href_fn=lambda t: f"?m={m_now}&s=valuation&pick={_q(str(t))}"),
-        unsafe_allow_html=True)
-    if pick and any(t[0].ticker == pick for t in triples):
+    st.markdown(ui.render_quadrant_map(verdicts), unsafe_allow_html=True)
+    # 바로 열 종목 — 지도의 이름은 글자라 눌러지지 않습니다. 바로 아래에 **누르는 칸**을
+    # 둡니다 (사분면 순서 · 번호 표시). 누르면 그 종목이 맨 위에 펼쳐지고, 화면을 다시
+    # 불러오지 않습니다 (2026-11-13: 링크 방식은 느렸습니다).
+    vmap = {t[0].ticker: t[2] for t in triples}
+    order_q = {1: 0, 2: 1, 3: 2, 4: 3, 0: 4}
+    opts = [t for t, _v in sorted(vmap.items(), key=lambda kv: order_q.get(kv[1].quadrant, 9))]
+    picker = getattr(st, "pills", None) or st.segmented_control
+    pick = picker(
+        "바로 열 종목을 누르세요 (맨 위에 펼쳐집니다)", opts, key="val_pick",
+        format_func=lambda t: f"{ui.QUAD_SHORT[vmap[t].quadrant]} {ui.verdict_name(vmap[t])}") or ""
+    if pick in vmap:
         triples = sorted(triples, key=lambda t: t[0].ticker != pick)   # 고른 종목을 맨 위로
-        st.markdown(ui.render_legend(
-            f"<b>{_esc_plain(pick)}</b> 을 맨 위에 펼쳤습니다 · 사분면의 다른 종목 이름을 누르면 바뀝니다"),
-            unsafe_allow_html=True)
-    else:
-        pick = ""
 
     # 종목마다 접습니다. 펼친 상태로 5종목이면 페이지가 8,000px 가 넘어
     # 가격 조건이 어디 있는지 찾지 못합니다. 접힌 제목에 **질·가격 점수와

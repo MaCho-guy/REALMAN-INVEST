@@ -157,6 +157,18 @@ def health(value, _depth: int = 0) -> tuple[int, int]:
         return 0, 0
     if isinstance(value, (str, bytes, int, float, bool)):
         return 0, 0
+    if isinstance(value, tuple) and value and all(
+            isinstance(v, (str, bytes, int, float, bool, type(None))) for v in value):
+        # 글자·숫자만 든 한 줄 — 예: (이름, 값, 메모). 2026-11-12 첫 실행에서
+        # 이런 줄을 전부 '쓸 것 없음' 으로 세어 멀쩡한 국내 지표·유동성을
+        # 스냅샷에서 뺐습니다. 값 자리가 '—' 이거나 '실패' 가 적혀 있을 때만
+        # 실패로 봅니다 (이 앱이 못 받은 칸을 적는 방식).
+        texts = [v for v in value if isinstance(v, str)]
+        if value[0] is None:                 # (None, "왜 못 받았는지") 모양
+            return (0, 1) if any(texts) else (0, 0)
+        if any(t.strip() == "—" or "실패" in t for t in texts):
+            return 0, 1
+        return (1, 0) if any(v not in (None, "", 0) for v in value) else (0, 0)
     if isinstance(value, tuple):
         tail = value[-1] if value else None
         tail_is_error = isinstance(tail, str) or (
@@ -173,6 +185,12 @@ def health(value, _depth: int = 0) -> tuple[int, int]:
     if isinstance(value, dict):
         if not value:
             return 0, 0
+        if "error" in value or "_error" in value:
+            # {rows, error} 처럼 결과와 실패 사유를 함께 담는 묶음
+            if value.get("error") or value.get("_error"):
+                return 0, 1
+            rest = [v for k, v in value.items() if k not in ("error", "_error")]
+            return (1, 0) if any(bool(v) for v in rest) else (0, 0)
         vals = list(value.values())[:400]
         if all(isinstance(v, (str, bytes, int, float, bool, type(None))) for v in vals):
             return 1, 0
@@ -198,6 +216,49 @@ def health(value, _depth: int = 0) -> tuple[int, int]:
     return 1, 0
 
 
+def first_error(value, _depth: int = 0) -> str:
+    """값 안에서 처음 만나는 실패 문구 — 로그에 '왜 뺐는지' 적는 데 씁니다."""
+    if value is None or _depth > 6:
+        return ""
+    if isinstance(value, str):
+        return ""
+    err = getattr(value, "error", None)
+    if isinstance(err, str) and err:
+        return err
+    if isinstance(value, dict):
+        for key in ("error", "_error"):
+            if isinstance(value.get(key), str) and value.get(key):
+                return value[key]
+        for v in list(value.values())[:50]:
+            if isinstance(v, str) and _depth > 0 and v:
+                return v
+            got = first_error(v, _depth + 1)
+            if got:
+                return got
+        return ""
+    if isinstance(value, tuple):
+        if value and all(isinstance(v, (str, int, float, bool, type(None))) for v in value):
+            texts = [v for v in value if isinstance(v, str) and v]
+            if texts and (value[0] is None
+                          or any(t.strip() == "—" or "실패" in t for t in texts)):
+                return texts[-1]
+            return ""
+        tail = value[-1] if value else None
+        if isinstance(tail, str) and tail:
+            return tail
+        for v in reversed(value):
+            got = first_error(v, _depth + 1)
+            if got:
+                return got
+        return ""
+    if isinstance(value, (list, set, frozenset)):
+        for v in list(value)[:50]:
+            got = first_error(v, _depth + 1)
+            if got:
+                return got
+    return ""
+
+
 def looks_failed(value) -> bool:
     """쓸 만한 것이 없거나, 실패가 더 많으면 스냅샷에 넣지 않습니다."""
     good, bad = health(value)
@@ -219,7 +280,19 @@ def write_seed(out_dir: str, rows: list[dict], secrets: tuple[str, ...]) -> dict
     """swr 에 쌓인 값을 파일로. (보고서) — seed.pkl.gz 와 seed.json 을 씁니다."""
     import swr  # noqa: PLC0415
 
-    blob, report = swr.export_seed(secrets, skip=looks_failed)
+    reasons: list[str] = []
+
+    def skip(value) -> bool:
+        failed = looks_failed(value)
+        if failed:
+            good, bad = health(value)
+            why = redact(first_error(value), secrets)[:140] or "받은 것이 비어 있음"
+            reasons.append(f"쓸 것 {good} · 실패 {bad} — {why}")
+        return failed
+
+    blob, report = swr.export_seed(secrets, skip=skip)
+    report["failed_why"] = [f"{name}: {why}" for name, why
+                            in zip(report["dropped_failed"], reasons)]
     os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, "seed.pkl.gz"), "wb") as fh:
         fh.write(blob)
@@ -229,6 +302,7 @@ def write_seed(out_dir: str, rows: list[dict], secrets: tuple[str, ...]) -> dict
         "kept": report["kept"], "bytes": report["bytes"],
         "dropped_secret": sorted(set(report["dropped_secret"])),
         "dropped_failed": sorted(set(report["dropped_failed"])),
+        "failed_why": report["failed_why"][:40],
         "dropped_error": report["dropped_error"][:20],
         "jobs": [{**r, "error": redact(r["error"], secrets)} for r in rows],
     }
@@ -271,8 +345,9 @@ def main(argv=None) -> int:
     print(f"\n스냅샷 {report['kept']}개 항목 · {report['bytes'] / 1024:,.0f} KB · "
           f"{time.time() - t0:.0f}초 · 실패 {len(failed)}/{len(rows)}")
     if report["dropped_failed"]:
-        print("받지 못해 뺀 항목 (앱이 직접 받습니다): "
-              + ", ".join(sorted(set(report["dropped_failed"]))))
+        print("받지 못해 뺀 항목 (앱이 직접 받습니다):")
+        for line in report["failed_why"]:
+            print(f"  - {line}")
     if report["dropped_secret"]:
         print("인증키가 섞여 뺀 항목: "
               + ", ".join(sorted(set(report["dropped_secret"]))))

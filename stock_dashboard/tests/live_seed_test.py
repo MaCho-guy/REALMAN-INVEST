@@ -254,6 +254,30 @@ check("대부분 받았으면 넣는다", not collect.looks_failed([_Row(), _Row
 check("값 + 빈 오류 = 정상", not collect.looks_failed(({"A": [1, 2]}, {})))
 check("값 + 일부 오류 = 정상", not collect.looks_failed(({"A": _Row(), "B": _Row()}, {"C": "x"})))
 check("비어 있으면 넣지 않는다", collect.looks_failed({}) and collect.looks_failed(None))
+# 2026-11-12 첫 실제 실행: 글자만 든 줄을 '쓸 것 없음' 으로 세어 멀쩡한 값을 뺐다
+ok_rows = [("한국 소비자물가", "118.2", "2026-09 · 전년비 +2.1%"), ("한국 기준금리", "2.50%", "")]
+bad_rows = [("한국 소비자물가", "—", "KORCPIALLMINMEI: FRED API 실패 — ProxyError")] * 2
+check("(이름, 값, 메모) 줄은 정상", not collect.looks_failed(ok_rows), str(collect.health(ok_rows)))
+check("값이 '—' 인 줄은 실패", collect.looks_failed(bad_rows))
+check("(None, 사유) 는 실패", collect.looks_failed((None, "ExportsError: 목록 페이지를 받지 못했습니다"))
+      and "ExportsError" in collect.first_error((None, "ExportsError: 목록")))
+
+
+class _Net:
+    error = ""
+
+
+check("유동성 (값, 글자 줄들) 은 정상", not collect.looks_failed((_Net(), ok_rows)))
+check("{rows, error} 묶음 — 값이 있으면 정상",
+      not collect.looks_failed({"AAPL": {"history": [1, 2], "ex_date": None, "error": ""}}))
+check("{rows, error} 묶음 — 오류면 실패",
+      collect.looks_failed({"AAPL": {"history": [], "error": "야후 요청 실패"},
+                            "MSFT": {"history": [], "error": "야후 요청 실패"}}))
+check("왜 뺐는지 한 줄로 꺼낸다",
+      collect.first_error(({}, "요청 실패: ProxyError")) == "요청 실패: ProxyError"
+      and "FRED API 실패" in collect.first_error(bad_rows)
+      and collect.first_error({"A": {"history": [], "error": "야후 요청 실패"}}) == "야후 요청 실패"
+      and collect.first_error(ok_rows) == "")
 check("보유 종목은 수집 대상이 아니다",
       "PORTFOLIO" in collect.SECRET_ENVS
       and "PORTFOLIO" not in pathlib.Path("tools/collect_workflow.yml").read_text(encoding="utf-8"))

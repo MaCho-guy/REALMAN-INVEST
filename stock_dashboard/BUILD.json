@@ -54,7 +54,7 @@
  "tools/__init__.py": "85eaac1f90b0",
  "tools/check_dart.py": "fac9a6358934",
  "tools/check_runner.py": "10c22ce6efae",
- "tools/collect.py": "b57cb3e64d4c",
+ "tools/collect.py": "296c21e7c871",
  "tools/diagnose.py": "5dbc6c798605",
  "tools/discover_hyperliquid.py": "4d0a584bc62f",
  "tools/names.py": "6e65eaff5bbb",

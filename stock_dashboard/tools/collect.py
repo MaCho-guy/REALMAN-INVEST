@@ -317,6 +317,173 @@ def summarize_reports(app, out_dir: str, *, fetch=None, summarize=None,
     return report
 
 
+def _read_prev(out_dir: str, name: str) -> dict:
+    """워크플로가 git 으로 미리 꺼내 둔 지난 파일 (없으면 빈 묶음)."""
+    import universe  # noqa: PLC0415
+
+    path = os.path.join(out_dir, name)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return universe.parse(fh.read())
+    except OSError:
+        return {}
+
+
+def _write_out(out_dir: str, name: str, text: str) -> int:
+    os.makedirs(out_dir, exist_ok=True)
+    text = redact(text, secret_values())
+    with open(os.path.join(out_dir, name), "w", encoding="utf-8") as fh:
+        fh.write(text)
+    return len(text.encode("utf-8"))
+
+
+def build_universe_us(app, out_dir: str, *, members_fn=None, ticker_map_fn=None,
+                      facts_fn=None, force: bool = False, min_keep: int | None = None) -> dict:
+    """미국 전수 심사 — S&P 500 + 나스닥100 + 관심종목을 버핏식 기준으로.
+
+    {kept: 지난 파일을 그대로 둠, n: 심사한 종목, errors: 못 받은 종목, sec: 걸린 초, …}
+    연간 재무는 자주 바뀌지 않으므로 지난 파일이 UNIVERSE_US_MAX_AGE_HOURS 보다
+    새것이면 다시 하지 않습니다 (SEC 에 500번을 하루 두 번 묻지 않으려고).
+    받은 원본 재무는 묶음(UNIVERSE_US_BATCH)마다 판정만 남기고 버립니다.
+    """
+    import buffett  # noqa: PLC0415
+    import config  # noqa: PLC0415
+    import universe  # noqa: PLC0415
+    from sources import edgar, edgar_facts, universe_src  # noqa: PLC0415
+
+    name = "universe_us.json"
+    t0 = time.time()
+    prev = _read_prev(out_dir, name)
+    age = universe.age_hours(prev)
+    if (not force and prev and age is not None and age < config.UNIVERSE_US_MAX_AGE_HOURS
+            and len(prev.get("screens") or []) >= (
+                universe.MIN_SP500 // 2 if min_keep is None else min_keep)):
+        return {"kept": True, "age": age, "n": len(prev.get("screens") or [])}
+    try:
+        members, rules = (members_fn or universe_src.fetch_us_members)()
+    except Exception as exc:  # noqa: BLE001
+        # 목록을 못 받으면 지난 파일을 그대로 둡니다 (있으면). 손으로 고른 목록으로
+        # 바꿔 쓰지 않습니다 — 화면이 '규칙으로 정한 후보' 라고 말하고 있기 때문입니다.
+        return {"skipped": f"후보 목록 실패: {type(exc).__name__}: {str(exc)[:120]}",
+                "kept": bool(prev), "n": len(prev.get("screens") or [])}
+    watch = [{"ticker": t.replace("-", "."), "name": ""} for t in config.watchlist_us_tickers()]
+    merged = universe.merge_members(members, extra=watch)
+
+    try:
+        tmap = (ticker_map_fn or edgar.fetch_ticker_map)(config.EDGAR_USER_AGENT)
+    except Exception as exc:  # noqa: BLE001
+        tmap = {}
+        print(f"  티커 → CIK 표 실패 ({type(exc).__name__}) — 표에 CIK 가 있는 종목만 심사합니다")
+    errors: dict[str, str] = {}
+    by_cik: dict[int, dict] = {}
+    for m in merged:
+        t = m["ticker"]
+        cik = (m.get("cik") or config.EDGAR_CIK_OVERRIDES.get(t.replace(".", "-"))
+               or tmap.get(t) or tmap.get(t.replace(".", "-")))
+        if not cik:
+            errors[t] = "CIK 를 찾지 못했습니다 (SEC 에 미국 회계기준 재무를 내지 않는 기업일 수 있습니다)."
+            continue
+        m["cik"] = int(cik)
+        by_cik.setdefault(int(cik), m)       # 같은 회사의 다른 주식(GOOG/GOOGL)은 하나만
+    todo = list(by_cik.values())
+    dup = {m["ticker"] for m in merged if m.get("cik") and by_cik.get(m["cik"]) is not m}
+    th = config.screen_thresholds()
+    fetch = facts_fn or (lambda ciks: edgar_facts.fetch_many(
+        ciks, config.EDGAR_USER_AGENT, keep=buffett.KEEP_TAGS))
+    screens: list[dict] = []
+    size = max(1, int(config.UNIVERSE_US_BATCH))
+    for i in range(0, len(todo), size):
+        batch = todo[i:i + size]
+        facts_map, errs = fetch({m["ticker"]: m["cik"] for m in batch})
+        errors.update({t: str(e)[:160] for t, e in errs.items()})
+        for m in batch:
+            facts = facts_map.get(m["ticker"])
+            if facts is None:
+                continue
+            try:
+                screen = buffett.screen_company(m["ticker"], facts,
+                                                years=config.SCREEN_YEARS, th=th)
+            except Exception as exc:  # noqa: BLE001 - 한 기업이 나머지를 막지 않게
+                errors[m["ticker"]] = f"심사 중 오류: {type(exc).__name__}"
+                continue
+            if m.get("name"):
+                screen.name = m["name"]
+            screens.append(buffett.to_summary(screen, s=m.get("sector", "")))
+        del facts_map
+        print(f"  미국 {min(i + size, len(todo))}/{len(todo)} · {time.time() - t0:.0f}초 · "
+              f"못 받음 {len(errors)}")
+    members_out = [{k: v for k, v in m.items() if k in ("ticker", "name", "sector", "index")}
+                   for m in merged if m["ticker"] not in dup]
+    size_b = _write_out(out_dir, name, universe.dump({
+        "rules": rules, "members": members_out, "screens": screens, "errors": errors}))
+    return {"n": len(screens), "members": len(members_out), "errors": len(errors),
+            "sec": time.time() - t0, "bytes": size_b, "rules": rules}
+
+
+def build_universe_kr(app, out_dir: str, *, members_fn=None) -> dict:
+    """한국 전수 심사 — 코스피200 + 코스닥150 + 관심종목의 일봉 프로파일 · 투자지표."""
+    import config  # noqa: PLC0415
+    import universe  # noqa: PLC0415
+    from sources import universe_src  # noqa: PLC0415
+
+    name = "universe_kr.json"
+    t0 = time.time()
+    prev = _read_prev(out_dir, name)
+    try:
+        members, rules = (members_fn or universe_src.fetch_kr_members)()
+    except Exception as exc:  # noqa: BLE001
+        return {"skipped": f"후보 목록 실패: {type(exc).__name__}: {str(exc)[:120]}",
+                "kept": bool(prev), "n": len(prev.get("profiles") or [])}
+    watch = [{"code": c, "name": n} for c, n in config.watchlist_kr()]
+    merged = universe.merge_members(members, extra=watch)
+    cands = [(m["code"], m["name"]) for m in merged]
+    profiles, perr = app.kr_vol_profiles_for(cands)
+    print(f"  한국 일봉 {len(profiles)}/{len(cands)} · {time.time() - t0:.0f}초")
+    values = app.kr_value_rows_for(cands, yahoo_fallback=False)
+    print(f"  한국 투자지표 {sum(1 for v in values if not v.error)}/{len(cands)} · "
+          f"{time.time() - t0:.0f}초")
+    if len(profiles) < len(cands) // 2 and prev:
+        # 절반도 못 받았으면 지난 파일이 낫습니다
+        return {"skipped": f"일봉을 {len(profiles)}/{len(cands)}만 받았습니다", "kept": True,
+                "n": len(prev.get("profiles") or [])}
+    errors = {c: str(e)[:160] for c, e in perr.items()}
+    size_b = _write_out(out_dir, name, universe.dump({
+        "rules": rules,
+        "members": [{k: v for k, v in m.items() if k in ("code", "name", "market", "cap", "index")}
+                    for m in merged],
+        "profiles": [universe.profile_to_dict(p) for p in profiles],
+        "values": [universe.profile_to_dict(v) for v in values],
+        "errors": errors}))
+    return {"n": len(profiles), "members": len(merged), "errors": len(errors),
+            "sec": time.time() - t0, "bytes": size_b, "rules": rules}
+
+
+def build_universe(app, out_dir: str, markets=("us", "kr")) -> dict:
+    """전수 심사 두 시장. 한쪽이 실패해도 다른 쪽은 갑니다."""
+    out = {}
+    for market, fn in (("us", build_universe_us), ("kr", build_universe_kr)):
+        if market not in markets:
+            continue
+        try:
+            out[market] = fn(app, out_dir)
+        except Exception as exc:  # noqa: BLE001
+            out[market] = {"skipped": f"{type(exc).__name__}: "
+                                      f"{redact(str(exc), secret_values())[:160]}"}
+        r = out[market]
+        label = {"us": "미국", "kr": "한국"}[market]
+        if r.get("kept") and not r.get("skipped"):
+            print(f"  {label}: 지난 파일이 {r.get('age', 0):.1f}시간 전 것이라 그대로 둡니다 "
+                  f"({r.get('n', 0)}종목)")
+        elif r.get("skipped"):
+            print(f"  {label}: 건너뜀 — {r['skipped']}"
+                  + (" (지난 파일 유지)" if r.get("kept") else ""))
+        else:
+            print(f"  {label}: 후보 {r.get('members', 0)} → 심사 {r.get('n', 0)} · "
+                  f"못 받음 {r.get('errors', 0)} · {r.get('sec', 0):.0f}초 · "
+                  f"{r.get('bytes', 0) / 1024:.0f} KB")
+    return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[1])
     ap.add_argument("--out", default="seed_out")
@@ -342,6 +509,15 @@ def main(argv=None) -> int:
         return 0
     rows = run_jobs(jobs, workers=args.workers)
     report = write_seed(args.out, rows, secret_values())
+    # 종목 발굴 전수 심사 — 규칙으로 정한 후보(지수 구성 종목) 전부. 실패해도
+    # 스냅샷은 그대로 올라가고, 화면은 지난 파일(또는 손으로 고른 후보)을 씁니다.
+    print("\n종목 발굴 전수 심사")
+    try:
+        build_universe(app, args.out, tuple(m for m in args.markets.split(",") if m))
+    except Exception as exc:  # noqa: BLE001
+        print(f"  전수 심사 단계 실패: {type(exc).__name__}: "
+              f"{redact(str(exc), secret_values())[:200]}")
+
     # 리포트 AI 요약 — 키가 있을 때만. 실패해도 스냅샷은 그대로 올라갑니다.
     print("\n리포트 요약 (Claude API)")
     try:

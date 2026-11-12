@@ -124,6 +124,7 @@ import kr_screen
 import sector_heat
 import semi_research
 import report_summary
+import universe
 import chart_signals
 import daily_brief
 import calendar_events
@@ -606,6 +607,37 @@ def load_research(kind: str, use_demo: bool):
 
 
 @swr.cached(1_800, stale=7 * 86_400)
+def load_universe(market: str, use_demo: bool) -> dict:
+    """전수 심사 결과 — 수집기가 data 브랜치에 올린 universe_{us|kr}.json.
+
+    {} 이면 파일이 아직 없거나 깨진 것 — 화면은 손으로 고른 후보로 돌아갑니다.
+    이 서버는 전수 심사를 **직접 하지 않습니다** (미국 500 · 한국 350종목은
+    화면에서 받을 양이 아닙니다 — universe.py 머리말). 30분 저장.
+    """
+    if use_demo:
+        return {}
+    import urllib.error  # noqa: PLC0415
+    import urllib.request  # noqa: PLC0415
+
+    url = config.UNIVERSE_URLS.get(market)
+    if not url:
+        return {}
+    req = urllib.request.Request(url, headers={"User-Agent": "dash-universe/1",
+                                               "Accept-Encoding": "gzip"})
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            blob = resp.read(8_000_000)
+            if resp.headers.get("Content-Encoding") == "gzip":
+                import gzip  # noqa: PLC0415
+                blob = gzip.decompress(blob)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return {}
+        raise
+    return universe.parse(blob.decode("utf-8", "replace"))
+
+
+@swr.cached(1_800, stale=7 * 86_400)
 def load_report_summaries(use_demo: bool) -> dict:
     """리포트 AI 요약 — 수집기가 data 브랜치에 올린 summaries.json.
 
@@ -761,7 +793,14 @@ def load_kr_vol_profiles(use_demo: bool):
     """
     cands = list(config.screen_kr_candidates())
     if use_demo:
-        return demo_mod.demo_kr_vol_profiles(cands), {}
+        # 데모 함수가 이미 (프로파일들, 오류)를 돌려줍니다. 한 번 더 싸면
+        # 화면이 (목록, 사전)을 프로파일로 읽다 죽습니다 (2026-11-12 발견).
+        return demo_mod.demo_kr_vol_profiles(cands)
+    return kr_vol_profiles_for(cands)
+
+
+def kr_vol_profiles_for(cands: list) -> tuple[list, dict]:
+    """후보 목록 → (변동성 프로파일들, 오류). 화면과 수집기(전수 심사)가 같이 씁니다."""
     codes = [c for c, _n in cands]
     closes, vols, nerr = naver.fetch_daily_many(codes)
     missing = [c for c in codes if c not in closes]
@@ -803,6 +842,15 @@ def load_kr_value_rows(use_demo: bool):
     cands = list(config.screen_kr_candidates())
     if use_demo:
         return demo_mod.demo_kr_value_rows(cands)
+    return kr_value_rows_for(cands)
+
+
+def kr_value_rows_for(cands: list, *, yahoo_fallback: bool = True) -> list:
+    """후보 목록 → PBR · PER · 배당 줄. 화면과 수집기(전수 심사)가 같이 씁니다.
+
+    yahoo_fallback=False 면 네이버가 비운 종목을 야후로 다시 묻지 않습니다 —
+    야후 .info 는 종목당 1~2초라 350종목 전수 심사에서는 쓰지 않습니다.
+    """
     nav = naver.fetch_valuation_many([c for c, _n in cands])
     rows: list = []
     need_yahoo = []
@@ -816,6 +864,8 @@ def load_kr_value_rows(use_demo: bool):
             need_yahoo.append((code, name, got.get("error") or "네이버 실패"))
     if not need_yahoo:
         return rows
+    if not yahoo_fallback:
+        return rows + [kr_screen.ValueRow(c, n, error=e) for c, n, e in need_yahoo]
     cands = [(c, n) for c, n, _e in need_yahoo]
     nerr = {c: e for c, _n, e in need_yahoo}
     fields = (("priceToBook", "PBR", "num2"),
@@ -1550,56 +1600,122 @@ def _criteria_block(th, *, market: str, quality_min: int | None = None) -> str:
 
 # ── 미국 — 버핏식 품질 기준만 ────────────────────────────────────────────
 
-def _discover_us(use_demo: bool) -> None:
-    """미국 발굴 — 52주 위치를 뺐습니다.
+def _universe_or_none(market: str, use_demo: bool) -> dict:
+    """전수 심사 파일 (없거나 못 받으면 빈 묶음 — 화면은 예전 후보로 돌아갑니다)."""
+    if use_demo:
+        return {}
+    try:
+        got = load_universe(market, use_demo)
+    except Exception:  # noqa: BLE001
+        return {}
+    return got if isinstance(got, dict) else {}
 
-    **왜 뺐는가.** 52주 신고가는 '최근 많이 오른 주식' 이지 '좋은 주식' 이
-    아닙니다. 품질 기준과 교차하면 그럴듯해 보이지만, 실제로 하는 일은
-    품질을 통과한 목록을 **주가 흐름으로 한 번 더 자르는 것**입니다.
-    장기 보유 판단에서 그 자르기는 근거가 없습니다. 시세는 밸류에이션
-    탭의 가격 조건(FCF 수익률·기대 괴리)이 다룹니다 — 거기는 가격을
-    **공시 숫자와 견주는** 자리라 성격이 다릅니다.
+
+def _universe_line(market: str, payload: dict) -> str:
+    """후보를 어떻게 정했는지 + 언제 심사했는지 (HTML, 꺼도 보이는 줄)."""
+    made = payload.get("made")
+    when = (dt.datetime.fromtimestamp(made, KST).strftime("%m/%d %H:%M") if made else "?")
+    src = ("위키백과의 지수 구성 종목 표 · 재무는 SEC EDGAR" if market == "us"
+           else "네이버 증권의 지수 구성 종목 · 시가총액 순위")
+    return (f"<b>후보</b> — {_esc_plain(universe.rule_text(market, payload))} "
+            f"· 심사 {when} · 목록 출처: {src}")
+
+
+def _fallback_note(market: str) -> str:
+    n = len(config.screen_tickers()) if market == "us" else len(config.screen_kr_candidates())
+    return ("<b>전수 심사 결과를 아직 받지 못했습니다.</b> 아침 수집기(06:30 · 15:50)가 "
+            "지수 구성 종목 전부를 심사해 올리면 그 결과로 바뀝니다. 지금은 "
+            f"<b>제가 손으로 고른 후보 {n}종목</b>만 보여 줍니다 — 기준에 맞을 법한 "
+            "회사를 미리 고른 목록이라 통과율이 실제보다 높게 나옵니다.")
+
+
+def _discover_us(use_demo: bool) -> None:
+    """미국 발굴 — S&P 500 + 나스닥100 전수 심사 결과를 읽어 버핏식 기준으로 거릅니다.
+
+    2026-11-12 까지는 제가 고른 71종목이 후보였습니다 (순환 — universe.py 머리말).
+    이제 후보는 지수 구성 종목 전부이고, 심사는 수집기가 미리 합니다. 파일이
+    없을 때만 예전 목록으로 돌아가고, 그 사실을 화면에 적습니다.
+
+    52주 위치는 기준에 넣지 않습니다 — 신고가는 '최근 많이 오른 주식' 이지
+    '좋은 주식' 이 아닙니다. 가격은 밸류에이션 탭이 공시 숫자와 견줍니다.
     """
+    payload = _universe_or_none("us", use_demo)
+    from_file = bool(payload.get("screens"))
     st.markdown(
         ui.render_section_head(
             "종목 발굴 · 미국",
-            f"버핏식 품질 기준 {len(buffett.CRITERIA)}개 — 읽을 목록을 줄입니다"),
+            (f"S&P 500 + 나스닥100 전수 심사 → 버핏식 품질 기준 {len(buffett.CRITERIA)}개"
+             if from_file else
+             f"버핏식 품질 기준 {len(buffett.CRITERIA)}개 — 읽을 목록을 줄입니다")),
         unsafe_allow_html=True,
     )
-    col1, col2 = st.columns([1, 1])
+    if from_file:
+        st.markdown(ui.render_legend(_universe_line("us", payload)), unsafe_allow_html=True)
+    elif not use_demo:
+        st.markdown(ui.render_notice(_fallback_note("us")), unsafe_allow_html=True)
+
+    sectors: dict[str, str] = {}
+    if from_file:
+        all_screens = [x for x in (buffett.from_summary(r) for r in payload["screens"]) if x]
+        errors = dict(payload.get("errors") or {})
+        sectors = {x.ticker: x.sector for x in all_screens}
+        n_members = len(payload.get("members") or []) or len(all_screens) + len(errors)
+    else:
+        got = _soft_main(load_screens, use_demo, what="미국 10년치 재무 심사")
+        if got is None:
+            return
+        screens_map, errors = got
+        all_screens = list(screens_map.values())
+        n_members = len(all_screens) + len(errors)
+
+    col1, col2, col3 = st.columns([2, 2, 1])
     with col1:
         quality_min = st.slider(
             "품질 기준 통과 수 (이상이면 '통과')",
             1, len(buffett.CRITERIA),
             round(len(buffett.CRITERIA) * 2 / 3), key="disc_q")
+    sector_names = sorted({v for v in sectors.values() if v})
+    pick_sector = ""
     with col2:
-        show_source = st.toggle("기준 출처·한계 표시", value=False,
-                                key="disc_src")
+        if sector_names:
+            counts = {name: sum(1 for v in sectors.values() if v == name)
+                      for name in sector_names}
+            pick_sector = st.selectbox(
+                "업종", [""] + sector_names, key="disc_sector",
+                format_func=lambda k: (f"{universe.sector_label(k)} ({counts[k]})"
+                                       if k else f"전체 ({len(all_screens)})"))
+    with col3:
+        show_source = st.toggle("기준 출처·한계", value=False, key="disc_src")
 
     st.markdown(_criteria_block(config.screen_thresholds(), market="us",
                                 quality_min=quality_min),
                 unsafe_allow_html=True)
 
-    got = _soft_main(load_screens, use_demo, what="미국 10년치 재무 심사")
-    if got is None:
-        return
-    screens_map, errors = got
-    screens = buffett.rank(list(screens_map.values()))
-    passed = [s for s in screens if s.passed_count >= quality_min]
+    screens = buffett.rank(all_screens)
+    usable = [s_ for s_ in screens if s_.ok]
+    passed_all = [s_ for s_ in usable if s_.passed_count >= quality_min]
+    passed = [s_ for s_ in passed_all
+              if not pick_sector or sectors.get(s_.ticker) == pick_sector]
 
-    st.markdown(
-        ui.render_notice(
-            f"<b>후보 {len(screens)}종목</b> 중 "
-            f"<b>{len(passed)}종목</b>이 {quality_min}개 이상 통과"
-            + (f" · 재무를 못 받은 종목 {len(errors)}건" if errors else "")),
-        unsafe_allow_html=True,
-    )
+    # 어디서 얼마나 줄었는지 — 후보 → 재무 받음 → 통과
+    st.markdown(ui.render_funnel([
+        kr_screen.FunnelStep("후보", n_members),
+        kr_screen.FunnelStep("재무 받음", len(usable),
+                             "못 받은 종목은 아래 '이유 보기'" if errors else ""),
+        kr_screen.FunnelStep(f"{quality_min}개 이상 통과", len(passed_all)),
+    ] + ([kr_screen.FunnelStep(universe.sector_label(pick_sector), len(passed))]
+         if pick_sector else []), errors, title="단계별로 남은 종목"),
+        unsafe_allow_html=True)
+    if sectors and not pick_sector:
+        st.markdown(ui.render_sector_pass(usable, passed_all, sectors, universe.sector_label),
+                    unsafe_allow_html=True)
 
     if not passed:
         st.markdown(
             ui.render_notice(
-                "<b>통과한 종목이 없습니다.</b> 기준을 한두 칸 낮춰 보십시오 — "
-                f"{len(buffett.CRITERIA)}개를 전부 넘는 기업은 드뭅니다."),
+                "<b>통과한 종목이 없습니다.</b> 기준을 한두 칸 낮추거나 업종을 "
+                f"'전체' 로 바꿔 보십시오 — {len(buffett.CRITERIA)}개를 전부 넘는 "
+                "기업은 드뭅니다."),
             unsafe_allow_html=True,
         )
         return
@@ -1608,47 +1724,66 @@ def _discover_us(use_demo: bool) -> None:
         ui.render_section_head("통과 종목", "통과 수 많은 순", len(passed)),
         unsafe_allow_html=True,
     )
+    held = set(config.watchlist_us_tickers())
+    top = passed[:config.DISCOVER_TABLE_ROWS]
     # 한눈표 — 어느 종목이 어느 기준에서 걸렸는지. 펼치지 않고 비교합니다.
-    st.markdown(ui.render_screen_table(passed, buffett.CRITERIA),
+    st.markdown(ui.render_screen_table(top, buffett.CRITERIA, held=held,
+                                       sectors={k: universe.sector_label(v)
+                                                for k, v in sectors.items()}),
                 unsafe_allow_html=True)
     st.markdown(ui.render_legend(
-        "<b>○</b> 통과 · <b>✗</b> 미달 · <b>?</b> 판정 불가(숫자 5년치 미만) — "
-        "종목별 숫자는 아래에서 펼칩니다."), unsafe_allow_html=True)
-    st.markdown(ui.render_footnote(
-        "<b>52주 위치(신고가)는 기준에 넣지 않았습니다</b> — 최근 많이 오른 것과 "
-        "사업의 질은 다른 질문이고, 가격은 밸류에이션 탭에서 공시 숫자와 견줍니다."),
+        "<b>○</b> 통과 · <b>✗</b> 미달 · <b>?</b> 판정 불가(숫자 5년치 미만) · "
+        "<b>★</b> 내 관심종목"
+        + (f" — 통과 {len(passed)}종목 중 위 {len(top)}종목. 나머지는 아래에 접어 두었습니다."
+           if len(passed) > len(top) else " — 종목별 숫자는 아래에서 펼칩니다.")),
         unsafe_allow_html=True)
-    for idx, screen in enumerate(passed[:30]):
-        label = (f"{screen.ticker} · {screen.passed_count}"
+    rest = passed[len(top):]
+    if rest:
+        with st.expander(f"나머지 통과 종목 {len(rest)}개", expanded=False):
+            st.markdown(ui.render_screen_table(
+                rest[:300], buffett.CRITERIA, held=held,
+                sectors={k: universe.sector_label(v) for k, v in sectors.items()}),
+                unsafe_allow_html=True)
+    for screen in passed[:30]:
+        label = (("★ " if screen.ticker in held else "")
+                 + f"{screen.ticker} · {screen.name[:28]} · {screen.passed_count}"
                  f"/{len(buffett.CRITERIA)} 통과")
         with st.expander(label, expanded=False):
             st.markdown(ui.render_screen(screen, show_source=show_source),
                         unsafe_allow_html=True)
 
-    if errors:
-        st.markdown(
-            ui.render_notice(
-                f"<b>재무를 못 받은 종목 {len(errors)}건:</b> "
-                + " · ".join(f"{t} ({e[:34]})"
-                             for t, e in list(errors.items())[:6])),
-            unsafe_allow_html=True,
-        )
+    # 내 관심종목이 어디서 걸렸는지 — 통과하지 못했어도 보여 줍니다
+    mine = [s_ for s_ in usable if s_.ticker in held and s_.passed_count < quality_min]
+    if mine:
+        with st.expander(f"내 관심종목 중 미달 {len(mine)}개 — 어느 기준에서 걸렸나",
+                         expanded=False):
+            st.markdown(ui.render_screen_table(mine, buffett.CRITERIA, held=held),
+                        unsafe_allow_html=True)
 
 
 # ── 국내 — 변동성 + 밸류 ────────────────────────────────────────────────
 
 def _discover_kr(use_demo: bool) -> None:
     """국내 발굴 — 스크리너 → 종목 카드(개요·뉴스·스킬) 순서."""
+    payload = _universe_or_none("kr", use_demo)
+    from_file = bool(payload.get("profiles"))
+    n_cands = (len(payload.get("members") or []) if from_file
+               else len(config.screen_kr_candidates()))
     st.markdown(
         ui.render_section_head(
             "종목 발굴 · 한국",
-            "변동성 × 신고가 × 전통 밸류 — 국내는 재무만으로 안 걸러집니다"),
+            ("코스피200 + 코스닥150 전수 심사 → 여섯 스크리너" if from_file else
+             "변동성 × 신고가 × 전통 밸류 — 국내는 재무만으로 안 걸러집니다")),
         unsafe_allow_html=True,
     )
+    if from_file:
+        st.markdown(ui.render_legend(_universe_line("kr", payload)), unsafe_allow_html=True)
+    elif not use_demo:
+        st.markdown(ui.render_notice(_fallback_note("kr")), unsafe_allow_html=True)
     st.markdown(
         ui.render_footnote(
             f"<b>왜 미국과 기준이 다른가.</b> 국내 후보 "
-            f"{len(config.screen_kr_candidates())}종목(코스피 + 코스닥)은 "
+            f"{n_cands}종목(코스피 + 코스닥)은 "
             "재무 기준만으로는 거의 걸러지지 않습니다. 대신 주가 "
             "변동성이 미국보다 큽니다 — 52주 신고가를 단독으로 쓰면 "
             "급등 후 되돌림 구간이 대거 섞입니다. 그래서 <b>변동성이 "
@@ -1668,8 +1803,13 @@ def _discover_kr(use_demo: bool) -> None:
             unsafe_allow_html=True)
         st.markdown(ui.render_terms(kr_screen.KR_TERMS), unsafe_allow_html=True)
 
-    profiles, vol_errors = load_kr_vol_profiles(use_demo)
-    value_rows = load_kr_value_rows(use_demo)
+    if from_file:
+        profiles = universe.restore(kr_screen.VolProfile, payload.get("profiles"))
+        value_rows = universe.restore(kr_screen.ValueRow, payload.get("values"))
+        vol_errors = dict(payload.get("errors") or {})
+    else:
+        profiles, vol_errors = load_kr_vol_profiles(use_demo)
+        value_rows = load_kr_value_rows(use_demo)
 
     hits = {
         "contraction": kr_screen.contraction_hits(profiles),
@@ -1708,7 +1848,6 @@ def _discover_kr(use_demo: bool) -> None:
 
     # 단계별로 몇 종목이 남는지 — 0 건이 '데이터 실패' 인지 '기준 탈락'
     # 인지 바로 보이게 합니다.
-    n_cands = len(config.screen_kr_candidates())
     if choice in kr_screen.VOL_SCREENS:
         steps = kr_screen.funnel(choice, n_cands, profiles)
         st.markdown(ui.render_funnel(steps, vol_errors,
@@ -1734,7 +1873,12 @@ def _discover_kr(use_demo: bool) -> None:
         )
         return
 
-    st.markdown(ui.render_hit_table(picked), unsafe_allow_html=True)
+    st.markdown(ui.render_hit_table(picked, limit=config.DISCOVER_TABLE_ROWS),
+                unsafe_allow_html=True)
+    if len(picked) > config.DISCOVER_TABLE_ROWS:
+        st.markdown(ui.render_legend(
+            f"통과 {len(picked)}종목 중 위 {config.DISCOVER_TABLE_ROWS}종목만 표에 "
+            "실었습니다 (스크리너의 정렬 순)."), unsafe_allow_html=True)
 
     companies = load_kr_companies(
         tuple(h.ticker for h in picked[:12]), use_demo, dart.key_fingerprint())
@@ -3853,6 +3997,7 @@ FETCH_LABELS = {
     "load_chart_bars": "차트 봉",
     "load_semi_research": "반도체 리포트",
     "load_report_summaries": "AI 요약",
+    "load_universe": "전수 심사",
     "load_daily_brief": "전일 브리핑", "load_briefings": "브리핑 글",
 }
 
@@ -4652,7 +4797,7 @@ def controls() -> dict:
 SECTION_LOADING = {
     "summary": "요약 — 시세·공포탐욕·VIX·FRED 를 불러옵니다 (처음 10~30초)",
     "holdings": "내 종목 — 시세와 공시를 불러옵니다 (처음 10~30초)",
-    "discover": "종목 발굴 — 95개 기업 재무제표를 받아옵니다 (처음 1~3분)",
+    "discover": "종목 발굴 — 아침 수집기가 심사해 둔 결과를 읽습니다",
     "macro": "매크로 — FRED 13종·VIX·공포탐욕 (처음 10~20초)",
     "chart": "차트 조건 — 후보 종목의 1년 일봉 (처음 10~30초)",
     "research": "산업 리포트 — 증권사 리포트 목록 (처음 5~10초)",

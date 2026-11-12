@@ -1745,6 +1745,20 @@ def build_rules() -> str:
     .dash-kchart .kc-dates {{ padding-right: 46px; }}
     .dash-kchart .kc-title {{ gap: 0 7px; }}
   }}
+  /* 종목 발굴 — 한눈표의 종목 이름 · 업종, 업종별 통과 칩 */
+  table.dash-sctable .sc-name {{ display: block; font-size: var(--fs-1); font-weight: 400;
+    color: var(--dash-ink-muted); max-width: 14em; overflow: hidden; text-overflow: ellipsis; }}
+  table.dash-sctable td.sc-sect {{ text-align: left; font-size: var(--fs-2);
+    color: var(--dash-ink-2); }}
+  table.dash-sctable .ct-star {{ font-style: normal; color: var(--dash-accent); margin-right: 3px; }}
+  .dash-sectpass {{ display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: baseline;
+    font-size: var(--fs-2); color: var(--dash-ink-2); margin: 2px 0 8px; }}
+  .dash-sectpass em {{ font-style: normal; font-weight: 700; color: var(--dash-ink);
+    margin-right: 2px; }}
+  .dash-sectpass span {{ border: 1px solid var(--dash-border); border-radius: var(--r-pill);
+    background: var(--dash-surface); padding: 0 8px; white-space: nowrap;
+    font-variant-numeric: tabular-nums; }}
+  .dash-sectpass b {{ font-weight: 600; color: var(--dash-ink); }}
   /* 기호 풀이 · 분류 건수 — 설명 문구를 꺼도 남는 한 줄 */
   .dash-legend {{ font-size: var(--fs-2); color: var(--dash-ink-2); line-height: 1.5;
     margin: 2px 0 6px; }}

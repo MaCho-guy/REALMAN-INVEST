@@ -1197,14 +1197,17 @@ def render_terms(terms) -> str:
         f'<div><b>{_esc(k)}</b>{_esc(v)}</div>' for k, v in terms) + "</div>")
 
 
-def render_screen_table(screens, criteria) -> str:
-    """전체 요약 표 — 어느 기업이 어느 기준에서 걸렸나 한눈에."""
+def render_screen_table(screens, criteria, *, held=(), sectors: dict | None = None) -> str:
+    """전체 요약 표 — 어느 기업이 어느 기준에서 걸렸나 한눈에.
+
+    held 에 든 티커는 ★, sectors({티커: 업종})를 주면 업종 칸을 더합니다.
+    """
     if not screens:
         return ""
-    # 기준 이름이 길어서 열마다 폭이 들쭉날쭉했고, 표시(○·×)가 제목과
-    # 어긋나 보였습니다. 제목과 표시를 모두 가운데로 맞춥니다.
     import buffett as _bf  # noqa: PLC0415
 
+    # 기준 이름이 길어서 열마다 폭이 들쭉날쭉했고, 표시(○·×)가 제목과
+    # 어긋나 보였습니다. 제목과 표시를 모두 가운데로 맞춥니다.
     header = "".join(
         f"<th class='mk' title='{_esc(c.name)}'>{_esc(_bf.SHORT_NAMES.get(c.key, c.name))}</th>"
         for c in criteria)
@@ -1217,18 +1220,47 @@ def render_screen_table(screens, criteria) -> str:
             cls = {"pass": "mk", "fail": "mk na", "unknown": "mk na"}[check.verdict]
             cells.append(f'<td class="{cls}">{_MARK[check.verdict]}</td>')
         nm = getattr(s, "name", "") or ""
+        star = '<i class="ct-star" title="내 관심종목">★</i>' if s.ticker in held else ""
+        sect = (f'<td class="sc-sect">{_esc((sectors or {}).get(s.ticker, ""))}</td>'
+                if sectors else "")
         rows.append(
-            f"<tr><td title='{_esc(nm)}'>{_esc(s.ticker)}</td>"
+            f"<tr><td title='{_esc(nm)}'>{star}{_esc(s.ticker)}"
+            f"<span class='sc-name'>{_esc(nm[:22])}</span></td>{sect}"
             f'<td class="">{_esc(s.score_label)}</td>'
             + "".join(cells) + "</tr>"
         )
     if not rows:
         return ""
+    sect_h = "<th>업종</th>" if sectors else ""
     return (
-        '<div class="dash-table-wrap"><table class="dash-table">'
-        f"<thead><tr><th>티커</th><th>통과</th>{header}</tr></thead>"
+        '<div class="dash-table-wrap"><table class="dash-table dash-sctable">'
+        f"<thead><tr><th>종목</th>{sect_h}<th>통과</th>{header}</tr></thead>"
         f"<tbody>{''.join(rows)}</tbody></table></div>"
     )
+
+
+def render_sector_pass(usable, passed, sectors: dict, label=lambda x: x) -> str:
+    """업종별로 몇 종목 중 몇 종목이 통과했나 — 통과율 순의 칩 한 줄.
+
+    어느 업종이 구조적으로 잘 통과하고(필수소비재) 어느 업종이 거의 못
+    통과하는지(유틸리티 · 부동산) 보여 줍니다. 기준이 업종을 가린다는 사실을
+    숨기지 않으려는 것입니다.
+    """
+    total: dict[str, int] = {}
+    ok: dict[str, int] = {}
+    for s in usable:
+        k = sectors.get(s.ticker) or ""
+        total[k] = total.get(k, 0) + 1
+    for s in passed:
+        k = sectors.get(s.ticker) or ""
+        ok[k] = ok.get(k, 0) + 1
+    if not total:
+        return ""
+    order = sorted(total, key=lambda k: (-(ok.get(k, 0) / total[k]), k))
+    chips = "".join(
+        f'<span><b>{_esc(label(k) if k else "분류 없음")}</b> {ok.get(k, 0)}/{total[k]}</span>'
+        for k in order)
+    return f'<div class="dash-sectpass"><em>업종별 통과</em>{chips}</div>'
 
 
 # ──────────────────────────────────────────────────────────────────────────────

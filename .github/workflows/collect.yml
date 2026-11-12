@@ -27,7 +27,7 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45       # 전수 심사(미국 500 · 한국 350종목)를 포함합니다
     steps:
       - uses: actions/checkout@v5
 
@@ -40,17 +40,22 @@ jobs:
       - name: 필요한 패키지
         run: pip install -r stock_dashboard/requirements.txt
 
-      # data 브랜치는 매번 통째로 새로 올립니다. 지난 AI 요약을 먼저 꺼내 두어야
-      # 이어 붙일 수 있습니다 (같은 리포트를 다시 요약하지 않게).
-      - name: 지난 요약 꺼내기
+      # data 브랜치는 매번 통째로 새로 올립니다. 지난 AI 요약과 전수 심사 결과를
+      # 먼저 꺼내 두어야 이어 붙이거나(요약) 실패했을 때 그대로 둘 수 있습니다.
+      - name: 지난 결과 꺼내기
         run: |
           mkdir -p "$RUNNER_TEMP/seed"
-          if git fetch -q --depth=1 origin data 2>/dev/null \
-             && git show FETCH_HEAD:summaries.json > "$RUNNER_TEMP/seed/summaries.json" 2>/dev/null; then
-            echo "지난 요약 파일을 꺼냈습니다"
+          if git fetch -q --depth=1 origin data 2>/dev/null; then
+            for f in summaries.json universe_us.json universe_kr.json; do
+              if git show "FETCH_HEAD:$f" > "$RUNNER_TEMP/seed/$f" 2>/dev/null; then
+                echo "꺼냄: $f"
+              else
+                rm -f "$RUNNER_TEMP/seed/$f"
+                echo "없음: $f (처음이면 정상)"
+              fi
+            done
           else
-            rm -f "$RUNNER_TEMP/seed/summaries.json"
-            echo "지난 요약 파일이 없습니다 (처음이면 정상)"
+            echo "data 브랜치가 아직 없습니다"
           fi
 
       - name: 수집

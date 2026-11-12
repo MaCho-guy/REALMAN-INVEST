@@ -182,6 +182,20 @@ SEED_URL = os.environ.get(
     "SEED_URL",
     "https://raw.githubusercontent.com/MaCho-guy/REALMAN-INVEST/data/seed.pkl.gz")
 
+#: 종목 발굴의 전수 심사 결과 — 수집기가 data 브랜치에 올리는 파일 (universe.py).
+_DATA_RAW = "https://raw.githubusercontent.com/MaCho-guy/REALMAN-INVEST/data/"
+UNIVERSE_URLS = {
+    "us": os.environ.get("UNIVERSE_US_URL", _DATA_RAW + "universe_us.json"),
+    "kr": os.environ.get("UNIVERSE_KR_URL", _DATA_RAW + "universe_kr.json"),
+}
+#: 종목 발굴 표에 한 번에 싣는 줄 수 (나머지는 접어 둡니다).
+DISCOVER_TABLE_ROWS = 40
+#: 미국 전수 심사를 다시 하는 주기(시간). 연간 재무는 1년에 한 번 바뀌므로
+#: 하루 한 번이면 충분합니다 — SEC 에 500번씩 하루 두 번 물을 이유가 없습니다.
+UNIVERSE_US_MAX_AGE_HOURS = 20.0
+#: 한 번에 몇 개 기업의 재무를 받아 심사하나 (받은 원본은 묶음마다 버립니다).
+UNIVERSE_US_BATCH = 40
+
 #: 화면 배치의 촘촘함. "compact"(기본) 는 부품 사이 간격을 줄입니다 — 글자
 #: 크기는 그대로. "roomy" 로 두면 2026-11-12 이전 간격으로 돌아갑니다.
 DENSITY = os.environ.get("DASH_DENSITY", "compact")
@@ -350,6 +364,25 @@ def screen_kr_candidates(include_kosdaq: bool = True) -> list[tuple[str, str]]:
 def kosdaq_codes() -> frozenset[str]:
     """코스닥 후보 코드. 화면에서 시장을 표시할 때 씁니다."""
     return frozenset(c for c, _n in SCREEN_KQ_CANDIDATES)
+
+
+def watchlist_us_tickers() -> list[str]:
+    """관심종목 중 미국 개별 종목 (ETF · 한국 종목 · 지수 제외) — 전수 심사에 더합니다."""
+    out: dict[str, None] = {}
+    for inst in SECTION_WATCHLIST.instruments:
+        symbol = inst.symbol.upper()
+        if inst.source != "yahoo" or "." in symbol or symbol in SCREEN_EXCLUDE:
+            continue
+        if symbol.startswith("^") or "=" in symbol:
+            continue
+        out[symbol] = None
+    return list(out)
+
+
+def watchlist_kr() -> list[tuple[str, str]]:
+    """관심종목 중 국내 종목 (코드, 이름)."""
+    return [(i.symbol, i.name) for i in SECTION_WATCHLIST.instruments
+            if i.source == "naver" and i.symbol.isdigit()]
 
 
 def screen_tickers() -> list[str]:

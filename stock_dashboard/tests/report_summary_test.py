@@ -428,8 +428,8 @@ src = pathlib.Path("tools/collect.py").read_text(encoding="utf-8")
 check("수집기 — 지울 이름 목록에 키", '"ANTHROPIC_API_KEY"' in src.split("SECRET_ENVS")[1][:200])
 wf = pathlib.Path("tools/collect_workflow.yml").read_text(encoding="utf-8")
 check("워크플로 — 지난 요약을 먼저 꺼냄 (수집보다 앞)",
-      "git show FETCH_HEAD:summaries.json" in wf
-      and wf.index("git show FETCH_HEAD:summaries.json") < wf.index("tools/collect.py --out"))
+      "for f in summaries.json" in wf and 'git show "FETCH_HEAD:$f"' in wf
+      and wf.index('git show "FETCH_HEAD:$f"') < wf.index("tools/collect.py --out"))
 check("워크플로 — Secrets 에서 키를 넘김",
       "ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}" in wf)
 

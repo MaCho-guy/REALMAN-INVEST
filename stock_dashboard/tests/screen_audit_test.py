@@ -665,7 +665,7 @@ check("이름은 HTML 로 해석하지 않음", "<script>" not in evil)
 check("정의 문장 — 가격은 보지 않는다고 적음", "가격은 보지 않습니다" in buffett.DEFINITION)
 check("발굴(미국) — 정의 · 기준표 · 한눈표",
       "_criteria_block(config.screen_thresholds(), market=\"us\"" in src
-      and "ui.render_screen_table(passed, buffett.CRITERIA)" in src)
+      and "ui.render_screen_table(top, buffett.CRITERIA, held=held" in src)
 check("밸류에이션 — '사업의 질' 기준표를 펼쳐 볼 수 있음",
       "'사업의 질' 은 무엇으로 재나" in src and "buffett_kr.kr_thresholds() if kr_only" in src)
 check("발굴(한국) — 여섯 스크리너 기준표와 말뜻",

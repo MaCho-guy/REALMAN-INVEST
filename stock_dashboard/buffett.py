@@ -951,6 +951,58 @@ def screen_company(ticker: str, facts, *, years: int = 10,
     return run_checks(screen, th)
 
 
+@dataclass
+class ScreenSummary(Screen):
+    """파일에서 되살린 심사 결과 — 연도별 숫자 없이 판정만 들고 있습니다.
+
+    전수 심사(universe.py)는 500개 기업의 10년치 숫자를 파일에 싣지 않습니다.
+    화면이 쓰는 것(판정 · 값 · 설명 · 연도 수)만 남깁니다.
+    """
+
+    years_n: int = 0
+    sector: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return self.error == "" and self.years_n > 0
+
+    @property
+    def year_count(self) -> int:
+        return self.years_n
+
+
+def to_summary(screen: Screen, **extra) -> dict:
+    """심사 결과 → 파일에 실을 사전. c: [기준, 판정, 값, 설명, 경고]"""
+    return {
+        "t": screen.ticker, "n": screen.name, "y": screen.year_count,
+        **({"e": screen.error} if screen.error else {}),
+        **({"m": list(screen.missing_tags)} if screen.missing_tags else {}),
+        "c": [[c.criterion.key, c.verdict, c.value_label, c.detail, c.warning]
+              for c in screen.checks],
+        **{k: v for k, v in extra.items() if v},
+    }
+
+
+def from_summary(row: dict) -> ScreenSummary | None:
+    """사전 → ScreenSummary. 모르는 기준은 건너뜁니다 (파일이 다른 버전일 때)."""
+    if not isinstance(row, dict) or not row.get("t"):
+        return None
+    checks = []
+    for item in row.get("c") or []:
+        if not isinstance(item, (list, tuple)) or len(item) < 2:
+            continue
+        crit = CRITERIA_BY_KEY.get(item[0])
+        if crit is None or item[1] not in ("pass", "fail", "unknown"):
+            continue
+        checks.append(Check(crit, item[1], value_label=str(item[2] if len(item) > 2 else "—"),
+                            detail=str(item[3] if len(item) > 3 else ""),
+                            warning=str(item[4] if len(item) > 4 else "")))
+    return ScreenSummary(
+        ticker=str(row["t"]), name=str(row.get("n") or row["t"]), checks=checks,
+        error=str(row.get("e") or ""), missing_tags=list(row.get("m") or []),
+        years_n=int(row.get("y") or 0), sector=str(row.get("s") or ""))
+
+
 def rank(screens: list[Screen]) -> list[Screen]:
     """통과 수 내림차순, 같으면 판정 불가가 적은 순, 그다음 티커순.
 

@@ -1067,12 +1067,9 @@ TAB_ORDER: tuple[str, ...] = (
     "summary",      # 요약 — 지금 알아야 할 것만
     "briefing",     # 아침 브리핑 — 예약 작업이 매일 쓰는 미국장 글 (11/13, 매크로에서 옮김)
     "holdings",     # 내가 가진 종목 — 변화 감지 + 시세 + 공시 분석
-    "discover",     # 품질 깔때기 — 재무 품질 → 가격 → 차트 (한·미)
     "picks",        # 후보 — 한국, 품질 · 가격 · 선행 EPS 세 등 + 타이밍 꼬리표 (11/13)
     "basis",        # 근거 — 한국, 한 종목의 9개 기준 · 역DCF · EPS + 품질 깔때기 · 밸류에이션 (11/13)
     "timing",       # 차트·거래 — 한국, 거래 스크리너 · 차트 조건 전체 목록 (11/13, 참고용)
-    "valuation",    # 걸러낸 종목 밸류에이션 — 역DCF + 사분면
-    "chart",        # 차트 조건 — 일목 양운 · CCI · MACD · DMI (일봉)
     "sector_heat",  # 한국 — 섹터 온도 (KODEX 업종 ETF)
     "research",     # 한국 — 증권사 산업분석 리포트 목록 (업종별)
     "semi_research",  # 한국 — 반도체 리포트 (산업 · 삼성전자 · SK하이닉스) 요약
@@ -1108,6 +1105,10 @@ TABS_RETIRED: dict[str, str] = {
     # 2026-11-13 "찾기안들이 너무 복잡하다" → 한국 찾기를 후보 · 근거 · 차트·거래 3칸으로.
     # 화면 함수(render_screener_tab)는 그대로이고 '차트·거래' 탭 안에서 부릅니다.
     "screener": "거래 스크리너 → 찾기 › 차트·거래 (11/13)",
+    # 같은 날 미국도 3칸으로 — 화면 함수는 그대로이고 근거 · 차트 탭 안에서 부릅니다.
+    "discover": "품질 깔때기 → 찾기 › 근거 (스위치, 11/13)",
+    "valuation": "밸류에이션 → 찾기 › 근거 (스위치, 11/13)",
+    "chart": "차트 조건 → 찾기 › 차트·거래 / 차트 (11/13)",
 }
 
 #: 섹션(= 종목 묶음)으로 존재하면서 탭에서 내려간 것만. 되돌리려면 이 목록에서
@@ -1152,7 +1153,8 @@ MARKET_TABS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
     ),
     "us": (
         ("오늘", ("summary", "briefing", "holdings")),
-        ("찾기", ("discover", "valuation", "chart")),
+        # 2026-11-13 한국과 같은 3칸. 거래 스크리너는 한국만이라 셋째 칸 이름은 '차트'.
+        ("찾기", ("picks", "basis", "timing")),
         ("미국 시장", ("macro", "us_flows")),
         ("공통", ("calendar", "cycle")),
     ),
@@ -1161,6 +1163,10 @@ MARKET_TABS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
 #: 한국 찾기를 3칸으로 줄이며(11/13) 옮긴 탭 — 예전 주소(?s=discover 등)로 들어오면 여기로
 KR_TAB_MOVED: dict[str, str] = {"discover": "basis", "valuation": "basis",
                                 "screener": "timing", "chart": "timing"}
+#: 시장별 옮긴 탭 (미국도 11/13 같은 3칸)
+TAB_MOVED: dict[str, dict[str, str]] = {"kr": KR_TAB_MOVED, "us": dict(KR_TAB_MOVED)}
+#: 시장마다 다른 탭 이름 — 미국에는 거래 스크리너가 없어 '차트·거래' 대신 '차트'
+MARKET_TAB_LABELS: dict[str, dict[str, str]] = {"us": {"timing": "차트"}}
 
 #: 처음 열었을 때의 시장
 DEFAULT_MARKET = "kr"
@@ -1689,9 +1695,16 @@ NEWS_TIER_SOURCES: tuple[str, ...] = (
     "히트뉴스", "데일리팜", "아주경제", "이투데이", "비즈워치", "데일리안",
 )
 
+def market_labels(market: str = "kr") -> dict[str, str]:
+    """{key: 라벨} — 시장마다 다른 이름(MARKET_TAB_LABELS)을 덮어씁니다."""
+    out = dict(tab_labels())
+    out.update(MARKET_TAB_LABELS.get(market, {}))
+    return out
+
+
 def tab_groups(market: str = "kr") -> list[tuple[str, list[tuple[str, str]]]]:
     """[(그룹명, [(key, 라벨), …]), …] — 그 시장에서 보이는 섹션만."""
-    labels = dict(tab_labels())
+    labels = market_labels(market)
     groups = MARKET_TABS.get(market) or MARKET_TABS[DEFAULT_MARKET]
     out: list[tuple[str, list[tuple[str, str]]]] = []
     for group, keys in groups:

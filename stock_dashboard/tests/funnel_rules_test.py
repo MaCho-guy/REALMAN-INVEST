@@ -225,13 +225,36 @@ check("한국 찾기 = 후보 · 근거 · 차트·거래 3칸 (11/13 단순화)
 check("예전 탭은 옮긴 곳으로 (주소 · 세션)",
       config.KR_TAB_MOVED == {"discover": "basis", "valuation": "basis",
                               "screener": "timing", "chart": "timing"}
-      and "config.KR_TAB_MOVED" in app_src)
+      and config.TAB_MOVED["kr"] is config.KR_TAB_MOVED)
 check("옮긴 화면을 지우지 않고 스위치로 부름",
       '_discover_kr(use_demo, part="funnel")' in app_src.split("def render_basis_tab")[1][:6000]
       and "data, fx, use_demo, phone, market=market)" in app_src
       and "render_chart_tab(use_demo, market=market, today=False)" in app_src
       and "render_screener_tab(use_demo, market=market)" in app_src)
-check("미국 찾기는 그대로", dict(config.MARKET_TABS["us"])["찾기"] == ("discover", "valuation", "chart"))
+check("미국 찾기도 같은 3칸 · 셋째 칸 이름은 '차트' (11/13)",
+      dict(config.MARKET_TABS["us"])["찾기"] == ("picks", "basis", "timing")
+      and config.market_labels("us")["timing"] == "차트"
+      and config.market_labels("kr")["timing"] == "차트·거래"
+      and dict(config.tab_groups("us"))["찾기"][2] == ("timing", "차트"))
+check("미국 예전 주소도 옮긴 탭으로", config.TAB_MOVED["us"]["discover"] == "basis"
+      and config.TAB_MOVED["us"]["chart"] == "timing"
+      and "config.TAB_MOVED.get(market" in app_src)
+
+print("\n=== 미국 후보 — 품질 9개 중 7개 · 같은 관문 ===")
+us_scr = [summ("BRK.B", [P] * 7 + [F, F]),          # 통과
+          summ("XX", [P] * 6 + [F] + [U, U])]      # 6개 — 미국은 미달(보류)
+us_fr = {"BRK.B": {"p": light_p, "f": {"c90": 0.02}}, "XX": {"p": light_p, "f": {"c90": 0.02}}}
+uc = integrate.build(us_scr, us_fr, {"BRK.B": _Row()}, {}, market="us")
+check("미국 — 7개 통과만 후보, 차트 표기(BRK-B → BRK.B)를 맞추면 타이밍",
+      [c.ticker for c in uc] == ["BRK.B"] and uc[0].timing and uc[0].greens == 3)
+check("미국 보류 정의 (미달 1개 이하 · 판정 불가 포함하면 7)",
+      integrate.held_back(mk("XX", [P] * 6 + [F] + [U, U]), "us")
+      and not integrate.held_back(mk("YY", [P] * 6 + [F] * 3), "us"))
+oc = integrate.build([summ("O", [P] * 7 + [F, F])], {"O": {"p": light_p, "f": {"c90": 6.97}}},
+                     {}, {}, market="us")
+check("EPS 90일 ±100% 넘으면 이상값 — 충족 아님 · 순서는 추정 없음처럼",
+      oc[0].lamps["eps"] == "-" and oc[0].eps_c90 is None and "이상값" in oc[0].notes["eps"])
+check("화면이 미국 차트 표기를 맞춘다", 'str(t).replace("-", ".")' in app_src)
 check("화면이 거래 스크리너 품질 스위치를 기본 켬",
       '"품질 통과 · 보류 종목만", value=True' in app_src)
 

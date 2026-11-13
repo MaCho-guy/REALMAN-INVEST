@@ -1306,6 +1306,16 @@ def quality_pass(screen: Screen, market: str, us_min: int | None = None) -> bool
                                                  if us_min is None else us_min)
 
 
+def held_back_us(screen: Screen, us_min: int | None = None) -> bool:
+    """미국 '판정이 모자라 보류' — 미달 1개 이하인데 판정 불가 때문에 통과 수에 못 미침
+    (품질 깔때기 화면의 보류 칸과 같은 정의)."""
+    import config  # noqa: PLC0415
+
+    q = config.DISCOVER_QUALITY_MIN if us_min is None else us_min
+    return (screen.ok and screen.passed_count < q and screen.failed_count <= 1
+            and screen.passed_count + screen.unknown_count >= q)
+
+
 def rank_with_eps(screens: list[Screen], eps: dict | None = None) -> list[Screen]:
     """rank_by_ratio 와 같은 순서에, 비율 · 통과 수가 같으면 **선행 EPS 90일 변화** 큰 순.
 

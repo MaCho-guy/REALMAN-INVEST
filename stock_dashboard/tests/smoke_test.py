@@ -243,7 +243,11 @@ check_true("합침과 내림이 겹치지 않음", not (_merged & _retired),
            str(_merged & _retired))
 check_true("내려진 key 는 탭에 없음", not (_retired & set(tab_keys)),
            str(_retired & set(tab_keys)))
-check_true("밸류에이션 탭 유지", "valuation" in tab_keys)
+# 11/13: 밸류에이션은 탭이 아니라 찾기 › 근거 안 스위치 (화면은 유지)
+check_true("밸류에이션 화면 유지 (근거 탭 안)", "basis" in tab_keys
+           and "render_valuation_tab(" in open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "app.py"), encoding="utf-8").read()
+           .split("def render_basis_tab")[1][:9000])
 check_true("탭 라벨 중복 없음",
            len({l for _k, l in config.tab_labels()}) == len(config.tab_labels()))
 
@@ -388,8 +392,8 @@ check_true("괴리율은 탭에 없음", "adr" not in _labels, str(list(_labels)
 check_true("국내 본주 별도 탭 없음", "local" not in _labels, str(list(_labels)))
 check_true("진단은 탭이 아니라 설정 패널", "diag" not in _labels,
            str(list(_labels)))
-check_true("국내 발굴은 발굴 탭 안으로",
-           "screen_kr" not in _labels and "discover" in _labels,
+check_true("국내 발굴은 찾기 탭 안으로 (11/13 후보 · 근거)",
+           "screen_kr" not in _labels and "picks" in _labels and "basis" in _labels,
            str(list(_labels)))
 
 
@@ -400,8 +404,8 @@ import discover as _disc  # noqa: E402
 _tabs = dict(config.tab_labels())
 # 2026-11-11: 시장이 최상위 축이 되면서 탭이 '시장마다 다른 목록' 이
 # 됐습니다. 전체 목록은 두 시장의 합집합이고, 시장마다 보이는 게 다릅니다.
-check_true("전체 탭 18개 (11/13 한국 찾기 = 후보 · 근거 · 차트·거래, 거래 스크리너는 차트·거래 안 · 실적 탭은 내 종목으로)", len(_tabs) == 18, f"{len(_tabs)}개: {list(_tabs)}")
-for _need in ("summary", "holdings", "discover", "valuation", "sector_heat",
+check_true("전체 탭 15개 (11/13 찾기 = 후보 · 근거 · 차트(·거래) 한·미 공통, 품질 깔때기 · 밸류에이션 · 차트 조건 · 거래 스크리너는 그 안 · 실적 탭은 내 종목으로)", len(_tabs) == 15, f"{len(_tabs)}개: {list(_tabs)}")
+for _need in ("summary", "holdings", "picks", "basis", "sector_heat",
               "kr_flows", "macro", "us_flows", "cycle"):
     check_true(f"탭 '{_need}' 이 있다", _need in _tabs, str(list(_tabs)))
 check_true("옛 flows 탭은 없다", "flows" not in _tabs,

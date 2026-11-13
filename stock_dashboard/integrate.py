@@ -40,6 +40,9 @@ TRADE_NAMES = {"contraction": "변동성 수축", "near_high": "신고가 근처
 
 #: 화면에 싣는 최대 후보 수
 MAX_PICKS = 10
+#: 선행 EPS 90일 변화가 이 크기(소수)를 넘으면 추정 이상값으로 보고 충족으로 세지 않음.
+#: 2026-11-13 실측: Erie Indemnity +697% (야후 추정 이상) 가 미국 후보 4위로 올라옴.
+EPS_OUTLIER = 1.0
 
 
 @dataclass
@@ -65,14 +68,18 @@ class Candidate:
                 self.price_gap if self.price_gap is not None else 1.0, self.ticker)
 
 
-def _quality(sc) -> tuple[str, str]:
+def held_back(sc, market: str = "kr") -> bool:
+    return buffett.held_back_kr(sc) if market == "kr" else buffett.held_back_us(sc)
+
+
+def _quality(sc, market: str = "kr") -> tuple[str, str]:
     if sc is None or not sc.ok:
         return GRAY, "재무를 받지 못함"
     txt = f"판정 {sc.known_count} 중 통과 {sc.passed_count} · 미달 {sc.failed_count}"
-    if buffett.passes_kr(sc):
+    if buffett.quality_pass(sc, market):
         return GREEN, txt
-    if buffett.held_back_kr(sc):
-        return YELLOW, txt + " (증거 부족 보류)"
+    if held_back(sc, market):
+        return YELLOW, txt + " (판정 부족 보류)"
     return RED, txt
 
 
@@ -119,6 +126,8 @@ def _eps(f: dict | None) -> tuple[str, str]:
     if c is None:
         return GRAY, "추정 없음 (야후)"
     txt = f"90일 {funnel.eps_arrow(c)} {c * 100:+.1f}%"
+    if abs(c) > EPS_OUTLIER:
+        return GRAY, txt + " — 추정 이상값, 야후 확인 필요"
     if funnel.eps_down(f):
         return RED, txt + " — 추정이 깎이는 중"
     if c >= funnel.EPS_FLAT:
@@ -136,7 +145,7 @@ def _trade(keys: list[str]) -> tuple[str, str]:
 
 
 def build(screens: list, frows: dict, chart_rows: dict, hits: dict,
-          semis: set = (), new: set = ()) -> list[Candidate]:
+          semis: set = (), new: set = (), market: str = "kr") -> list[Candidate]:
     """품질 통과 종목마다 Candidate — 관문 통과(후보)가 앞, 빠진 종목이 뒤.
 
     screens: funnel_kr.json 의 screens (dict 또는 Screen) · frows: {코드: 깔때기 줄} ·
@@ -149,18 +158,20 @@ def build(screens: list, frows: dict, chart_rows: dict, hits: dict,
     out: list[Candidate] = []
     for s in screens or []:
         sc = buffett.from_summary(s) if isinstance(s, dict) else s
-        if sc is None or not buffett.passes_kr(sc):
-            continue                                   # 관문 ① — 품질 통과만 살핌
+        if sc is None or not buffett.quality_pass(sc, market):
+            continue                                   # 관문 ① — 품질 통과만 살핌 (미국 7/9)
         t = sc.ticker
         fr = frows.get(t)
         c = Candidate(ticker=t, name=sc.name, semi=t in semis, new_entry=t in new)
-        for key, (col, note) in (("quality", _quality(sc)), ("price", _price(fr)),
+        for key, (col, note) in (("quality", _quality(sc, market)), ("price", _price(fr)),
                                  ("eps", _eps((fr or {}).get("f")))):
             c.lamps[key], c.notes[key] = col, note
         chart_col, c.notes["chart"] = _chart(chart_rows.get(t))
         c.timing = chart_col == GREEN
         c.notes["trade"] = _trade(by_hit.get(t, []))[1]
         c.eps_c90 = ((fr or {}).get("f") or {}).get("c90")
+        if c.eps_c90 is not None and abs(c.eps_c90) > EPS_OUTLIER:
+            c.eps_c90 = None                           # 순서에서는 '추정 없음' 처럼 뒤로
         c.price_gap = funnel.price_gap((fr or {}).get("p"))
         if c.lamps["price"] == RED:
             c.excluded = "가격 부담 높음"

@@ -1839,10 +1839,14 @@ def build_rules() -> str:
   .pk-chip.mid {{ background: var(--grp-tint, var(--dash-raised)); }}
   .pk-chip.plain {{ background: transparent; border: 1px solid var(--dash-divider);
                    color: var(--dash-ink-2); }}
+  /* 가격 부담 높음 · 선행 EPS −5% 이하 — 빼지 않고 눈에 띄게 (2026-11-13) */
+  .pk-chip.warn {{ border: 1.5px solid var(--dash-badge-error, var(--dash-down));
+                  background: transparent; color: var(--dash-ink); }}
   .pk-chip.eps.up {{ color: var(--dash-up);
                     background: color-mix(in srgb, var(--dash-up) 10%, var(--dash-surface)); }}
   .pk-chip.eps.down {{ color: var(--dash-down);
                       background: color-mix(in srgb, var(--dash-down) 10%, var(--dash-surface)); }}
+  .pk-chip.eps.warn {{ border: 1.5px solid var(--dash-badge-error, var(--dash-down)); }}
   .pk-g {{ display: grid; grid-template-columns: 6.6em minmax(0, 1fr) 2.6em;
           align-items: center; gap: 8px; padding: 3px 0; }}
   .pk-gl {{ font-size: var(--fs-2); color: var(--dash-ink-2); white-space: nowrap; }}

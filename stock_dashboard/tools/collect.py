@@ -638,6 +638,8 @@ def build_funnel_kr(app, out_dir: str, *, screens_fn=None, caps_fn=None, ohlc_fn
             "unknown": verdicts.count("unknown"), "verdicts": len(verdicts),
             "pass7": sum(1 for r in ok if buffett.passes(
                 buffett.from_summary(r), config.DISCOVER_QUALITY_MIN, by_ratio=True)),
+            # 화면이 쓰는 국내 통과 규칙(미달 2개 이하 · 판정 7개 이상, 2026-11-13)
+            "pass_kr": sum(1 for r in ok if buffett.passes_kr(buffett.from_summary(r))),
             "todo": len(rows), "caps": sum(1 for r in rows if r["p"].get("cap")),
             "bars": sum(1 for r in rows if not r["c"].get("e")),
             "priced": sum(1 for r in rows if funnel.price_known(r["p"])),
@@ -876,7 +878,8 @@ def _build_universe(app, out_dir: str, markets=("us", "kr")) -> dict:
         else:
             print(f"  한국 깔때기: 후보 {k['members']} → 재무 받음 {k['n']} (못 받음 {k['errors']}"
                   f"{' · 지난 판정 재사용' if k['reused'] else ''}) · 판정 불가 "
-                  f"{k['unknown']}/{k['verdicts']} · 품질 통과(판정 중 7/9 이상) {k['pass7']} · "
+                  f"{k['unknown']}/{k['verdicts']} · 품질 통과(미달 2개 이하 · 판정 7개 이상) {k['pass_kr']} "
+                  f"(예전 판정 중 7/9 {k['pass7']}) · "
                   f"가격 판정 {k['priced']}/{k['todo']} (부담 낮음 {k['light']}) · "
                   f"차트 과매도 쪽 {k['os']} · 선행 EPS {k['eps']} ({k['sec_eps']:.0f}초) · "
                   f"{k['sec']:.0f}초 (품질 {k['sec_q']:.0f}초) · "

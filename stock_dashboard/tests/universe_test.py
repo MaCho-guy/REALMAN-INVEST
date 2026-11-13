@@ -858,8 +858,9 @@ import buffett_kr as _bk
 check("국내 규칙 — 조사에서 나온 표준ID 가 들어 있다",
       "ifrs-full_Borrowings" in _bk.KR_RULES_BY_KEY["long_term_debt"].ids
       and "dart_CashAndDuefromBanks" in _bk.KR_RULES_BY_KEY["cash"].ids and _bk.KR_REV >= 4)
-check("한국 화면 — 비율로 본다고 적는다", "판정된 기준 가운데 78% 이상 통과" in hk
-      and "주주이익 · 설비투자" in hk and "판정 중 78% 이상 통과" in hk)
+check("한국 화면 — 허용 미달 규칙을 적는다 (2026-11-13: 비율 → 미달 2개 이하 · 판정 7개 이상)",
+      "확인된 미달 2개 이하 · 판정된 기준 7개 이상" in hk
+      and "주주이익 · 설비투자" in hk and "품질 통과 (미달 2개 이하)" in hk)
 
 print("\n=== 밸류에이션 탭 — 가격 축이 깔때기와 같은 규칙 ===")
 import reverse_dcf as _rdcf
@@ -968,7 +969,7 @@ _pl = next(x for x in hq.split('class="dash-legend">') if "가격 부담 낮음<
 check("가격 줄 — 계산 시각과 출처가 맨 앞", _pl.index("가격 · 차트 계산") < _pl.index("가격 부담 낮음")
       and "야후" in _pl[:120] and "SEC EDGAR" in _pl[:120], _pl[:120])
 check("한국 품질 줄 — 심사 시각과 출처가 맨 앞",
-      hk.index("품질 심사 ") < hk.index("판정된 기준 가운데") and "DART 사업보고서" in hk)
+      hk.index("품질 심사 ") < hk.index("확인된 미달") and "DART 사업보고서" in hk)
 check("미국 발굴 — 기준 정의와 기준표는 접어 둔다 (지우지 않음)",
       any(e.startswith("버핏식 품질 기준 9개 — 정의와 통과 조건") for e in stq.exp)
       and "dash-criteria" in hq)

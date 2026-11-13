@@ -4917,7 +4917,7 @@ def render_briefing_view(bf, parsed: dict | None, rest_md: str = "") -> str:
 # 종목당 카드 한 장: 이름 · 꼬리표 · 종가와 20일선 대비 / 펀더멘털 칩(가격 부담 · 선행 EPS)
 # / CCI · 스토캐스틱 눈금(과매도 구역에 색, 지금 값에 점). 넓은 화면에서는 나란히.
 
-_PK_PRICE_CLS = {"light": "good", "edge": "mid", "heavy": "plain", "na": "plain"}
+_PK_PRICE_CLS = {"light": "good", "edge": "mid", "heavy": "warn", "na": "plain"}
 
 
 def _pk_gauge(label: str, value, lo: float, hi: float, zone_hi: float,
@@ -4981,7 +4981,8 @@ def render_pick_cards(items: list[dict]) -> str:
         if c90 is not None:
             cls = "up" if c90 > 0.005 else ("down" if c90 < -0.005 else "flat")
             arrow = "▲" if cls == "up" else ("▼" if cls == "down" else "→")
-            chips.append(f'<span class="pk-chip eps {cls}">선행 EPS {arrow} {c90 * 100:+.1f}%'
+            warn = " warn" if it.get("eps_warn") else ""
+            chips.append(f'<span class="pk-chip eps {cls}{warn}">선행 EPS {arrow} {c90 * 100:+.1f}%'
                          "<small> 90일</small></span>")
         else:
             chips.append('<span class="pk-chip plain">선행 EPS 추정 없음</span>')

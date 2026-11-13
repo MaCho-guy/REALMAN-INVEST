@@ -1736,6 +1736,11 @@ def _criteria_block(th, *, market: str, quality_min: int | None = None) -> str:
             "탈락합니다 — 제가 정한 선입니다). ")
     cut = (f"아래 목록의 '통과' 는 <b>{len(rows)}개 중 {quality_min}개 이상</b> 통과입니다 "
            "(슬라이더로 바꿉니다). " if quality_min else "")
+    if market == "kr":
+        cut = (f"국내 '통과' 는 <b>확인된 미달 {config.KR_QUALITY_MAX_FAIL}개 이하 · 판정된 기준 "
+               f"{config.KR_QUALITY_MIN_KNOWN}개 이상</b>입니다 — 9개가 다 판정되면 미국 "
+               f"{len(rows)}개 중 {config.DISCOVER_QUALITY_MIN}개와 같은 선이고, 판정 불가는 "
+               "미달로 세지 않습니다. ")
     return ui.render_criteria_table(
         rows, title=f"버핏식 품질 기준 {len(rows)}개 — 정의와 통과 조건",
         intro=buffett.DEFINITION,
@@ -1921,6 +1926,11 @@ def _discover_us(use_demo: bool) -> None:
     def _fc(t):
         return (fmap.get(t) or {}).get("c")
 
+    if fmap:
+        # 비율 · 통과 수가 같으면 선행 EPS 90일 변화 큰 순 (2026-11-13)
+        eps_c = {t: ((r or {}).get("f") or {}).get("c90") for t, r in fmap.items()}
+        passed_all = buffett.rank_with_eps(passed_all, eps_c)
+        passed = buffett.rank_with_eps(passed, eps_c)
     light = [s_ for s_ in passed if funnel.is_light(_fp(s_.ticker))]
     both = [s_ for s_ in light if funnel.is_oversold(_fc(s_.ticker))]
 
@@ -1955,6 +1965,10 @@ def _discover_us(use_demo: bool) -> None:
             "어디까지 좁혀 볼지 누르세요 (바로 바뀝니다)", list(stage_names),
             default=stage, key="disc_stage",
             format_func=lambda k: stage_names[k]) or "q"
+        if passed:
+            st.markdown(ui.render_legend(funnel.breakdown_text(
+                funnel.breakdown([fmap.get(s_.ticker) for s_ in passed]), len(passed))),
+                unsafe_allow_html=True)
         made_f = fpay.get("made")
         unknown_p = sum(1 for s_ in passed if not funnel.price_known(_fp(s_.ticker)))
         st.markdown(ui.render_legend(
@@ -2007,7 +2021,7 @@ def _discover_us(use_demo: bool) -> None:
         st.markdown(ui.render_legend(
             "<b>○</b> 통과 · <b>✗</b> 미달 · <b>?</b> 판정 불가(숫자 5년치 미만) · "
             "<b>★</b> 내 관심종목 · <b>순위</b> = 판정된 기준 중 통과 비율 "
-            "(같으면 통과 수가 많은 쪽) — 미달이 없는 종목이 먼저 옵니다"
+            "(같으면 통과 수 → 선행 EPS 90일 변화가 큰 쪽) — 미달이 없는 종목이 먼저 옵니다"
             + (f" · 통과 {len(passed)}종목 중 위 {len(top)}종목"
                if len(passed) > len(top) else "")),
             unsafe_allow_html=True)
@@ -2078,10 +2092,15 @@ def _kr_quality_block(use_demo: bool) -> None:
         return (fmap.get(t) or {}).get("c")
 
     qmin = min(config.DISCOVER_QUALITY_MIN, len(buffett.CRITERIA))
-    # 국내는 통과 '수' 가 아니라 판정된 기준 중 '비율' 로 봅니다 (buffett.passes)
-    quality = buffett.rank_by_ratio(
-        [s_ for s_ in usable if buffett.passes(s_, qmin, by_ratio=True)])
-    bar = f"{qmin / len(buffett.CRITERIA) * 100:.0f}%"
+    # 국내 품질 통과 = 확인된 미달 2개 이하 · 판정 7개 이상 (buffett.passes_kr, 2026-11-13).
+    # 순서는 판정 중 통과 비율 → 통과 수 → 선행 EPS 90일 변화.
+    eps_c = {t: ((r or {}).get("f") or {}).get("c90") for t, r in fmap.items()}
+    quality = buffett.rank_with_eps(
+        [s_ for s_ in usable if buffett.passes_kr(s_)], eps_c)
+    held_back = buffett.rank_with_eps(
+        [s_ for s_ in usable if buffett.held_back_kr(s_)], eps_c)
+    max_fail, min_known = config.KR_QUALITY_MAX_FAIL, config.KR_QUALITY_MIN_KNOWN
+    bar = f"미달 {max_fail}개 이하"
     light = [s_ for s_ in quality if funnel.is_light(_fp(s_.ticker))]
     both = [s_ for s_ in light if funnel.is_oversold(_fc(s_.ticker))]
     verdicts = [c.verdict for s_ in usable for c in s_.checks]
@@ -2097,8 +2116,8 @@ def _kr_quality_block(use_demo: bool) -> None:
         unsafe_allow_html=True)
     st.markdown(ui.render_legend(
         f"<b>품질 심사 {_when(q_made)}</b> (DART 사업보고서) · <b>가격 · 차트 계산 {_when(made)}</b> — "
-        f"<b>품질</b> = 판정된 기준 가운데 {bar} 이상 통과 (9개 중 {qmin}개와 같은 비율 · "
-        f"판정된 기준 6개 이상 · 최근 10년) · "
+        f"<b>품질</b> = 확인된 미달 {max_fail}개 이하 · 판정된 기준 {min_known}개 이상 "
+        f"(미국 9개 중 {qmin}개와 같은 허용 폭 — 판정 불가는 미달로 세지 않음 · 최근 10년) · "
         f"전체 판정 가운데 <b>판정 불가 {unknown_pct:.0f}%</b> — 감가상각비가 재무제표 본문에 "
         "없는 회사가 많아 <b>주주이익 · 설비투자</b> 두 기준은 대부분 판정 불가입니다 · "
         "<b>가격 부담 낮음</b> = 역DCF 요구 FCF 성장률 ≤ "
@@ -2110,8 +2129,12 @@ def _kr_quality_block(use_demo: bool) -> None:
         kr_screen.FunnelStep("후보", int(fpay.get("n_members") or len(all_screens) + len(errors))),
         kr_screen.FunnelStep("재무 받음", len(usable),
                              "못 받은 종목은 아래 '이유 보기'" if errors else ""),
-        kr_screen.FunnelStep(f"판정 중 {bar} 이상 통과", len(quality)),
+        kr_screen.FunnelStep(f"품질 통과 ({bar})", len(quality)),
     ], errors, title="단계별로 남은 종목"), unsafe_allow_html=True)
+    if quality:
+        st.markdown(ui.render_legend(funnel.breakdown_text(
+            funnel.breakdown([fmap.get(s_.ticker) for s_ in quality]), len(quality))),
+            unsafe_allow_html=True)
 
     stage_names = {"q": f"품질 통과 ({len(quality)})",
                    "p": f"+ 가격 부담 낮음 ({len(light)})",
@@ -2131,7 +2154,8 @@ def _kr_quality_block(use_demo: bool) -> None:
             "<b>이 단계까지 남은 종목이 없습니다.</b> "
             + (f"품질 통과 {len(quality)}종목 가운데 조건을 다 만족하는 종목이 지금은 없습니다 — "
                "한 단계 앞을 보십시오." if quality else
-               f"판정된 기준의 {bar} 이상을 통과한 종목이 없습니다.")), unsafe_allow_html=True)
+               f"품질 기준({bar} · 판정 {min_known}개 이상)을 통과한 종목이 없습니다.")),
+            unsafe_allow_html=True)
     else:
         top = shown[:config.DISCOVER_US_ROWS]
         st.markdown(ui.render_screen_table(
@@ -2140,7 +2164,8 @@ def _kr_quality_block(use_demo: bool) -> None:
             unsafe_allow_html=True)
         st.markdown(ui.render_legend(
             "<b>○</b> 통과 · <b>✗</b> 미달 · <b>?</b> 판정 불가 · <b>★</b> 내 관심종목 · "
-            "<b>순위</b> = 판정된 기준 중 통과 비율 — 이 목록은 '살 종목' 이 아니라 "
+            "<b>순위</b> = 판정된 기준 중 통과 비율 → 통과 수 → 선행 EPS 90일 변화 — "
+            "이 목록은 '살 종목' 이 아니라 "
             "'공시를 읽어볼 순서' 입니다"
             + (f" · {len(shown)}종목 중 위 {len(top)}종목" if len(shown) > len(top) else "")),
             unsafe_allow_html=True)
@@ -2163,8 +2188,18 @@ def _kr_quality_block(use_demo: bool) -> None:
         if picked in by_ticker:
             st.markdown(ui.render_screen(by_ticker[picked], show_source=False),
                         unsafe_allow_html=True)
+    if held_back:
+        with st.expander(f"증거 부족 보류 {len(held_back)}개 — 미달 {max_fail}개 이하인데 "
+                         f"판정된 기준이 {min_known}개 미만", expanded=False):
+            st.markdown(ui.render_legend(
+                "떨어진 것이 아니라 <b>숫자로 확인한 기준이 적은 것</b>입니다 — 통과로 세지 "
+                "않고 따로 둡니다. <b>?</b> 가 실제로 통과인지는 사업보고서에서 직접 확인해야 "
+                "합니다."), unsafe_allow_html=True)
+            st.markdown(ui.render_screen_table(
+                held_back[:60], buffett.CRITERIA, held=held, rank_from=1),
+                unsafe_allow_html=True)
     with st.expander("버핏식 품질 기준 9개 — 국내 통과 조건", expanded=False):
-        st.markdown(_criteria_block(buffett_kr.kr_thresholds(), market="kr", quality_min=qmin),
+        st.markdown(_criteria_block(buffett_kr.kr_thresholds(), market="kr"),
                     unsafe_allow_html=True)
 
 
@@ -2528,7 +2563,19 @@ def _chart_quality_rows(market: str, use_demo: bool) -> dict | None:
     rows = f.get("rows") if isinstance(f.get("rows"), list) else None
     if not rows:
         return None
-    return {str(r.get("t", "")).replace(".", "-"): r for r in rows if isinstance(r, dict)}
+    out = {str(r.get("t", "")).replace(".", "-"): r for r in rows if isinstance(r, dict)}
+    # 깔때기 파일의 줄은 '미리 계산해 두는' 6개 기준 이상이라 화면의 품질 통과보다
+    # 넓습니다 (2026-11-13 실측: 미국 189 · 한국 55 vs 깔때기 130 · 23). 깔때기 화면과
+    # 같은 규칙(buffett.quality_pass)으로 줄입니다. 심사 묶음을 못 읽으면 줄 전부를 씁니다.
+    try:
+        src = (_universe_or_none("us", use_demo).get("screens") if market == "us"
+               else f.get("screens"))
+        if src:
+            keep = funnel.quality_tickers(src, market)
+            out = {t: r for t, r in out.items() if t in keep}
+    except Exception:  # noqa: BLE001 - 못 줄이면 예전처럼
+        pass
+    return out
 
 
 _PRICE_WORD = {"light": "가격 부담 낮음", "edge": "가격 경계", "heavy": "가격 부담 높음",
@@ -2550,14 +2597,22 @@ def _pick_item(row, frow: dict | None, semis: set, new: set, market: str = "kr",
         facts.append(_PRICE_WORD.get(state, ""))
         facts.append(funnel.eps_chip(frow.get("f")))
     tags = (["새로"] if row.ticker in new else []) + (["반도체"] if row.ticker in semis else [])
+    # 가격 부담 높음은 목록에서 빼지 않고 표시만 합니다 (2026-11-13 사용자) — 얼마나
+    # 높은지(요구 − 과거 성장률, %p)를 같이 적습니다.
+    word = _PRICE_WORD.get(state, "") if frow else ""
+    if state == "heavy":
+        gp = funnel.price_gap((frow or {}).get("p"))
+        if gp is not None:
+            word += f" +{gp * 100:,.1f}%p"
     px = row.price
     price_txt = ("" if px is None else
                  (f"{px:,.0f}원" if market == "kr" else f"${px:,.2f}"))
     gap = ((px / row.ma20 - 1) * 100 if (px and row.ma20) else None)
     return {"name": row.name, "ticker": row.ticker, "tags": tags, "facts": facts,
             "price_txt": price_txt, "gap20": gap,
-            "price_state": state, "price_word": _PRICE_WORD.get(state, "") if frow else "",
-            "eps_c90": f.get("c90"), "cci": row.cci, "stoch_k": row.stoch_k,
+            "price_state": state, "price_word": word,
+            "eps_c90": f.get("c90"), "eps_warn": funnel.eps_down(f),
+            "cci": row.cci, "stoch_k": row.stoch_k,
             "entered": entered, "vol_ratio": row.vol_ratio,
             "cci_lo": chart_signals.CCI_OVERSOLD, "stoch_lo": chart_signals.STOCH_OVERSOLD,
             "spark": spark or []}

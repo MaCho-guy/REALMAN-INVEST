@@ -1261,6 +1261,67 @@ def rank_by_ratio(screens: list[Screen]) -> list[Screen]:
         key=lambda s: (-(s.judged_ratio or 0.0), -s.passed_count, s.ticker))
 
 
+# ── 국내 품질 통과 — '허용 미달 수' 규칙 (2026-11-13) ─────────────────────────
+#
+# 예전 규칙(판정된 기준 중 7/9 비율)은 판정 수에 따라 허용 미달이 2 · 1 · 1 · 1 로
+# 들쭉날쭉했습니다 (판정 9 → 미달 2개 허용, 판정 8 · 7 · 6 → 1개). 국내는 감가상각비가
+# 본문에 없어 거의 모든 회사가 '판정 7개' 라서, 실제로는 미국(9개 중 미달 2개 허용)보다
+# 한 칸 엄격한 '7개 중 미달 1개' 로 걸렸습니다.
+# 새 규칙: **확인된 미달이 2개 이하** (미국 7/9 와 같은 허용 폭 — 9개 다 판정되면 미국과
+# 똑같은 선) 이고 **판정된 기준이 7개 이상** (적어도 7개는 숫자로 확인).
+# 2026-11-13 데이터(funnel_kr.json): 예전 23종목 → 새 규칙 33종목. 판정 6개 이하로
+# 통과하던 10종목은 '증거 부족 보류' 로 옮겨 따로 보입니다.
+
+def passes_kr(screen: Screen, max_fail: int | None = None,
+              min_known: int | None = None) -> bool:
+    """국내 품질 통과 — 확인된 미달 ≤ max_fail 이고 판정된 기준 ≥ min_known."""
+    import config  # noqa: PLC0415 - config 가 buffett 을 읽으므로 안에서
+
+    if not screen.ok:
+        return False
+    mf = config.KR_QUALITY_MAX_FAIL if max_fail is None else max_fail
+    mk = config.KR_QUALITY_MIN_KNOWN if min_known is None else min_known
+    return screen.known_count >= mk and screen.failed_count <= mf
+
+
+def held_back_kr(screen: Screen, max_fail: int | None = None,
+                 min_known: int | None = None, floor: int = 5) -> bool:
+    """국내 '증거 부족 보류' — 미달은 허용 안쪽인데 판정된 기준이 모자람 (floor 이상)."""
+    import config  # noqa: PLC0415
+
+    if not screen.ok:
+        return False
+    mf = config.KR_QUALITY_MAX_FAIL if max_fail is None else max_fail
+    mk = config.KR_QUALITY_MIN_KNOWN if min_known is None else min_known
+    return floor <= screen.known_count < mk and screen.failed_count <= mf
+
+
+def quality_pass(screen: Screen, market: str, us_min: int | None = None) -> bool:
+    """화면 · 오늘 볼 종목이 같이 쓰는 '품질 통과' — 미국은 통과 수, 국내는 허용 미달 수."""
+    import config  # noqa: PLC0415
+
+    if market == "kr":
+        return passes_kr(screen)
+    return screen.ok and screen.passed_count >= (config.DISCOVER_QUALITY_MIN
+                                                 if us_min is None else us_min)
+
+
+def rank_with_eps(screens: list[Screen], eps: dict | None = None) -> list[Screen]:
+    """rank_by_ratio 와 같은 순서에, 비율 · 통과 수가 같으면 **선행 EPS 90일 변화** 큰 순.
+
+    eps = {티커: 변화율(소수) 또는 None}. 추정이 없는 종목은 같은 동점 묶음의 맨 뒤.
+    (2026-11-13: 대시보드 원칙의 첫째가 Forward EPS 인데 순위에 쓰이지 않던 것)
+    """
+    eps = eps or {}
+
+    def key(s):
+        c = eps.get(s.ticker)
+        return (-(s.judged_ratio or 0.0), -s.passed_count,
+                c is None, -(c or 0.0), s.ticker)
+
+    return sorted([s for s in screens if s.ok], key=key)
+
+
 def prompt_for(screen: Screen) -> str:
     """통과한 기업에 대해 Claude 에 붙여넣을 질문.
 

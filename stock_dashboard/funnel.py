@@ -149,6 +149,85 @@ def price_state(p: dict | None, cap: float | None = None) -> str:
     return "light" if hi is None or hi <= ref else "edge"
 
 
+def price_gap(p: dict | None, cap: float | None = None) -> float | None:
+    """요구 성장률 − 비교에 쓴 과거 성장률(상한까지) — 소수. 플러스면 주가가 과거보다
+    더 빠른 성장을 요구한다는 뜻. 판정하지 않는 종목이면 None. (2026-11-13: '높음' 의
+    이유를 숫자로)"""
+    ref = hist_ref(p, cap)
+    if price_state(p, cap) == "na" or ref is None:
+        return None
+    return p["g"] - ref
+
+
+def gap_text(p: dict | None) -> str:
+    """'요구가 과거보다 +6.2%p' / '과거보다 −3.1%p 여유' — 판정 안 하면 ''."""
+    gp = price_gap(p)
+    if gp is None:
+        return ""
+    if gp > 0:
+        return f"요구가 과거보다 +{gp * 100:,.1f}%p"
+    return f"과거보다 {gp * 100:,.1f}%p 여유"
+
+
+def quality_tickers(screens, market: str) -> set:
+    """품질 통과 티커 — 깔때기 화면과 '오늘 볼 종목' 이 같은 규칙을 쓰게 (2026-11-13).
+
+    screens: universe.to_summary 묶음(dict) 또는 Screen. 티커는 야후 표기(BRK-B)로.
+    예전에는 오늘 볼 종목이 깔때기 파일의 줄 전부(= 미리 계산해 두는 6개 기준 이상)를
+    '품질 통과' 로 써서, 화면 깔때기(미국 130 · 한국 23)보다 넓은 목록(189 · 55)에서
+    골랐습니다.
+    """
+    import buffett  # noqa: PLC0415
+
+    out = set()
+    for s in screens or []:
+        sc = buffett.from_summary(s) if isinstance(s, dict) else s
+        if sc is not None and buffett.quality_pass(sc, market):
+            out.add(str(sc.ticker).replace(".", "-"))
+    return out
+
+
+def eps_down(f: dict | None) -> bool:
+    """선행 EPS 90일 변화가 경고선(config.EPS_DOWN_WARN) 이하."""
+    c = (f or {}).get("c90")
+    return c is not None and c <= config.EPS_DOWN_WARN
+
+
+def breakdown(rows: list) -> dict:
+    """품질 통과 종목들의 가격 · 선행 EPS 내역 — rows = 깔때기 줄({f, p, c}) 목록.
+
+    {"light","edge","heavy","na", "eps_up","eps_flat","eps_down","eps_warn","eps_none"}.
+    """
+    out = {k: 0 for k in ("light", "edge", "heavy", "na", "eps_up", "eps_flat",
+                          "eps_down", "eps_warn", "eps_none")}
+    for r in rows:
+        r = r or {}
+        out[price_state(r.get("p"))] += 1
+        c = (r.get("f") or {}).get("c90")
+        if c is None:
+            out["eps_none"] += 1
+        elif c >= EPS_FLAT:
+            out["eps_up"] += 1
+        elif c <= -EPS_FLAT:
+            out["eps_down"] += 1
+        else:
+            out["eps_flat"] += 1
+        if eps_down(r.get("f")):
+            out["eps_warn"] += 1
+    return out
+
+
+def breakdown_text(b: dict, n: int) -> str:
+    """내역 한 줄(HTML) — '품질 통과 33 중 가격: 낮음 9 · 경계 4 · 높음 10 · 판정 안 함 10 /
+    선행 EPS: 상향 12 · 보합 3 · 하향 9 (−5% 이하 4) · 추정 없음 9'."""
+    return (f"<b>품질 통과 {n}종목의 내역</b> — 가격: 낮음 {b['light']} · 경계 {b['edge']} · "
+            f"높음 {b['heavy']} · 판정 안 함 {b['na']} / 선행 EPS 90일: 상향 {b['eps_up']} · "
+            f"보합 {b['eps_flat']} · 하향 {b['eps_down']}"
+            + (f" (−{abs(config.EPS_DOWN_WARN) * 100:g}% 이하 {b['eps_warn']})"
+               if b["eps_warn"] else "")
+            + f" · 추정 없음 {b['eps_none']}")
+
+
 def is_light(p: dict | None, cap: float | None = None) -> bool:
     """가격 부담 낮음 (price_state == 'light')."""
     return price_state(p, cap) == "light"
@@ -182,6 +261,8 @@ def price_cells(p: dict | None) -> tuple[str, str]:
         note = f"경계 — 할인율 12% 면 {pct(p['hi'])} · " + note
     elif state == "light":
         note = "낮음 · " + note
+    elif state == "heavy":
+        note = f"높음 — {gap_text(p)} · " + note
     if p.get("h") is not None and p["h"] > config.FUNNEL_HIST_GROWTH_CAP:
         note += f" → 상한 {pct(config.FUNNEL_HIST_GROWTH_CAP)} 적용"
     if p.get("sev"):

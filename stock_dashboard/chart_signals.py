@@ -918,22 +918,36 @@ def is_os_entry(row: ChartRow) -> bool:
             and any(row.states.get(k) == ENTRY for k in SIDED))
 
 
-def new_flag(row: ChartRow, prev: dict | None) -> bool:
-    """'새로' — 지난 수집 때는 진입이 아니었는데 이번에 진입.
+def prev_state(row: ChartRow, prev: dict | None) -> tuple[str, bool | None]:
+    """(직전 봉 날짜, 그 봉에서 진입이었는가) — 파일에 pb · pe 로 싣습니다.
 
-    지난 수집과 **마지막 봉이 같으면**(예: 15:50 수집 뒤 다음 날 06:30 의 한국 —
-    새 봉이 없음) 지난 판정을 그대로 이어받습니다. 그러지 않으면 아침마다
-    '새로' 가 전부 사라집니다. 지난 줄이 없으면(새 후보) 진입이면 새로입니다.
-    prev: 지난 파일의 같은 종목 줄 (dict) 또는 None.
+    지난 수집과 **마지막 봉이 같으면** 지난 파일의 pb · pe 를 그대로 이어받습니다
+    (아침 수집처럼 새 봉이 없거나, 장중에 여러 번 수집해 같은 날 봉을 다시 본 경우).
+    봉이 바뀌었으면 지난 줄이 곧 직전 봉입니다. 모르면 ("", None).
+    """
+    if not prev:
+        return "", None
+    if prev.get("last_bar") and prev.get("last_bar") == row.last_bar:
+        pe = prev.get("pe")
+        return str(prev.get("pb") or ""), (bool(pe) if pe is not None else None)
+    old = row_from_dict(prev)
+    return str(prev.get("last_bar") or ""), bool(old is not None and is_os_entry(old))
+
+
+def new_flag(row: ChartRow, prev: dict | None) -> bool:
+    """'새로' — 직전 **봉**에서는 진입이 아니었는데 이번 봉에서 진입.
+
+    '지난 수집' 이 아니라 '직전 봉' 과 견줍니다 (2026-11-13 검수에서 고침): 수집은
+    예약 시각보다 몇 시간 늦거나 손으로 장중에 돌 수 있어서, 수집끼리 견주면 같은
+    날 봉을 두 번 본 날 표시가 흔들립니다. 직전 봉의 상태를 모르면(지난 파일에
+    기록이 없음) 새로로 치지 않습니다 — 지난 줄 자체가 없는 새 후보는 새로입니다.
     """
     if not is_os_entry(row):
         return False
     if not prev:
         return True
-    if prev.get("last_bar") and prev.get("last_bar") == row.last_bar:
-        return bool(prev.get("new"))
-    old = row_from_dict(prev)
-    return not (old is not None and is_os_entry(old))
+    _pb, pe = prev_state(row, prev)
+    return pe is False
 
 
 def today_picks(rows: list[ChartRow], quality: set, exclude: set = (), semi: set = (),

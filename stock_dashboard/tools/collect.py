@@ -739,6 +739,9 @@ def build_chart(app, out_dir: str, market: str, *, ohlc_fn=None, semi_fn=None,
         # '새로' — 지난 파일이 있을 때만 셉니다 (첫 파일에서는 전부 새로가 되므로)
         if prev_rows and chart_signals.new_flag(r, prev_rows.get(r.ticker)):
             d["new"] = 1
+        pb, pe = chart_signals.prev_state(r, prev_rows.get(r.ticker))
+        if pe is not None:          # 직전 봉 날짜 · 그때 진입이었는가 (다음 수집이 이어받음)
+            d["pb"], d["pe"] = pb, int(pe)
         out_rows.append(d)
     in_list = sorted(c for c in semi if c in set(codes))
     size_b = _write_out(out_dir, name, universe.dump({

@@ -217,7 +217,7 @@ check("섹터 온도는 네이버 일봉을 먼저 받는다 (차트 조건과 �
       "naver.fetch_daily_many(codes, dates=dates)" in seg
       and seg.index("naver.fetch_daily_many") < seg.index("yahoo.fetch_closes"))
 check("섹터 온도 · 차트 조건 화면이 '언제까지 반영됐나' 를 적는다",
-      src.count("calendar_events.bar_note(") == 2)
+      src.count("calendar_events.bar_note(") == 3)   # 11/13: 오늘 볼 종목의 수집 시각 판정 추가
 check("차트의 '장중 잠정' 은 날짜를 확인한 뒤에만", 'if kind == "live":' in src)
 
 print("\n=== 등락률 — 전일 종가를 날짜로 확인 ===")

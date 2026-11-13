@@ -2529,6 +2529,18 @@ def _render_today_picks(market: str, use_demo: bool, held: set) -> int:
         f"CCI 나 스토캐스틱이 과매도 기준선 아래로 내려간 종목 ({src})."
         + (f" 내 종목 {mine}개는 '내 종목' 탭에." if mine else "")
         + " 공시를 읽어볼 순서이지 매수 신호가 아닙니다."), unsafe_allow_html=True)
+    # 수집 시각에 그 시장이 열려 있었으면 마지막 봉은 장중 값입니다 (수집은 예약보다
+    # 늦게 돌거나 손으로 돌릴 수 있습니다) — 그렇다고 적습니다.
+    try:
+        kind, _n = calendar_events.bar_note(
+            str(payload.get("bar") or ""), market,
+            dt.datetime.fromtimestamp(float(made), KST) if made else None)
+    except Exception:  # noqa: BLE001
+        kind = ""
+    if made and kind == "live":
+        st.markdown(ui.render_notice(
+            "<b>장중에 수집한 값입니다</b> — 마지막 봉이 종가가 아니라서 목록이 다음 "
+            "수집에서 바뀔 수 있습니다."), unsafe_allow_html=True)
     if not picks:
         st.markdown(ui.render_notice(
             "오늘은 해당 종목이 없습니다 — 그것도 답입니다."), unsafe_allow_html=True)

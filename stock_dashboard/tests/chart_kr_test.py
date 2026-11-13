@@ -343,9 +343,13 @@ check("지난 수집에도 진입(다른 봉) → 새로 아님",
       not chart_signals.new_flag(e_row, {**pe, "last_bar": "2026-11-11"}))
 check("지난 수집엔 진입 아님(다른 봉) → 새로",
       chart_signals.new_flag(e_row, {**pn, "ticker": e_row.ticker, "last_bar": "2026-11-11"}))
-check("같은 봉이면 지난 표시를 이어받음 (아침 수집)",
-      chart_signals.new_flag(e_row, {**pe, "new": 1})
-      and not chart_signals.new_flag(e_row, {**pe}))
+check("같은 봉을 다시 본 수집 — 직전 봉 기록(pe)으로 판정",
+      chart_signals.new_flag(e_row, {**pe, "pb": "2026-11-11", "pe": 0})
+      and not chart_signals.new_flag(e_row, {**pe, "pb": "2026-11-11", "pe": 1}))
+check("직전 봉 기록이 없으면 새로로 치지 않음", not chart_signals.new_flag(e_row, {**pe}))
+check("장중에 두 번 수집해도 표시가 안 흔들림",
+      chart_signals.prev_state(e_row, {**pn, "ticker": e_row.ticker, "last_bar": e_row.last_bar,
+                                       "pb": "2026-11-11", "pe": 0}) == ("2026-11-11", False))
 check("진입이 아니면 새로 아님", not chart_signals.new_flag(n_row, None))
 pk = chart_signals.today_picks(file_rows[:0] + [r for r in file_rows if r],
                                {e_row.ticker, n_row.ticker}, exclude=set())

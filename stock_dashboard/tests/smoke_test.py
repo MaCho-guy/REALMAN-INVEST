@@ -1044,11 +1044,11 @@ check_true("매크로 탭이 브리핑을 그린다",
            "render_briefing_section(" in _macro_body,
            "매크로 탭 상단 호출이 보이지 않습니다")
 check_true("브리핑이 시세 섹션보다 먼저",
-           _macro_body.index("render_briefing_section(use_demo)")
+           _macro_body.index("render_briefing_section(")
            < _macro_body.index("ui.render_quote_table("),
            "숫자보다 사람이 쓴 글이 먼저 와야 합니다")
 check_true("브리핑이 공포탐욕보다 먼저",
-           _macro_body.index("render_briefing_section(use_demo)")
+           _macro_body.index("render_briefing_section(")
            < _macro_body.index("load_feargreed(use_demo)"))
 check_true("요약 탭에 브리핑 한 줄",
            "render_briefing_line(briefings[0])" in _app_src)

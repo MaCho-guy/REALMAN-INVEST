@@ -1255,7 +1255,8 @@ def _attach_dcf(screens: list, use_demo: bool, *, currency: str = "USD",
         result = rdcf.run(inputs)
         out.append((screen, result,
                     vd.build(screen, result, financial=screen.ticker in fin,
-                             legacy_dcf=legacy)))
+                             legacy_dcf=legacy,
+                             market="kr" if currency == "KRW" else "us")))
     return out
 
 

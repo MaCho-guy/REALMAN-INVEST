@@ -110,6 +110,36 @@ check("빈 데이터에도 깨지지 않음", ui.render_pick_cards([{"name": "�
 check("today_picks 는 품질 집합이 비면 빈 목록",
       chart_signals.today_picks([], set()) == [])
 
+print("\n=== 밸류에이션 탭 — 깔때기와 같은 품질 · 가격 규칙 ===")
+from types import SimpleNamespace as _NS  # noqa: E402
+import verdict as vd  # noqa: E402
+
+
+def _dcf(g, sev=False):
+    hist = [(2015 + i, 100.0 * 1.08 ** i) for i in range(10)]   # 과거 연 8%
+    return _NS(ok=True, implied_growth=g, band_label="", gap_span=9,
+               historical_cagr={9: 0.08}, sensitivity={0.08: g - 0.01, 0.1: g, 0.12: g + 0.01},
+               severe_distortion=sev, normalized=False, error="",
+               inputs=_NS(fcf_history=hist, net_debt=0.0))
+
+
+k_scr = mk("K", [P] * 5 + [F, F] + [U, U])      # 국내 새 규칙 통과 · 통과 수는 5
+v_kr = vd.build(k_scr, _dcf(0.03), market="kr")
+v_old = vd.build(k_scr, _dcf(0.03))
+check("국내 — 사분면 사업 축이 깔때기 규칙(①)", v_kr.quadrant == 1 and v_old.quadrant == 3,
+      f"{v_kr.quadrant} / 예전 기본 {v_old.quadrant}")
+u_scr = mk("U", [P] * 6 + [F] * 3)
+check("미국 — 6개 통과는 사업 축 미달(③), 깔때기와 같음",
+      vd.build(u_scr, _dcf(0.03), market="us").quadrant == 3)
+v_sev = vd.build(mk("S", [P] * 9), _dcf(0.03, sev=True), market="us")
+check("사이클 왜곡은 판정 안 함 (깔때기와 같음)",
+      v_sev.price_state == "na" and v_sev.quadrant == 0 and "왜곡" in v_sev.price_reason)
+v_h = vd.build(mk("H2", [P] * 9), _dcf(0.12), market="us")
+check("가격 높음 근거에 격차 %p", v_h.price_state == "heavy" and "+4.0%p" in v_h.price_reason,
+      v_h.price_reason)
+check("quality_threshold 를 주면 예전처럼 통과 수", vd.build(u_scr, _dcf(0.03),
+                                                     quality_threshold=6).quadrant == 1)
+
 print("\n" + "=" * 54)
 if FAILURES:
     print(f"실패 {len(FAILURES)}건: {FAILURES}")

@@ -60,6 +60,8 @@ class Verdict:
     band_hi: float | None = None
     #: 선행 EPS 추정의 변화 (funnel.eps_part) — 판정 줄 맨 앞에 보입니다
     eps: dict | None = None
+    #: FCF 기준값이 사이클로 크게 왜곡됨 — 깔때기처럼 가격을 판정하지 않습니다 (2026-11-13)
+    severe: bool = False
 
     @property
     def price_word(self) -> str:
@@ -70,6 +72,9 @@ class Verdict:
         """가격 판정의 근거 한 줄 — 카드 맨 위에 적습니다 (2026-11-12 "카드를 열어도
         경계 · 상한이 안 나온다": 주의 문구는 해당할 때만 붙어서, 근거가 늘 보이지 않았습니다)."""
         if self.price_state == "na":
+            if self.severe and self.implied_growth is not None:
+                return (f"FCF 기준값이 사이클로 크게 왜곡돼 판정하지 않습니다 (요구 연 "
+                        f"{self.implied_growth * 100:,.1f}%는 참고만)")
             return (self.dcf_error.split("\n")[0][:60] if self.dcf_error
                     else "과거 성장률을 계산할 수 없습니다")
         cap = config.FUNNEL_HIST_GROWTH_CAP
@@ -79,6 +84,11 @@ class Verdict:
         text += f" · 과거 연 {self.historical_growth * 100:,.1f}%"
         if self.historical_growth > cap:
             text += f" → {cap * 100:g}%까지만 인정"
+        if self.price_state == "heavy":
+            gap = funnel.gap_text({"g": self.implied_growth, "h": self.historical_growth,
+                                   "hi": self.band_hi})
+            if gap:
+                text += f" · {gap}"
         return text
 
     @property
@@ -197,10 +207,12 @@ def legacy_quadrant(passed: int, threshold: int, dcf) -> int:
 
 def build(screen, dcf: rdcf.Result | None, *,
           quality_threshold: int | None = None, financial: bool = False,
-          legacy_dcf: rdcf.Result | None = None) -> Verdict:
+          legacy_dcf: rdcf.Result | None = None, market: str | None = None) -> Verdict:
     """스크리닝 결과 + 역DCF 를 하나의 판단 재료로 묶습니다.
 
-    quality_threshold: 사업 축의 기준선. 기본은 전체의 3분의 2.
+    quality_threshold: 사업 축의 기준선(통과 수). 주지 않고 market('us' · 'kr')을 주면
+    **종목 발굴 깔때기와 같은 품질 통과**(buffett.quality_pass — 미국 9개 중 7개,
+    국내 미달 2개 이하 · 판정 7개 이상)로 봅니다 (2026-11-13). 둘 다 없으면 전체의 3분의 2.
     """
     total = len(screen.checks)
     threshold = (quality_threshold if quality_threshold is not None
@@ -238,11 +250,18 @@ def build(screen, dcf: rdcf.Result | None, *,
         v.band_hi = band_hi
     elif dcf is not None:
         v.dcf_error = dcf.error
+    # 사이클 왜곡(sev)도 깔때기와 같이 '판정 안 함' (2026-11-13 — 전에는 이 탭만 판정했음)
+    v.severe = bool(dcf is not None and getattr(dcf, "severe_distortion", False))
     v.price_state = funnel.price_state(
-        {"g": v.implied_growth, "h": v.historical_growth, "hi": band_hi})
+        {"g": v.implied_growth, "h": v.historical_growth, "hi": band_hi, "sev": v.severe})
 
     # 사분면 — '낮음' 은 할인율 8~12% 전 구간에서 요구 ≤ 과거(상한까지)일 때만
-    quality_ok = v.passed >= threshold
+    if quality_threshold is None and market in ("us", "kr"):
+        import buffett  # noqa: PLC0415
+
+        quality_ok = buffett.quality_pass(screen, market)
+    else:
+        quality_ok = v.passed >= threshold
     if v.price_state == "na":
         v.quadrant = 0
     elif quality_ok and v.price_state == "light":
@@ -255,7 +274,8 @@ def build(screen, dcf: rdcf.Result | None, *,
         v.quadrant = 4
 
     if legacy_dcf is not None:
-        v.prev_quadrant = legacy_quadrant(v.passed, threshold, legacy_dcf)
+        # 사업 축은 지금 규칙 그대로 — '예전 규칙' 은 가격 규칙의 차이만 보입니다
+        v.prev_quadrant = legacy_quadrant(1 if quality_ok else 0, 1, legacy_dcf)
         if legacy_dcf.ok and legacy_dcf.gap_span is not None:
             v.prev_implied = legacy_dcf.implied_growth
             v.prev_hist = legacy_dcf.historical_cagr[legacy_dcf.gap_span]

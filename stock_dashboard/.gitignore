@@ -1,0 +1,6 @@
+# 보낸 기록(tools/ship.py) — 받는 쪽 상태와 섞이지 않게
+.shipped.json
+__pycache__/
+*.pyc
+.streamlit/secrets.toml
+.env

@@ -499,7 +499,7 @@ class MacroSeries:
     mode: str = "level"         # level(레벨) / yoy(전년대비 %) / diff(직전 대비 변화)
     decimals: int = 2
 
-    #: 이 지표를 왜 보는가 — 수빈님 보유 종목과의 연결. 화면에 그대로 띄웁니다.
+    #: 이 지표를 왜 보는가 — 관심 종목과의 연결. 화면에 그대로 띄웁니다.
     why: str = ""
 
     #: 발표 주기(일). 지연 경고 기준.
@@ -537,7 +537,7 @@ class MacroSeries:
     mean_periods: int = 4
 
 
-#: 임계값은 수빈님 판단으로 바꾸십시오 — 아래 숫자는 제 판단이고 근거는 why 에 있습니다.
+#: 임계값은 사용자 판단으로 바꾸십시오 — 아래 숫자는 제 판단이고 근거는 why 에 있습니다.
 MACRO_SERIES: tuple[MacroSeries, ...] = (
     # ── 금리·신용 — O(리츠)와 QQQ 밸류에이션에 직결 ─────────────────────────
     MacroSeries(
@@ -1002,7 +1002,7 @@ SECTION_WATCHLIST = Section(
                    note="미국 배당주 ETF"),
         Instrument("UnitedHealth", "UNH", "yahoo", "NYSE", "USD",
                    verified=True, decimals=2, analysis_key="UNH"),
-        # 2026-11-12 추가 (미국 보유): AMT · CRCL · GOOGL. 시세는 올린 뒤 실제
+        # 2026-11-12 추가: AMT · CRCL · GOOGL. 시세는 올린 뒤 실제
         # 화면에서 확인합니다 — verified 는 그때 켭니다.
         Instrument("American Tower", "AMT", "yahoo", "NYSE", "USD",
                    decimals=2, analysis_key="AMT", note="통신탑 리츠(REIT)"),
@@ -1016,7 +1016,7 @@ SECTION_WATCHLIST = Section(
         Instrument("SK하이닉스", "000660", "naver", "KOSPI", "KRW",
                    verified=True, decimals=0,
                    fundamental_symbol="000660.KS", analysis_key="000660"),
-        # 2026-11-12 추가 (국내 보유): 삼성증권 · SK스퀘어
+        # 2026-11-12 추가: 삼성증권 · SK스퀘어
         Instrument("삼성증권", "016360", "naver", "KOSPI", "KRW",
                    decimals=0, fundamental_symbol="016360.KS", analysis_key="016360"),
         Instrument("SK스퀘어", "402340", "naver", "KOSPI", "KRW",
@@ -1132,7 +1132,7 @@ SECTIONS_RETIRED: frozenset[str] = frozenset({
 #: 그래서 괴리율 탭에 합쳤습니다. 탭 노출 검사에서 제외됩니다.
 SECTIONS_MERGED_INTO: dict[str, str] = {
     # 자기 탭 없이 **다른 탭 안에서** 렌더링되는 섹션.
-    # 국내 본주는 보유 종목이라 '내 종목' 탭에 들어갑니다.
+    # 국내 본주는 관심종목이라 '내 종목' 탭에 들어갑니다.
     "watchlist": "holdings",
     "local": "holdings",
 }

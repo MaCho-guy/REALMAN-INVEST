@@ -398,7 +398,7 @@ def verdict_lines(result: Result) -> list[str]:
     """판단 재료 — 결론은 쓰지 않습니다.
 
     "비싸다/싸다" 를 말하지 않습니다. 요구 성장률과 과거 실적의 **격차**를
-    숫자로 놓고, 그 격차를 어떻게 읽을지는 수빈님이 판단하도록 둡니다.
+    숫자로 놓고, 그 격차를 어떻게 읽을지는 사용자가 판단하도록 둡니다.
     """
     if not result.ok:
         return [result.error] if result.error else []

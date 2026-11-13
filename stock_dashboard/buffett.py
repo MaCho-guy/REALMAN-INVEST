@@ -15,7 +15,7 @@
   practice : 그의 투자 사례·발언에서 널리 인용되는 수치. 원문 표현은 아님
   mine     : 제(Claude)가 자동화를 위해 정한 구현 기준
 
-`mine` 과 `practice` 는 수빈님 판단으로 바꾸십시오. `verbatim` 은 정의 자체라
+`mine` 과 `practice` 는 사용자 판단으로 바꾸십시오. `verbatim` 은 정의 자체라
 바꾸면 다른 지표가 됩니다.
 """
 

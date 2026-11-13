@@ -1,0 +1,7 @@
+# 11/13 — 공개 저장소에 개인 정보 · 인증키 · 빌드 부산물이 올라가지 않게
+__pycache__/
+*.pyc
+**/.streamlit/secrets.toml
+secrets.toml
+.env
+.env.*

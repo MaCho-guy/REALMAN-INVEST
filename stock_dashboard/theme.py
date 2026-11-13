@@ -1574,7 +1574,7 @@ def build_rules() -> str:
   .dash-picks .pk-n {{ color: var(--dash-ink-2); font-size: var(--fs-2); min-width: 1.2em; }}
   .dash-picks .pk-code {{ color: var(--dash-ink-2); font-size: var(--fs-2); }}
   .dash-picks .pk-tag {{ font-size: var(--fs-2); font-weight: 600; border: 1px solid var(--dash-divider);
-    border-radius: 4px; padding: 0 5px; }}
+    border-radius: var(--r-chip); padding: 0 5px; }}
   .dash-picks .pk-why {{ color: var(--dash-ink-2); font-size: var(--fs-2); margin: 2px 0 0 calc(1.2em + 6px);
     line-height: 1.45; }}
   .dash-ctable .ct-mark {{ display: inline-block; width: 1.1em;

@@ -210,9 +210,14 @@ def row_sector(sector_rows) -> Row:
         row.level = "unknown"
         row.headline = "업종 ETF 를 받지 못했습니다"
         return row
-    hot, cold = _sh.hot_and_cold(sector_rows, n=2)
-    row.headline = _sh.summary_line(sector_rows)
-    # 시장보다 10%p 넘게 벌어진 업종이 있으면 볼 만한 순환입니다.
+    # 2026-11-13 사용자 승인: 한 줄을 흐름 기준(3개월 위치 × 1주 방향)으로 —
+    # 1개월 기준이던 때는 섹터 온도 탭의 판독과 결론이 달랐습니다.
+    flows = _sh.flow(sector_rows)
+    line = _sh.flow_summary_line(_sh.flow_read(sector_rows, flows), flows)
+    row.headline = line or _sh.summary_line(sector_rows)
+    basis = ("3개월 위치 × 1주 방향, KODEX 200 대비" if line
+             else "1개월, KODEX 200 대비")
+    # 시장보다 10%p 넘게 벌어진 업종이 있으면 볼 만한 순환입니다 (1개월 — 그대로).
     spread = [abs(r.rel_1m) for r in usable if r.rel_1m is not None]
     row.level = "watch" if spread and max(spread) >= 10 else "quiet"
     bad = _sh.mismatched(sector_rows)
@@ -220,7 +225,7 @@ def row_sector(sector_rows) -> Row:
         row.detail = (f"✗ 종목코드 확인 필요 {len(bad)}건 — "
                       + ", ".join(r.label for r in bad))
     else:
-        row.detail = f"업종 ETF {len(usable)}개 · KODEX 200 대비"
+        row.detail = f"업종 ETF {len(usable)}개 · {basis}"
     return row
 
 

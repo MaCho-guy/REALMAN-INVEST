@@ -270,11 +270,76 @@ same = {f"S{i}": series([0.0] * 115 + [0.02] * 5) for i in range(4)}
 rn = sh.flow_read(sh.build(specs_h, {"069500": bench_h, "091160": heavy, **same}))
 check("다른 업종도 같이 앞서면 시소 아님", rn.heavy is None and rn.breadth == "broad")
 
+print("\n=== 흐름 — 업종 평균(동일가중) 기준선 (2026-11-13) ===")
+# 업종 두 개가 매일 +1% · −1% 면 동일가중 평균은 매일 0% → 평평
+u = series([0.01] * 120)
+d = series([-0.01] * 120)
+k = series([0.0] * 120)
+spec_ew = ([("069500", "KODEX 200", ("200",), True), ("229200", "코스닥150", ())]
+           + [(f"U{i}", f"상승{i}", ()) for i in range(3)]
+           + [(f"D{i}", f"하락{i}", ()) for i in range(3)])
+data_ew = {"069500": k, "229200": series([0.05] * 120),
+           **{f"U{i}": u for i in range(3)}, **{f"D{i}": d for i in range(3)}}
+rows_ew = sh.build(spec_ew, data_ew)
+ew_b = sh.equal_weight_bench(rows_ew)
+check("업종 평균 = 매일 같은 비중 평균 (±1% 짝 → 0%)", ew_b is not None
+      and abs(ew_b.returns["w1"]) < 1e-9 and abs(ew_b.returns["m3"]) < 1e-9,
+      str(ew_b and ew_b.returns))
+check("코스닥150 은 평균에서 뺀다", ew_b is not None and "코스닥150" not in ew_b.members
+      and len(ew_b.members) == 6, str(ew_b and ew_b.members))
+check("업종이 모자라면 None",
+      sh.equal_weight_bench(sh.build(spec_ew[:4], data_ew)) is None)
+rows_late = sh.build(spec_ew, data_ew, dates_by_code={
+    "069500": "2026-11-13", **{f"U{i}": "2026-11-13" for i in range(3)},
+    "D0": "2026-11-12", "D1": "2026-11-13", "D2": "2026-11-13"})
+ew_late = sh.equal_weight_bench(rows_late)
+check("마지막 봉 날짜가 다른 업종은 평균에 안 넣는다",
+      ew_late is not None and "하락0" not in ew_late.members)
+fl_ew = sh.flow(rows_ew, ew_b)
+check("업종 평균 기준 흐름: 상승 업종 = 주도, 하락 업종 = 침체",
+      {f.phase for f in fl_ew if f.label.startswith("상승")} == {"lead"}
+      and {f.phase for f in fl_ew if f.label.startswith("하락")} == {"lag"})
+rd_ew = sh.flow_read(rows_ew, fl_ew, ew_b)
+check("업종 평균 기준 문장은 '업종 평균보다' 라고 쓴다",
+      rd_ew is not None and "업종 평균보다 더 오른" in sh.flow_sentences(rd_ew)[0],
+      sh.flow_sentences(rd_ew)[0] if rd_ew else "")
+# 시소 데이터(위)를 업종 평균 기준으로 — 시소 문장이 나오면 안 됨
+rows_h = sh.build(specs_h, {"069500": bench_h, "091160": heavy, **others})
+rh_ew = sh.flow_read(rows_h, bench=sh.equal_weight_bench(rows_h))
+check("업종 평균 기준에서는 시소 문장을 안 쓴다 (KODEX 200 비중 얘기라 틀린 말)",
+      rh_ew is None or rh_ew.heavy is None)
+check("KODEX 200 기준 시소 문장은 업종 평균으로 바꿔 보라고 안내",
+      any("업종 평균' 으로 바꾸면" in t for t in sh.flow_sentences(rh)))
+html_ew = ui.render_sector_flow(rows_ew, "ew")
+check("화면: 업종 평균 기준 표시 + 구성 설명", "기준 업종 평균" in html_ew
+      and "6개를 같은 비중" in html_ew and "업종 평균보다 강하고" in html_ew)
+html_fb = ui.render_sector_flow(sh.build(spec_ew[:4], data_ew), "ew")
+check("업종 평균을 못 만들면 KODEX 200 으로 돌아가고 그렇다고 적는다",
+      "KODEX 200 기준으로 보여 줍니다" in html_fb and "기준 KODEX 200" in html_fb)
+check("기본은 KODEX 200", "기준 KODEX 200" in ui.render_sector_flow(rows_ew))
+
+check("-0.0 이 안 나온다", sh.pp(-0.04) == "0.0" and sh.pp(0.04) == "0.0"
+      and sh.pp(-0.06) == "-0.1" and sh.pp(1.0) == "+1.0")
+
+print("\n=== 요약 탭 한 줄 — 흐름 기준 (2026-11-13) ===")
+rs = sm.row_sector(rows_f)
+check("요약 한 줄이 흐름 기준", "1주" in rs.detail and "3개월" in rs.detail
+      and ("주도" in rs.headline or "회복" in rs.headline), f"{rs.headline} / {rs.detail}")
+check("새로 들어온 업종에 (새로)", "돌아선 업종(새로)" in rs.headline, rs.headline)
+check("꺾임 개수", "꺾임 1개" in rs.headline, rs.headline)
+rs_nb = sm.row_sector([r for r in rows_f if not r.benchmark])
+check("기준선이 없으면 1개월 한 줄로 돌아간다",
+      "1개월" in rs_nb.detail or rs_nb.level == "unknown", f"{rs_nb.headline} / {rs_nb.detail}")
+check("업종을 하나도 못 받으면 unknown", sm.row_sector([]).level == "unknown")
+check("탭에 기준 고르기(KODEX 200 / 업종 평균)",
+      'key="sector_flow_base"' in _app and "ui.render_sector_flow(rows, base)" in _app)
+
 print("\n=== 흐름 — 데모 · 화면 연결 ===")
 _demo = demo_mod.demo_sector_heat(config.KR_SECTOR_ETFS)
-check("데모로 흐름 지도가 그려진다", "dash-sflow" in ui.render_sector_flow(_demo))
+check("데모로 흐름 지도가 그려진다", "dash-sflow" in ui.render_sector_flow(_demo)
+      and "dash-sflow" in ui.render_sector_flow(_demo, "ew"))
 check("탭이 흐름을 칩 · 막대보다 먼저 그린다",
-      _app.index("ui.render_sector_flow(rows)")
+      _app.index("ui.render_sector_flow(rows, base)")
       < _app.index("ui.render_sector_heat_summary(rows)")
       < _app.index("ui.render_sector_bars(rows)"))
 check("기존 칩 · 막대 · 격자 · 표가 그대로 있다",

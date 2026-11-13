@@ -56,6 +56,7 @@ class SectorRow:
     rel_1m: float | None = None    # 기준선 대비 1개월 초과수익 (%p)
     as_of: str = ""               # 마지막 봉 날짜 'YYYY-MM-DD' ('' = 모름)
     error: str = ""
+    members: tuple[str, ...] = ()  # 업종 평균 기준선이면 넣은 업종 이름
 
     @property
     def ok(self) -> bool:
@@ -249,6 +250,50 @@ def rel_return(closes: list[float], bench: list[float], bars: int,
     return a - b
 
 
+#: 업종 평균(동일가중) 기준선 — 2026-11-13 사용자 승인.
+#: KODEX 200 은 시가총액 비중대로 담아서 반도체가 크게 움직인 주에는
+#: 나머지 업종이 전부 '꺾임' 으로 보입니다(시소). 업종 ETF 를 같은 비중으로
+#: 매일 평균한 선과 비교하면 반도체도 한 표라 그 착시가 빠집니다.
+EW_CODE = "EW"
+EW_LABEL = "업종 평균"
+#: 업종이 아니라 시장 지수라 평균에서 빼는 줄 (코스닥150)
+EW_EXCLUDE: frozenset[str] = frozenset({"229200"})
+#: 평균에 넣을 최소 업종 수 — 이보다 적으면 '평균' 이라 부르기 어렵습니다
+EW_MIN_MEMBERS = 5
+
+
+def equal_weight_bench(rows: list[SectorRow]) -> SectorRow | None:
+    """업종 ETF 를 같은 비중으로 매일 평균한 기준선 (매일 같은 비중으로 다시 맞춤).
+
+    KODEX 200 과 마지막 봉 날짜가 같은 업종만 넣고, 일봉 길이가 다르면
+    가장 짧은 길이에 맞춰 **끝에서부터** 맞춥니다. 평균에 넣을 업종이
+    EW_MIN_MEMBERS 보다 적으면 None.
+    """
+    base = next((r for r in rows if r.benchmark and r.ok), None)
+    day = base.as_of if base else ""
+    members = [r for r in rows if r.ok and not r.benchmark
+               and r.code not in EW_EXCLUDE
+               and (not day or not r.as_of or r.as_of == day)
+               and all(c and c > 0 for c in r.closes)]
+    if len(members) < EW_MIN_MEMBERS:
+        return None
+    n = min(len(r.closes) for r in members)
+    if n < 2:
+        return None
+    level, closes = 100.0, [100.0]
+    for i in range(1, n):
+        day_ret = sum(r.closes[-n + i] / r.closes[-n + i - 1] - 1.0
+                      for r in members) / len(members)
+        level *= 1.0 + day_ret
+        closes.append(level)
+    ew = SectorRow(code=EW_CODE, label=EW_LABEL, benchmark=True,
+                   closes=closes, as_of=day,
+                   members=tuple(r.label for r in members))
+    ew.returns = {k: period_return(closes, b) for k, _lab, b in PERIODS}
+    ew.band_52w = band_position(closes)
+    return ew
+
+
 @dataclass
 class FlowRow:
     """업종 하나의 흐름."""
@@ -279,10 +324,15 @@ class FlowRow:
         return self.prev_phase in _UP_PHASES and self.phase in _DOWN_PHASES
 
 
-def flow(rows: list[SectorRow]) -> list[FlowRow]:
-    """업종 줄 → 흐름 줄 (기준선 제외). 기준선이 없으면 빈 목록."""
-    bench = next((r for r in rows if r.benchmark and r.ok), None)
+def flow(rows: list[SectorRow], bench: SectorRow | None = None) -> list[FlowRow]:
+    """업종 줄 → 흐름 줄 (기준선 제외). 기준선이 없으면 빈 목록.
+
+    bench 를 안 주면 rows 안의 기준선(KODEX 200). 업종 평균으로 보려면
+    equal_weight_bench(rows) 를 넘깁니다.
+    """
     if bench is None:
+        bench = next((r for r in rows if r.benchmark and r.ok), None)
+    if bench is None or not bench.ok:
         return []
     _lk, lbars = FLOW_LEVEL
     _dk, dbars = FLOW_DIR
@@ -325,6 +375,12 @@ class FlowRead:
     moved: int                        # 1주 전과 칸이 바뀐 업종 수
     heavy: FlowRow | None             # 시소를 일으켰을 수 있는 업종
     unknown: list[FlowRow]
+    bench_code: str = ""
+
+    @property
+    def vs(self) -> str:
+        """문장에 쓰는 비교 대상 — '시장' 또는 '업종 평균'."""
+        return EW_LABEL if self.bench_code == EW_CODE else "시장"
 
     @property
     def breadth(self) -> str:
@@ -340,21 +396,26 @@ class FlowRead:
 
 
 def flow_read(rows: list[SectorRow],
-              flows: list[FlowRow] | None = None) -> FlowRead | None:
+              flows: list[FlowRow] | None = None,
+              bench: SectorRow | None = None) -> FlowRead | None:
     """판독 재료. 기준선의 1주 수익률을 모르거나 판정한 업종이 없으면 None."""
-    bench = next((r for r in rows if r.benchmark and r.ok), None)
     if bench is None:
+        bench = next((r for r in rows if r.benchmark and r.ok), None)
+    if bench is None or not bench.ok:
         return None
     bdir = bench.returns.get(FLOW_DIR[0])
     if bdir is None:
         return None
-    flows = flow(rows) if flows is None else flows
+    flows = flow(rows, bench) if flows is None else flows
     known = [f for f in flows if f.phase is not None]
     if not known:
         return None
     ahead = sorted((f for f in known if f.direction >= FLOW_FLAT),
                    key=lambda f: -f.direction)
-    heavy = next((f for f in known if f.code == FLOW_HEAVY_CODE), None)
+    # 시소는 시가총액 비중대로 담은 기준선(KODEX 200)에서만 생깁니다.
+    # 업종 평균에서는 반도체도 한 표라 이 문장이 틀린 말이 됩니다.
+    heavy = (None if bench.code == EW_CODE else
+             next((f for f in known if f.code == FLOW_HEAVY_CODE), None))
     if heavy is not None:
         others = [f for f in known if f is not heavy and abs(f.direction) >= FLOW_FLAT]
         opposite = [f for f in others if (f.direction > 0) != (heavy.direction > 0)]
@@ -373,7 +434,14 @@ def flow_read(rows: list[SectorRow],
         moved=sum(1 for f in known if f.moved),
         heavy=heavy,
         unknown=[f for f in flows if f.phase is None],
+        bench_code=bench.code,
     )
+
+
+def pp(x: float) -> str:
+    """부호 붙은 소수 한 자리. 반올림해서 0 이면 '0.0' ('-0.0' 이 안 나오게)."""
+    t = f"{x:+.1f}"
+    return "0.0" if t in ("+0.0", "-0.0") else t
 
 
 def _josa(word: str, with_final: str, without_final: str) -> str:
@@ -384,6 +452,33 @@ def _josa(word: str, with_final: str, without_final: str) -> str:
     if "가" <= ch <= "힣":
         return word + (with_final if (ord(ch) - 0xAC00) % 28 else without_final)
     return f"{word}{with_final}({without_final})"
+
+
+def flow_summary_line(read: FlowRead | None, flows: list[FlowRow]) -> str:
+    """요약 탭 한 줄 — 흐름 기준. 판독을 못 하면 ''.
+
+    예: '주도 반도체(새로) · 꺾임 9개 · 좁은 움직임 4/13'
+    """
+    if read is None:
+        return ""
+    known = [f for f in flows if f.phase is not None]
+
+    def tag(f: FlowRow) -> str:
+        return f.label + ("(새로)" if f.moved else "")
+
+    lead = sorted((f for f in known if f.phase == "lead"), key=lambda f: -f.direction)
+    bits = [("주도 " + "·".join(tag(f) for f in lead[:2])
+             + (f" 외 {len(lead) - 2}" if len(lead) > 2 else "")) if lead else "주도 없음"]
+    rec = [f for f in read.turned_up if f.phase == "recover"]
+    if rec:
+        bits.append("회복 " + "·".join(tag(f) for f in rec[:2]))
+    if read.turned_down:
+        bits.append(f"꺾임 {len(read.turned_down)}개")
+    if read.breadth == "narrow":
+        bits.append(f"좁은 움직임 {read.beat}/{read.n}")
+    elif read.breadth == "broad":
+        bits.append(f"고른 움직임 {read.beat}/{read.n}")
+    return " · ".join(bits)
 
 
 def _names(items: list[FlowRow], limit: int = 3) -> str:
@@ -403,13 +498,13 @@ def flow_sentences(read: FlowRead | None) -> list[str]:
     out: list[str] = []
     word = "올랐고" if read.bench_dir > 0 else ("내렸고" if read.bench_dir < 0 else "제자리였고")
     tone = {"narrow": "몇 업종만 앞선 좁은 움직임",
-            "broad": "대부분 업종이 시장을 앞선 고른 움직임",
+            "broad": f"대부분 업종이 {read.vs}을 앞선 고른 움직임",
             "mixed": "업종별로 갈린 움직임"}[read.breadth]
-    line = (f"이번 주 {read.bench_label} {read.bench_dir:+.1f}% {word}, 시장보다 더 "
+    line = (f"이번 주 {read.bench_label} {pp(read.bench_dir)}% {word}, {read.vs}보다 더 "
             f"오른 업종은 {read.beat}/{read.n}개 — {tone}.")
     if read.drivers:
         line += " 앞선 쪽: " + " · ".join(
-            f"{f.label} {f.direction:+.1f}%p" for f in read.drivers) + "."
+            f"{f.label} {pp(f.direction)}%p" for f in read.drivers) + "."
     out.append(line)
 
     if read.turned_up or read.turned_down:
@@ -421,7 +516,7 @@ def flow_sentences(read: FlowRead | None) -> list[str]:
                 + (f" 외 {len(read.turned_up) - 3}개" if len(read.turned_up) > 3 else ""))
         if read.turned_down:
             bits.append(f"꺾인 쪽 {_names(read.turned_down)} "
-                        "(지난주엔 시장을 앞섰으나 이번 주 뒤처짐)")
+                        f"(지난주엔 {read.vs}을 앞섰으나 이번 주 뒤처짐)")
         out.append("1주 전과 비교: " + " / ".join(bits) + ".")
     elif read.stayed_lead:
         out.append(f"2주 연속 주도: {_names(read.stayed_lead)}.")
@@ -429,8 +524,8 @@ def flow_sentences(read: FlowRead | None) -> list[str]:
     if read.heavy is not None:
         h = read.heavy
         side, mirror = (("앞서", "뒤처져") if h.direction > 0 else ("뒤처져", "앞서"))
-        out.append(f"{_josa(h.label, '이', '가')} 시장 대비 {h.direction:+.1f}%p 로 크게 "
+        out.append(f"{_josa(h.label, '이', '가')} 시장 대비 {pp(h.direction)}%p 로 크게 "
                    f"{side} 나머지 업종 대부분이 '시장 대비' 로는 {mirror} 보입니다. "
                    f"{read.bench_label} 안의 {h.label} 비중이 커서 생기는 착시일 수 "
-                   "있으니, 업종 자체의 등락은 아래 기간별 수익률로 확인하십시오.")
+                   f"있습니다 — 위의 기준을 '{EW_LABEL}' 으로 바꾸면 이 쏠림이 빠집니다.")
     return out[:3]

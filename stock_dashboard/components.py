@@ -3056,10 +3056,10 @@ def _flow_chip(f, show_prev: bool = True) -> str:
     if show_prev and f.moved:
         prev = f'<i>← {_esc(_sh.PHASE_NAME.get(f.prev_phase, ""))}</i>'
     return (f'<span class="sf-chip"><b>{_esc(f.label)}</b>'
-            f'<em>{f.level:+.1f} | {f.direction:+.1f}</em>{prev}</span>')
+            f'<em>{_sh.pp(f.level)} | {_sh.pp(f.direction)}</em>{prev}</span>')
 
 
-def render_sector_flow(rows: list) -> str:
+def render_sector_flow(rows: list, base: str = "k200") -> str:
     """섹터 온도 맨 위 — 판독 문장 + 흐름 지도(주도 · 회복 · 둔화 · 침체).
 
     2026-11-13 사용자: "섹터 온도의 변화 흐름이 무엇을 이야기하는지" 가 안 보임.
@@ -3070,10 +3070,20 @@ def render_sector_flow(rows: list) -> str:
     """
     import sector_heat as _sh  # noqa: PLC0415
 
-    flows = _sh.flow(rows or [])
-    read = _sh.flow_read(rows or [], flows)
+    rows = rows or []
+    bench, fallback = None, ""
+    if base == "ew":
+        # 2026-11-13 사용자 승인: 업종 평균(동일가중) 기준으로도 보기
+        bench = _sh.equal_weight_bench(rows)
+        if bench is None:
+            fallback = (f'<div class="sf-unk">업종 평균을 만들 업종이 '
+                        f"{_sh.EW_MIN_MEMBERS}개보다 적어 KODEX 200 기준으로 "
+                        "보여 줍니다.</div>")
+    flows = _sh.flow(rows, bench)
+    read = _sh.flow_read(rows, flows, bench)
     if read is None:
         return ""
+    ew = read.bench_code == _sh.EW_CODE
     day = _sh.as_of(rows)
     when = f" · {int(day[5:7])}/{day[8:10]} 봉 기준" if len(day) >= 10 else ""
     lines = "".join(f"<li>{_esc(t)}</li>" for t in _sh.flow_sentences(read))
@@ -3085,6 +3095,8 @@ def render_sector_flow(rows: list) -> str:
                        key=lambda f: -f.direction)
         chips = ("".join(_flow_chip(f) for f in items)
                  or '<span class="sf-none">없음</span>')
+        if ew:
+            meaning = meaning.replace("시장", _sh.EW_LABEL)
         boxes.append(
             f'<div class="sf-q sf-{key}"><div class="sf-qh"><b>{_esc(name)}</b>'
             f"<span>{_esc(meaning)}</span><small>{len(items)}</small></div>"
@@ -3103,14 +3115,22 @@ def render_sector_flow(rows: list) -> str:
     moved = (f" · 1주 전과 칸이 바뀐 업종 {read.moved}/{read.n}개"
              + (" — 1주 기준이라 칸이 자주 바뀝니다" if read.moved * 2 >= read.n else "")
              if read.moved else "")
+    ew_note = ""
+    if ew and bench is not None:
+        ew_note = (f'<div class="sf-foot"><b>{_esc(_sh.EW_LABEL)}</b> = 업종 ETF '
+                   f"{len(bench.members)}개를 같은 비중으로 매일 평균한 선 "
+                   "(코스닥150 은 시장 지수라 뺌) · 이번 주 "
+                   f"{_sh.pp(read.bench_dir)}% · 3개월 "
+                   + (f"{_sh.pp(bench.returns.get('m3'))}%" if bench.returns.get("m3") is not None
+                      else "—") + "</div>")
     return (
         '<div class="dash-sflow">'
-        f'<div class="sb-head"><b>흐름이 말하는 것</b><span>KODEX 업종 ETF · 네이버 일봉'
-        f"{_esc(when)}</span></div>"
+        f'<div class="sb-head"><b>흐름이 말하는 것</b><span>기준 {_esc(read.bench_label)} · '
+        f"KODEX 업종 ETF · 네이버 일봉{_esc(when)}</span></div>{fallback}"
         f'<ul class="sf-read">{lines}</ul>'
         f'<div class="sf-map">{"".join(boxes)}</div>{flat_html}'
         f'<div class="sf-foot">숫자 = <b>3개월 | 1주</b>, {_esc(read.bench_label)} 대비 %p · '
-        f"<i>← 칸</i> = 1주 전에 있던 칸{_esc(moved)}</div>{unk_html}"
+        f"<i>← 칸</i> = 1주 전에 있던 칸{_esc(moved)}</div>{ew_note}{unk_html}"
         "</div>")
 
 

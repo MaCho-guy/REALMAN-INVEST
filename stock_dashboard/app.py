@@ -3411,7 +3411,25 @@ def render_sector_heat_tab(use_demo: bool) -> None:
             st.markdown(ui.render_notice(note), unsafe_allow_html=True)
     # 2026-11-13 사용자: "변화 흐름이 무엇을 이야기하는지" — 판독 문장 + 4칸
     # 흐름 지도를 맨 위에. 아래 칩 · 막대 · 격자 · 표는 그대로 둡니다.
-    st.markdown(ui.render_sector_flow(rows), unsafe_allow_html=True)
+    # 2026-11-13 사용자 승인: 기준선을 업종 평균(동일가중)으로도 — KODEX 200 은
+    # 반도체 비중이 커서 반도체가 크게 움직인 주에는 나머지가 전부 '꺾임' 으로 보임.
+    bases = {"k200": "KODEX 200 대비", "ew": "업종 평균 대비"}
+    base = None
+    picker = getattr(st, "segmented_control", None)
+    if picker is not None:
+        try:
+            base = picker("흐름 기준", list(bases), default="k200",
+                          key="sector_flow_base", format_func=lambda k: bases[k],
+                          label_visibility="collapsed")
+        except Exception:  # noqa: BLE001
+            base = None
+    if base is None and picker is None:
+        base = st.radio("흐름 기준", list(bases), horizontal=True,
+                        key="sector_flow_base_r", format_func=lambda k: bases[k],
+                        label_visibility="collapsed")
+    if base not in bases:   # 고른 칸을 다시 누르면 None — 기본값으로
+        base = "k200"
+    st.markdown(ui.render_sector_flow(rows, base), unsafe_allow_html=True)
     st.markdown(
         ui.render_footnote(
             "<b>흐름 지도 읽는 법.</b> 업종을 두 숫자로 나눕니다 — <b>3개월</b> "
@@ -3420,7 +3438,10 @@ def render_sector_heat_tab(use_demo: bool) -> None:
             "3개월 · 1주 칸에 KODEX 200 의 같은 칸을 빼면 그대로 검산됩니다. "
             "1주 차이가 ±1%p 안이면 '방향 없음' 으로 둡니다. "
             "KODEX 200 은 시가총액 비중대로 담아서 큰 업종(반도체)이 크게 "
-            "움직인 주에는 나머지 업종의 '시장 대비' 가 반대로 기웁니다."),
+            "움직인 주에는 나머지 업종의 '시장 대비' 가 반대로 기웁니다. "
+            "<b>업종 평균</b>은 업종 ETF 를 같은 비중으로 매일 평균한 선이라 "
+            "반도체도 한 표입니다 — 두 기준이 같은 말을 하면 그 흐름은 쏠림이 "
+            "아니라 실제 업종 순환에 가깝습니다."),
         unsafe_allow_html=True,
     )
     st.markdown(ui.render_sector_heat_summary(rows), unsafe_allow_html=True)

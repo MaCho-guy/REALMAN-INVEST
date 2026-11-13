@@ -331,6 +331,10 @@ ck = integrate.checklist(dict(summ("G1", [P] * 9), gr=gm), gfr["G1"], _PRow(), "
 check("체크리스트 — 6항목 · 선행 PER 20 ≤ 중앙값 25 통과",
       len(ck) == 6 and ck[1][0] == "pass" and ck[0][0] == "pass", str(ck))
 check("체크리스트 화면", "✓" in ui.render_checklist(ck) and ui.render_checklist([]) == "")
+_th = pathlib.Path("theme.py").read_text(encoding="utf-8")
+check("체크리스트는 9개 기준 줄(.dash-check)과 다른 클래스 — 겹치면 둘 다 깨짐 (11/13 폰)",
+      'class="dash-cklist"' in ui.render_checklist(ck) and "dash-check\"" not in ui.render_checklist(ck)
+      and ".dash-check {{ background" not in _th and ".dash-cklist {{ background" in _th)
 check("한국 체크리스트는 주식보상 항목 없음",
       len(integrate.checklist({}, {}, None, "kr", None)) == 5)
 check("수집기가 성장 지표를 싣는다",

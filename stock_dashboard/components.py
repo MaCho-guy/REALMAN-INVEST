@@ -5093,7 +5093,7 @@ def render_checklist(items: list, title: str = "체크리스트") -> str:
                     f"{_esc(label)}</span><span class=\"ck-t\">{_esc(text)}</span></li>")
     if not rows:
         return ""
-    return (f'<div class="dash-check"><div class="ck-h">{_esc(title)}</div>'
+    return (f'<div class="dash-cklist"><div class="ck-h">{_esc(title)}</div>'
             f'<ul>{"".join(rows)}</ul></div>')
 
 

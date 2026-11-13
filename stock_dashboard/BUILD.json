@@ -66,7 +66,7 @@
  "tools/check_dart.py": "fac9a6358934",
  "tools/check_funnel.py": "dbafd75f48ba",
  "tools/check_runner.py": "10c22ce6efae",
- "tools/collect.py": "8c950dbc7d60",
+ "tools/collect.py": "b390b4be34b9",
  "tools/diagnose.py": "fddb3112e94c",
  "tools/discover_hyperliquid.py": "4d0a584bc62f",
  "tools/eps_probe.py": "d0f13dc162b4",

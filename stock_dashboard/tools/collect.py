@@ -927,13 +927,16 @@ def build_backtest(out_dir: str, bars: dict, *, now: float | None = None) -> dic
         v = _market_inputs(out_dir, m)
         names, allowed = {}, set()
         fix = (lambda t: t) if m == "kr" else (lambda t: str(t).replace("-", "."))
+        for d_ in _read_prev(out_dir, f"chart_{m}.json").get("rows") or []:
+            if isinstance(d_, dict) and d_.get("ticker"):
+                names[fix(d_["ticker"])] = str(d_.get("name") or d_["ticker"])
         if v:
             screens, frows, _rows, _s, _n = v
             for s_ in screens:
                 sc = buffett.from_summary(s_) if isinstance(s_, dict) else None
                 if sc is None:
                     continue
-                names[sc.ticker] = sc.name
+                names.setdefault(sc.ticker, sc.name)
                 ok_q = buffett.quality_pass(sc, m) or integrate.held_back(sc, m)
                 if ok_q and not funnel_eps_down((frows.get(sc.ticker) or {}).get("f")):
                     allowed.add(sc.ticker)

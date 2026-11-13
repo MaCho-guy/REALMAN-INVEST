@@ -2954,7 +2954,9 @@ def build_type_rules() -> str:
      직접 지정해서, 그 안의 카드 · 문단은 영문 · 숫자만 Source Sans, 한글은 기기 글꼴로
      섞여 그려졌습니다. 같은 15px 이어도 옛 카드(system-ui)보다 작고 가늘어 보였습니다. */
   .stApp [data-testid="stMarkdownContainer"],
-  .stApp [data-testid="stCaptionContainer"] p { font-family: """ + FONT_STACK + """; }
+  .stApp [data-testid="stCaptionContainer"] p,
+  .stApp [data-testid="stHeadingWithActionElements"],
+  .stApp [data-testid="stHeadingWithActionElements"] * { font-family: """ + FONT_STACK + """; }
   @media (max-width: 640px) {
     /* ① 본문 = 15px — 스트림릿 글과 대시보드 카드가 같은 크기 */
     [data-testid="stMain"] [data-testid="stMarkdownContainer"] { font-size: var(--fs-3); }
@@ -2974,6 +2976,7 @@ def build_type_rules() -> str:
     /* ② 위계 — 설명은 본문보다 작게, 제목은 크게 */
     .dash-section-sub, .dash-section-count { font-size: var(--fs-2); }
     .bf-sec h3 { font-size: var(--fs-4); }
+    .dash-brief-text { font-size: var(--fs-3); }
     .dash-screen-tkr, .dash-screen-name { font-size: var(--fs-4); }
     .dash-screen-name { color: var(--dash-ink); font-weight: 650; }
     /* 산업 · 반도체 리포트 카드 — 제목이 카드 제목, 날짜는 아래 한 줄 */

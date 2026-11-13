@@ -503,7 +503,8 @@ import theme  # noqa: E402
 
 _css = theme.build_css("kr")
 check("글꼴 하나로 — 스트림릿 글 상자 · 캡션도 system-ui",
-      '.stApp [data-testid="stMarkdownContainer"],\n  .stApp [data-testid="stCaptionContainer"] p { font-family: system-ui' in _css)
+      '.stApp [data-testid="stMarkdownContainer"],\n  .stApp [data-testid="stCaptionContainer"] p,' in _css
+      and '[data-testid="stHeadingWithActionElements"] * { font-family: system-ui' in _css)
 check("글자 규칙이 표→카드 규칙보다 뒤 (덮어씀)", _css.index("⓪") > _css.index("table.dash-stk thead"))
 check("폰 — 본문 15 · 설명 14 · 리포트 카드 제목 = 리포트 제목",
       ".dash-section-sub, .dash-section-count { font-size: var(--fs-2); }" in _css

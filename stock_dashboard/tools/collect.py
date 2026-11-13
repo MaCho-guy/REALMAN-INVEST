@@ -739,6 +739,10 @@ def build_chart(app, out_dir: str, market: str, *, ohlc_fn=None, semi_fn=None,
         # '새로' — 지난 파일이 있을 때만 셉니다 (첫 파일에서는 전부 새로가 되므로)
         if prev_rows and chart_signals.new_flag(r, prev_rows.get(r.ticker)):
             d["new"] = 1
+        # 과매도 진입 종목만 최근 60봉 종가를 싣습니다 — '오늘 볼 종목' 카드의 작은 차트용
+        # (2026-11-13 "글자만 나온다"). 전 종목에 실으면 파일이 1MB 를 넘습니다.
+        if chart_signals.is_os_entry(r) and r.spark:
+            d["sp"] = [round(v, 2) if v < 1000 else round(v) for v in r.spark[-60:]]
         pb, pe = chart_signals.prev_state(r, prev_rows.get(r.ticker))
         if pe is not None:          # 직전 봉 날짜 · 그때 진입이었는가 (다음 수집이 이어받음)
             d["pb"], d["pe"] = pb, int(pe)

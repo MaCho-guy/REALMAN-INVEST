@@ -1780,6 +1780,10 @@ def build_rules() -> str:
   .pk-gap.up {{ color: var(--dash-up); }} .pk-gap.down {{ color: var(--dash-down); }}
   .pk-gap.flat {{ color: var(--dash-ink-muted); }}
   .pk-chips {{ display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }}
+  .pk-chart {{ position: relative; margin: 0 0 8px; }}
+  .pk-chart svg {{ display: block; width: 100%; height: 44px; }}
+  .pk-chart span {{ position: absolute; right: 2px; top: -2px; font-size: var(--fs-1);
+                   color: var(--dash-ink-muted); background: var(--dash-surface); padding: 0 3px; }}
   .pk-chip {{ font-size: var(--fs-2); font-weight: 650; border-radius: var(--r-pill);
              padding: 3px 10px; white-space: nowrap; color: var(--dash-ink);
              background: var(--dash-raised); }}

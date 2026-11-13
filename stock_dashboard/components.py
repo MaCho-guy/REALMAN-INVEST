@@ -4827,9 +4827,35 @@ def _pk_gauge(label: str, value, lo: float, hi: float, zone_hi: float,
             f'<span class="pk-gv">{_esc(fmt.format(value))}</span></div>')
 
 
+def _pk_spark(values, width: int = 300, height: int = 44) -> str:
+    """3개월 종가 선 — 선 + 옅은 면 + 마지막 점. 칸 폭에 맞춰 늘어납니다 (12:08 '글자만')."""
+    pts = [float(v) for v in (values or []) if isinstance(v, (int, float)) and v > 0]
+    if len(pts) < 5:
+        return ""
+    lo, hi = min(pts), max(pts)
+    span = (hi - lo) or 1.0
+    n = len(pts) - 1
+
+    def xy(i, v):
+        return (i / n * (width - 6) + 3, height - 4 - (v - lo) / span * (height - 10))
+
+    line = " ".join(f"{x:.1f},{y:.1f}" for x, y in (xy(i, v) for i, v in enumerate(pts)))
+    lx, ly = xy(n, pts[-1])
+    tone = ("var(--dash-up)" if pts[-1] > pts[0] else
+            "var(--dash-down)" if pts[-1] < pts[0] else "var(--dash-flat)")
+    chg = pts[-1] / pts[0] - 1
+    return (f'<div class="pk-chart"><svg viewBox="0 0 {width} {height}" preserveAspectRatio="none" '
+            f'aria-hidden="true"><polygon points="3,{height - 1} {line} {width - 3},{height - 1}" '
+            f'fill="{tone}" opacity=".10"/><polyline points="{line}" fill="none" stroke="{tone}" '
+            'stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" '
+            f'vector-effect="non-scaling-stroke"/><circle cx="{lx:.1f}" cy="{ly:.1f}" r="3" '
+            f'fill="{tone}"/></svg><span>최근 {len(pts)}거래일 {direction_glyph(chg)}'
+            f"{abs(chg) * 100:.1f}%</span></div>")
+
+
 def render_pick_cards(items: list[dict]) -> str:
     """items: [{name, ticker, tags, price_txt, gap20, price_state, price_word, eps_c90,
-    cci, stoch_k, entered(set), vol_ratio, cci_lo, stoch_lo}] → 카드 묶음."""
+    cci, stoch_k, entered(set), vol_ratio, cci_lo, stoch_lo, spark?}] → 카드 묶음."""
     cards = []
     for i, it in enumerate(items, 1):
         tags = "".join(f'<span class="pk-tag">{_esc(t)}</span>' for t in it.get("tags") or [])
@@ -4866,7 +4892,8 @@ def render_pick_cards(items: list[dict]) -> str:
             f"</span>{tags}</div>"
             f'<div class="pk-price"><span class="pk-px">{_esc(it.get("price_txt", ""))}</span>'
             f"{gap_html}</div>"
-            f'<div class="pk-chips">{"".join(chips)}</div>'
+            + _pk_spark(it.get("spark"))
+            + f'<div class="pk-chips">{"".join(chips)}</div>'
             f'<div class="pk-gs">{gauges}</div></div>')
     if not cards:
         return ""

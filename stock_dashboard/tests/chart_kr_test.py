@@ -363,6 +363,18 @@ src_app = open("app.py", encoding="utf-8").read()
 check("내 종목 탭에 차트 조건 (옮겨 옴)", "차트 조건 — 내 종목" in src_app)
 check("차트 조건 탭의 '내 종목만' 스위치 제거", '"내 종목만"' not in src_app)
 
+print("4c. 오늘 볼 종목 카드 — 3개월 선")
+p4 = universe.parse(open(os.path.join(tmp, "chart_kr.json"), encoding="utf-8").read())
+with_sp = [d for d in p4["rows"] if d.get("sp")]
+check("수집기 — 과매도 진입 종목에만 60봉 종가(sp)",
+      with_sp and all(len(d["sp"]) <= 60 for d in with_sp)
+      and all(chart_signals.is_os_entry(chart_signals.row_from_dict(d)) for d in with_sp),
+      f"{len(with_sp)}종목")
+card = ui.render_pick_cards([app._pick_item(e_row, None, set(), set(), "kr", [100 - i for i in range(60)])])
+check("카드에 3개월 선 · 기간 등락", "pk-chart" in card and "<svg" in card and "최근 60거래일" in card)
+card0 = ui.render_pick_cards([app._pick_item(e_row, None, set(), set(), "kr", None)])
+check("선이 없어도 카드는 그려짐", "pk-card" in card0 and "pk-chart" not in card0)
+
 print("5. 같은 일봉을 두 번 받지 않음 (수집기 메모)")
 from sources import naver  # noqa: E402
 

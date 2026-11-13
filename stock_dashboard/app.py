@@ -2531,7 +2531,8 @@ _PRICE_WORD = {"light": "가격 부담 낮음", "edge": "가격 경계", "heavy"
 _ENTRY_NAME = {"cci": "CCI", "stoch": "스토캐스틱", "bb": "볼린저"}
 
 
-def _pick_item(row, frow: dict | None, semis: set, new: set, market: str = "kr") -> dict:
+def _pick_item(row, frow: dict | None, semis: set, new: set, market: str = "kr",
+               spark=None) -> dict:
     """오늘 볼 종목 카드 한 장의 재료 — 전부 수집기 파일에 있는 값입니다."""
     import funnel  # noqa: PLC0415
 
@@ -2553,7 +2554,8 @@ def _pick_item(row, frow: dict | None, semis: set, new: set, market: str = "kr")
             "price_state": state, "price_word": _PRICE_WORD.get(state, "") if frow else "",
             "eps_c90": f.get("c90"), "cci": row.cci, "stoch_k": row.stoch_k,
             "entered": entered, "vol_ratio": row.vol_ratio,
-            "cci_lo": chart_signals.CCI_OVERSOLD, "stoch_lo": chart_signals.STOCH_OVERSOLD}
+            "cci_lo": chart_signals.CCI_OVERSOLD, "stoch_lo": chart_signals.STOCH_OVERSOLD,
+            "spark": spark or []}
 
 
 def _render_today_picks(market: str, use_demo: bool, held: set) -> int:
@@ -2622,8 +2624,12 @@ def _render_today_picks(market: str, use_demo: bool, held: set) -> int:
             "오늘은 해당 종목이 없습니다 — 그것도 답입니다."), unsafe_allow_html=True)
         return len(items)
     shown = picks[:TODAY_PICKS_MAX]
-    st.markdown(ui.render_pick_cards([_pick_item(r, quality.get(r.ticker), semis, new, market)
-                                      for r in shown]), unsafe_allow_html=True)
+    # 3개월 선 — 수집기가 과매도 진입 종목에만 최근 60봉 종가(sp)를 싣습니다
+    sparks = {str(d.get("ticker")): d.get("sp") for d in items
+              if isinstance(d, dict) and d.get("sp")}
+    st.markdown(ui.render_pick_cards([
+        _pick_item(r, quality.get(r.ticker), semis, new, market, sparks.get(r.ticker))
+        for r in shown]), unsafe_allow_html=True)
     if len(picks) > len(shown):
         st.markdown(ui.render_notice(
             f"앞 {len(shown)}종목만 보입니다. 나머지 {len(picks) - len(shown)}종목은 아래 "

@@ -29,7 +29,7 @@ kr = dict(config.tab_groups("kr"))["찾기"]
 us = dict(config.tab_groups("us"))["찾기"]
 check("한국 찾기 = 후보 · 근거 · 차트·거래 (11/13 단순화 — 품질 깔때기 · 밸류에이션은 근거 안, "
       "거래 스크리너 · 차트 조건은 차트·거래 안)",
-      [k for k, _l in kr] == ["picks", "basis", "timing"], str(kr))
+      [k for k, _l in kr] == ["picks", "basis", "timing", "paper"], str(kr))
 check("미국은 스크리너 없음 (원래 없던 화면)", "screener" not in [k for k, _l in us], str(us))
 check("탭 이름", dict(kr)["basis"] == "근거" and dict(kr)["timing"] == "차트·거래"
       and config.SPECIAL_TAB_LABELS["discover"] == "품질 깔때기"

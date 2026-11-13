@@ -1915,8 +1915,8 @@ def _picks_history_line(market: str, use_demo: bool) -> None:
     st.markdown(ui.render_legend(
         f"<b>후보 기록</b> {n}일치" + (f" ({first}부터)" if first else "")
         + " — 날마다 안정형 · 성장형 후보와 종가를 남깁니다. 4주 넘게 쌓이면 '후보에 오른 종목이 "
-        "이후 시장 대비 어땠나' 를 비교해 규칙을 고칩니다."), unsafe_allow_html=True)
-    _render_paper(market, use_demo)
+        "이후 시장 대비 어땠나' 를 비교해 규칙을 고칩니다. 모의 매수 실험은 찾기 › 모의 매수."),
+        unsafe_allow_html=True)
 
 
 def _render_paper(market: str, use_demo: bool) -> None:
@@ -2081,7 +2081,7 @@ def render_basis_tab(data, fx, use_demo: bool, phone: bool = False, *,
             st.markdown(ui.render_checklist(
                 [(st_, f"{nm}", tx) for _k, nm, st_, tx in gcs],
                 title=f"성장 품질 7개 — 통과 {sum(1 for c in gcs if c[2] == 'pass')}",
-                sub="성장형 후보 판정에 쓰는 항목 · 5개 이상 통과해야 성장형"),
+                sub=f"성장형 후보 판정에 쓰는 항목 · {growth.GROWTH_MIN_PASS}개 이상 통과해야 성장형"),
                 unsafe_allow_html=True)
         if sc is not None:
             st.markdown(ui.render_section_head(
@@ -2164,6 +2164,8 @@ def _render_backtest(market: str, use_demo: bool) -> None:
         f"{techtest.MAX_HOLD}봉. 비용 왕복 {techtest.COST * 100:.2f}% 차감. "
         "<b>변형</b> — 거래량 배수(5일 ÷ 20일 ≥ 1.2배 · 증가 중) · 대기 −DI 15 · 대기 5봉 창(최근 5봉 안에 "
         "CCI ≥ +100 · −DI ≤ 10 이 각각 한 번씩) · B: ADX 꺾임 추가 · "
+        "S: A + 슬로우 스토캐스틱(12,5,5) — 최근 3봉 안에 %K 가 %D 를 위로, 최근 5봉 안에 %K ≤ 30 · "
+        "S 거래량 배수: S 의 거래량을 배수로 · SX: S 로 사고 %K ≥ 80 뒤 %K 가 %D 아래로 지나면 매도 · "
         "C: B + 오늘 기준 품질 통과·보류 · 선행 EPS 90일 −5% 초과 — <b>오늘의 재무로 과거 신호를 "
         "거르므로 실제보다 좋게 나올 수 있음(미리 보기 편향)</b>. "
         "<b>비교</b> — 같은 기간 후보 전체를 같은 비중으로 들고 있었을 때와의 차이. "
@@ -6172,6 +6174,7 @@ SECTION_LOADING = {
     "picks": "후보 — 수집기 파일을 읽습니다",
     "basis": "근거 — 수집기 파일을 읽습니다",
     "timing": "차트·거래 — 수집기 파일을 읽습니다 (차트 전체 목록은 처음 10~30초)",
+    "paper": "모의 매수 — 수집기 파일을 읽습니다",
     "macro": "매크로 — FRED 13종·VIX·공포탐욕 (처음 10~20초)",
     "chart": "차트 조건 — 후보 종목의 1년 일봉 (처음 10~30초)",
     "research": "산업 리포트 — 증권사 리포트 목록 (처음 5~10초)",
@@ -6672,6 +6675,8 @@ def render_body(opts: dict) -> None:
                 render_basis_tab(data, fx, opts["demo"], opts["phone"], market=market)
             elif active == "timing":
                 render_timing_tab(opts["demo"], market=market)
+            elif active == "paper":
+                _render_paper(market, opts["demo"])
             elif active == "valuation":
                 render_valuation_tab(data, fx, opts["demo"], opts["phone"],
                                      market=market)

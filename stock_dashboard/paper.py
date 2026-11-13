@@ -110,7 +110,23 @@ def add_sleeve(pf: dict, day: str, m: str, track: str, lst: list, prices: dict,
 
 
 def has_sleeve(pf: dict, m: str, track: str) -> bool:
-    return any(p["m"] == m and p["track"] == track for p in pf.get("pos", []))
+    return any(p["m"] == m and p["track"] == track and p.get("state") != "void"
+               for p in pf.get("pos", []))
+
+
+def reset_track(pf: dict, day: str, track: str, why: str, prices: dict | None = None) -> int:
+    """규칙이 바뀐 트랙(11/13 성장형 문턱 5 → 6)을 실험에서 뺌 — 지우지 않고 state 'void' 로
+    남겨 기록은 보이게 하고, 요약 · 묶음 판정에서는 뺍니다. 그 회차에 새 규칙으로 다시 삽니다."""
+    n = 0
+    for ps in pf.get("pos", []):
+        if ps.get("track") != track or ps.get("state") != "hold":
+            continue
+        px = (prices or {}).get((ps["m"], ps["t"]), ps.get("p"))
+        ps.update(state="void", d1=day, p1=px, why=why)
+        pf["events"].append([day, ps["m"], track, ps["t"], "reset",
+                             f"실험에서 뺌 ({ret(ps) * 100:+.1f}%) — {why}"])
+        n += 1
+    return n
 
 
 def _lamp_text(lamps: dict) -> str:
@@ -158,7 +174,7 @@ def step(pf: dict, day: str, judged: dict, prices: dict, bench: dict) -> dict:
 
 
 def ret(ps: dict) -> float:
-    end = ps.get("p1") if ps.get("state") == "sold" else ps.get("p")
+    end = ps.get("p1") if ps.get("state") in ("sold", "void") else ps.get("p")
     return (end / ps["p0"] - 1.0) if end and ps.get("p0") else 0.0
 
 
@@ -170,7 +186,8 @@ def bench_ret(ps: dict) -> float | None:
 
 def summary(pf: dict, market: str, track: str) -> dict:
     """{n, hold, sold, avg(동일 비중 평균 수익률), bench(같은 기간 시장 평균)}."""
-    ps = [p for p in pf.get("pos", []) if p["m"] == market and p["track"] == track]
+    ps = [p for p in pf.get("pos", []) if p["m"] == market and p["track"] == track
+          and p.get("state") != "void"]
     bs = [bench_ret(p) for p in ps if bench_ret(p) is not None]
     bench = sum(bs) / len(bs) if bs else None
     rs = [ret(p) for p in ps]

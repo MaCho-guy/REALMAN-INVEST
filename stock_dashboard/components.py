@@ -5135,7 +5135,9 @@ def render_paper(pf: dict, market: str) -> str:
     out = []
     cur = "원" if market == "kr" else "$"
     for track, label in (("stable", "안정형"), ("growth", "성장형")):
-        ps = [p for p in pf.get("pos", []) if p["m"] == market and p["track"] == track]
+        allp = [p for p in pf.get("pos", []) if p["m"] == market and p["track"] == track]
+        ps = [p for p in allp if p.get("state") != "void"]
+        voided = len(allp) - len(ps)
         if not ps:
             continue
         sm = paper.summary(pf, market, track)
@@ -5158,11 +5160,13 @@ def render_paper(pf: dict, market: str) -> str:
                 f'<div class="pp-sub">{_esc(str(p["d0"])[5:10])} {fmt(p["p0"])} → '
                 f'{fmt(end) if end else "—"} · 시장 {_pct(paper.bench_ret(p))}</div>'
                 f'<div class="pp-st">{state}</div></div>')
-        out.append(head + f'<div class="pp-list">{"".join(rows)}</div>')
+        void_note = (f'<div class="pp-st">이전 규칙 묶음 {voided}종목은 규칙 변경으로 실험에서 뺌 — '
+                     '아래 기록에 남김</div>' if voided else "")
+        out.append(head + void_note + f'<div class="pp-list">{"".join(rows)}</div>')
     ev = [e for e in pf.get("events", []) if e[1] == market and e[4] != "buy"][-10:]
     if ev:
         names = {p["t"]: p["n"] for p in pf.get("pos", [])}
-        kind = {"change": "변경", "sell": "매도", "na": "판정 불가"}
+        kind = {"change": "변경", "sell": "매도", "na": "판정 불가", "reset": "규칙 변경"}
         items = "".join(
             f'<li><span>{_esc(str(e[0])[5:16])}</span> <b>{_esc(names.get(e[3], e[3]))}</b> '
             f'({"안정형" if e[2] == "stable" else "성장형"}) · {kind.get(e[4], e[4])} — {_esc(e[5])}</li>'
@@ -5202,7 +5206,7 @@ def render_backtest(res: dict, market: str, recent: str = "A") -> str:
             f'<div class="pp-sub">같은 기간 후보 전체 대비 <b>{_pct(v["excess"])}</b> · 평균 보유 '
             f'{v["hold"]}일</div><div class="pp-st">끝난 이유 — {why}</div></div>')
     out.append(f'<div class="pp-list">{"".join(rows)}</div>')
-    for k, label in (("A", "A 기본"), ("C", "C 펀더멘털 통과만")):
+    for k, label in (("A", "A 기본"), ("S", "S 스토캐스틱 확인"), ("C", "C 펀더멘털 통과만")):
         sig = (res.get("signals") or {}).get(k)
         if sig is None:
             continue

@@ -404,7 +404,7 @@ import discover as _disc  # noqa: E402
 _tabs = dict(config.tab_labels())
 # 2026-11-11: 시장이 최상위 축이 되면서 탭이 '시장마다 다른 목록' 이
 # 됐습니다. 전체 목록은 두 시장의 합집합이고, 시장마다 보이는 게 다릅니다.
-check_true("전체 탭 15개 (11/13 찾기 = 후보 · 근거 · 차트(·거래) 한·미 공통, 품질 깔때기 · 밸류에이션 · 차트 조건 · 거래 스크리너는 그 안 · 실적 탭은 내 종목으로)", len(_tabs) == 15, f"{len(_tabs)}개: {list(_tabs)}")
+check_true("전체 탭 16개 (11/13 찾기 + 17:04 모의 매수 탭 ·  = 후보 · 근거 · 차트(·거래) 한·미 공통, 품질 깔때기 · 밸류에이션 · 차트 조건 · 거래 스크리너는 그 안 · 실적 탭은 내 종목으로)", len(_tabs) == 16, f"{len(_tabs)}개: {list(_tabs)}")
 for _need in ("summary", "holdings", "picks", "basis", "sector_heat",
               "kr_flows", "macro", "us_flows", "cycle"):
     check_true(f"탭 '{_need}' 이 있다", _need in _tabs, str(list(_tabs)))

@@ -1079,6 +1079,7 @@ TAB_ORDER: tuple[str, ...] = (
     "picks",        # 후보 — 한국, 품질 · 가격 · 선행 EPS 세 등 + 타이밍 꼬리표 (11/13)
     "basis",        # 근거 — 한국, 한 종목의 9개 기준 · 역DCF · EPS + 품질 깔때기 · 밸류에이션 (11/13)
     "timing",       # 차트·거래 — 한국, 거래 스크리너 · 차트 조건 전체 목록 (11/13, 참고용)
+    "paper",        # 모의 매수 — 후보 상위를 샀다고 치고 근거가 깨지면 판 기록 (11/13 17:04, 후보 탭에서 뺌)
     "sector_heat",  # 한국 — 섹터 온도 (KODEX 업종 ETF)
     "research",     # 한국 — 증권사 산업분석 리포트 목록 (업종별)
     "semi_research",  # 한국 — 반도체 리포트 (산업 · 삼성전자 · SK하이닉스) 요약
@@ -1152,20 +1153,21 @@ SECTIONS_MERGED_INTO: dict[str, str] = {
 #: 보든 같은 배경입니다.
 MARKET_TABS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
     "kr": (
-        ("오늘", ("summary", "briefing", "holdings")),
+        # 11/13 17:03 사용자 "아침 브리핑을 공통으로" — 미국장 글이라 시장과 무관
+        ("오늘", ("summary", "holdings")),
         # 2026-11-13: 5칸 → 3칸. 품질 깔때기 · 밸류에이션은 '근거' 안, 거래 스크리너 ·
-        # 차트 조건은 '차트·거래' 안 (스위치). 미국은 그대로.
-        ("찾기", ("picks", "basis", "timing")),
+        # 차트 조건은 '차트·거래' 안 (스위치). 17:04 모의 매수를 탭으로 뺌.
+        ("찾기", ("picks", "basis", "timing", "paper")),
         ("한국 시장", ("sector_heat", "supply", "research", "semi_research",
                    "kr_flows")),
-        ("공통", ("calendar", "macro", "cycle")),
+        ("공통", ("briefing", "calendar", "macro", "cycle")),
     ),
     "us": (
-        ("오늘", ("summary", "briefing", "holdings")),
-        # 2026-11-13 한국과 같은 3칸. 거래 스크리너는 한국만이라 셋째 칸 이름은 '차트'.
-        ("찾기", ("picks", "basis", "timing")),
+        ("오늘", ("summary", "holdings")),
+        # 2026-11-13 한국과 같은 칸. 거래 스크리너는 한국만이라 셋째 칸 이름은 '차트'.
+        ("찾기", ("picks", "basis", "timing", "paper")),
         ("미국 시장", ("macro", "us_flows")),
-        ("공통", ("calendar", "cycle")),
+        ("공통", ("briefing", "calendar", "cycle")),
     ),
 }
 
@@ -1190,6 +1192,7 @@ SPECIAL_TAB_LABELS = {
     "picks": "후보",
     "basis": "근거",
     "timing": "차트·거래",
+    "paper": "모의 매수",
     "macro": "매크로",
     "sector_heat": "섹터 온도",
     "kr_flows": "뉴스 · 공시 · 지표",

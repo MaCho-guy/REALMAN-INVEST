@@ -19,6 +19,12 @@
   A15    대기 조건 −DI ≤ 15 (10 은 드물 수 있어 비교)
   A5     대기 조건을 '같은 날' 대신 '최근 5봉 안에 CCI ≥ +100 · −DI ≤ 10 이 각각 한 번씩'으로
   B      A + ADX 꺾임(최근 3봉 전보다 낮음 — 하락 추세의 힘이 빠지는 중)
+  S      A + 스토캐스틱 슬로우(12,5,5 — 화면과 같음) 확인: 최근 3봉 안에 %K 가 %D 를 위로
+         지나고, 최근 5봉 안에 %K 가 30 이하였음 (11/13 17:02 사용자 "평균이 안 좋으면 슬로우
+         스토캐스틱을 같이 쓰면?")
+  S_vol  S 의 거래량 조건을 OBV 대신 거래량 배수로 (A_vol 이 한국에서 나았음)
+  SX     S 로 사고, 청산도 스토캐스틱으로 — 보유 중 %K ≥ 80 이면 대기, 대기 뒤 %K 가 %D 를
+         아래로 지나면 매도 (CCI · −DI 대기 · 매도 대신). 안전장치는 같음
   C      B + 펀더멘털 필터(품질 통과 · 보류, 선행 EPS 90일 −5% 초과) — **오늘의 재무로
          과거 신호를 거르므로 미리 보기 편향이 있음** (참고용)
 비교  '시장' = 같은 날짜들의 후보 전체 동일 비중 평균(일별 수익률 평균을 누적) — 지수
@@ -34,9 +40,11 @@ STOP = 0.08
 ARM_WAIT = 20
 MAX_HOLD = 40
 WARMUP = 30
-VARIANTS = ("A", "A_vol", "A15", "A5", "B", "C")
+VARIANTS = ("A", "A_vol", "A15", "A5", "B", "C", "S", "S_vol", "SX")
 LABELS = {"A": "A · OBV (기본)", "A_vol": "A · 거래량 배수", "A15": "A · 대기 −DI 15", "A5": "A · 대기 5봉 창",
-          "B": "B · A + ADX 꺾임", "C": "C · B + 펀더멘털(참고)"}
+          "B": "B · A + ADX 꺾임", "C": "C · B + 펀더멘털(참고)",
+          "S": "S · A + 스토캐스틱 슬로우", "S_vol": "S · 거래량 배수 + 스토캐스틱",
+          "SX": "SX · S + 스토캐스틱 청산"}
 
 
 def _obv(close, vol):
@@ -57,7 +65,9 @@ def indicators(bars: dict) -> dict | None:
         return None
     v = (list(v) + [0.0] * n)[:n]
     pdi, mdi, adx = cs.dmi(h, l, c)
+    sk, sd = cs.stoch_slow(h, l, c)
     return {"c": c, "cci": cs.cci_series(h, l, c), "pdi": pdi, "mdi": mdi, "adx": adx,
+            "sk": sk, "sd": sd,
             "obv": _obv(c, v), "vol": [x or 0.0 for x in v],
             "date": (bars.get("date") or [""] * n)[:n], "n": n}
 
@@ -102,10 +112,23 @@ def _vol_up(ind, i):
     return a20 > 0 and a5[-1] / a20 >= 1.2 and a5[0] < a5[1] < a5[2]
 
 
+def _stoch_up(ind, i):
+    """슬로우 스토캐스틱 — 최근 3봉 안에 %K 가 %D 를 위로 지남 · 최근 5봉 안에 %K ≤ 과매도(30)."""
+    k, d = ind.get("sk") or [], ind.get("sd") or []
+    if i < 5 or len(k) <= i:
+        return False
+    cross = any(_ok(k[j], d[j], k[j - 1], d[j - 1]) and k[j - 1] <= d[j - 1] and k[j] > d[j]
+                for j in range(i - 2, i + 1))
+    low = any(k[j] is not None and k[j] <= cs.STOCH_OVERSOLD for j in range(i - 4, i + 1))
+    return cross and low
+
+
 def entry(ind: dict, i: int, variant: str) -> bool:
     if not (_cci_escape(ind["cci"], i) and _mdi_cross30(ind["mdi"], i)):
         return False
-    if not (_vol_up(ind, i) if variant == "A_vol" else _obv_up(ind, i)):
+    if not (_vol_up(ind, i) if variant in ("A_vol", "S_vol") else _obv_up(ind, i)):
+        return False
+    if variant in ("S", "S_vol", "SX") and not _stoch_up(ind, i):
         return False
     if variant in ("B", "C"):
         a = ind["adx"]
@@ -135,7 +158,15 @@ def trades(ind: dict, variant: str) -> list[dict]:
             if c[k] <= p0 * (1 - STOP):
                 why = "손절 −8%"
                 break
-            if not armed and _armed(cci, mdi, k, arm_lvl, 5 if variant == "A5" else 1):
+            if variant == "SX":                   # 스토캐스틱 청산
+                sk_, sd_ = ind["sk"], ind["sd"]
+                if not armed and sk_[k] is not None and sk_[k] >= cs.STOCH_OVERBOUGHT:
+                    armed = True
+                elif armed and _ok(sk_[k], sd_[k], sk_[k - 1], sd_[k - 1]) \
+                        and sk_[k - 1] >= sd_[k - 1] and sk_[k] < sd_[k]:
+                    why = "매도 신호"
+                    break
+            elif not armed and _armed(cci, mdi, k, arm_lvl, 5 if variant == "A5" else 1):
                 armed = True
             elif armed and _ok(cci[k], mdi[k], mdi[k - 1]) and cci[k] < cs.CCI_OVERBOUGHT \
                     and mdi[k] > mdi[k - 1]:
@@ -211,7 +242,7 @@ def run(bars_by_sym: dict, names: dict | None = None, allowed: set | None = None
             "why": whys,
             "recent": sorted(rows, key=lambda x: x["d0"])[-15:],
         }
-        if var in ("A", "C"):
+        if var in ("A", "C", "S"):
             sig = []
             for s, ind in inds.items():
                 if var == "C" and (allowed is None or s not in allowed):

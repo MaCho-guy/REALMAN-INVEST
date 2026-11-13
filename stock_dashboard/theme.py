@@ -3022,6 +3022,24 @@ def build_type_rules() -> str:
       min-height: 28px !important; padding: 1px 9px !important; }
     div[data-testid="stColumn"]:has(.dash-navmark) button p {
       font-size: var(--fs-2) !important; }
+    /* ④ 본문 내용칸 촘촘하게 (11/13 17:02 "본문 내용칸 축소") — 여백 · 칸 사이 간격 */
+    [data-testid="stMain"] [data-testid="stVerticalBlock"] { gap: 0.55rem; }
+    .dash-section-head { margin: 14px 0 6px; padding: 6px 10px; gap: 2px 8px; }
+    .dash-section-head:first-child { margin-top: 4px; }
+    .dash-footnote { margin: 1px 0 6px; }
+    .dash-card { padding: 8px 10px; }
+    .dash-screen { padding: 8px 10px 6px; margin-bottom: 5px; }
+    .dash-srow { padding: 8px 10px; margin-bottom: 6px; }
+    .dash-picks { gap: 7px; margin: 4px 0 2px; }
+    .pk-card { padding: 9px 11px; }
+    .ic-lamps { gap: 2px; margin: 4px 0 6px; }
+    .dash-cklist { padding: 9px 11px 2px; margin: 4px 0 8px; }
+    .dash-cklist li.ck { padding: 6px 0; }
+    .dash-paper .pp-row { padding: 7px 10px; }
+    .bf-hero { padding: 11px 12px 9px; }
+    .bf-sec { padding: 9px 11px 7px; }
+    table.dash-stk tr { padding: 7px 10px 5px; margin: 0 0 6px; }
+    table.dash-stk td { padding: 3px 0 !important; }
     table.dash-rt.dash-stk tr { display: flex; flex-direction: column; }
     table.dash-rt.dash-stk td.rt-title {
       order: -1; text-align: left !important; font-size: var(--fs-4); font-weight: 650;

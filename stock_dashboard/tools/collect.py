@@ -1019,9 +1019,20 @@ def build_paper(out_dir: str, markets=("us", "kr"), *, now: float | None = None,
                     chosen.append((c.ticker, c.name, lamps or {}))
                 picks[(m, track)] = chosen
     started = []
+    import growth  # noqa: PLC0415
     if not pf.get("pos"):
-        pf = {"version": 1, "start": day, "bench": {}, "pos": [], "events": []}
+        pf = {"version": 1, "start": day, "bench": {}, "pos": [], "events": [],
+              "rules": {"growth_min": growth.GROWTH_MIN_PASS}}
     else:
+        # 규칙이 바뀐 트랙은 실험에서 빼고(기록은 남김) 이 회차에 새 규칙으로 다시 삼 (11/13)
+        rules = pf.setdefault("rules", {})
+        old = rules.get("growth_min", 5)
+        if old != growth.GROWTH_MIN_PASS:
+            n_ = paper.reset_track(pf, day, "growth",
+                                   f"성장형 문턱 변경 ({old} → {growth.GROWTH_MIN_PASS}개) — "
+                                   "새 규칙으로 다시 시작", prices)
+            rules["growth_min"] = growth.GROWTH_MIN_PASS
+            started.append(f"reset growth {n_}")
         judged = {}
         for ps in pf["pos"]:
             v = inputs.get(ps["m"])

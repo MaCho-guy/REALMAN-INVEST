@@ -60,6 +60,7 @@ class Candidate:
     timing: bool = False                           # 차트 과매도 진입 (꼬리표)
     track: str = "stable"                          # 'stable' 안정형 · 'growth' 성장형 (11/13)
     also: bool = False                             # 다른 트랙 후보에도 있음
+    gscore: int = 0                                # 성장 품질 통과 수 (성장형만, 11/13 17:02)
 
     @property
     def greens(self) -> int:
@@ -67,7 +68,9 @@ class Candidate:
 
     def sort_key(self):
         c = self.eps_c90
-        return (-self.greens, not self.timing, c is None, -(c or 0.0),
+        # 성장형: 등 수가 같으면 성장 품질을 더 많이 통과한 회사 먼저 ("더 나은 기업", 11/13).
+        # 안정형은 gscore = 0 이라 순서 그대로.
+        return (-self.greens, -self.gscore, not self.timing, c is None, -(c or 0.0),
                 self.price_gap if self.price_gap is not None else 1.0, self.ticker)
 
 
@@ -266,6 +269,7 @@ def build_growth(screens: list, frows: dict, chart_rows: dict, semis: set = (),
         c = Candidate(ticker=t, name=sc.name, semi=t in semis, new_entry=t in new,
                       track="growth", also=t in stable)
         c.lamps["growth"], c.notes["growth"] = _growth_lamp(gr, market)
+        c.gscore = growth.score(gr, market)[0]
         c.lamps["price"], c.notes["price"], pg = _peg_lamp(fr.get("f"), price)
         c.lamps["eps"], c.notes["eps"] = _trend_lamp(fr.get("f"))
         chart_col, c.notes["chart"] = _chart(row)

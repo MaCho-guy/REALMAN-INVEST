@@ -218,10 +218,13 @@ check("요약용 compact 카드는 근거 줄 없음",
 check("빠진 종목 목록", "가격 부담 높음" in ui.render_candidate_excluded(out))
 check("빈 입력에도 깨지지 않음", integrate.build([], {}, {}, {}) == []
       and ui.render_candidate_cards([]) == "")
-check("한국 찾기 = 후보 · 근거 · 차트·거래 3칸 (11/13 단순화)",
-      dict(config.MARKET_TABS["kr"])["찾기"] == ("picks", "basis", "timing")
-      and [config.SPECIAL_TAB_LABELS[k] for k in ("picks", "basis", "timing")]
-      == ["후보", "근거", "차트·거래"])
+check("한국 찾기 = 후보 · 근거 · 차트·거래 · 모의 매수 (11/13 단순화 · 17:04 모의 매수 탭)",
+      dict(config.MARKET_TABS["kr"])["찾기"] == ("picks", "basis", "timing", "paper")
+      and [config.SPECIAL_TAB_LABELS[k] for k in ("picks", "basis", "timing", "paper")]
+      == ["후보", "근거", "차트·거래", "모의 매수"])
+check("아침 브리핑은 공통 묶음 (11/13 17:03)",
+      all("briefing" in dict(config.MARKET_TABS[m])["공통"]
+          and "briefing" not in dict(config.MARKET_TABS[m])["오늘"] for m in ("kr", "us")))
 check("예전 탭은 옮긴 곳으로 (주소 · 세션)",
       config.KR_TAB_MOVED == {"discover": "basis", "valuation": "basis",
                               "screener": "timing", "chart": "timing"}
@@ -232,7 +235,7 @@ check("옮긴 화면을 지우지 않고 스위치로 부름",
       and "render_chart_tab(use_demo, market=market, today=False)" in app_src
       and "render_screener_tab(use_demo, market=market)" in app_src)
 check("미국 찾기도 같은 3칸 · 셋째 칸 이름은 '차트' (11/13)",
-      dict(config.MARKET_TABS["us"])["찾기"] == ("picks", "basis", "timing")
+      dict(config.MARKET_TABS["us"])["찾기"] == ("picks", "basis", "timing", "paper")
       and config.market_labels("us")["timing"] == "차트"
       and config.market_labels("kr")["timing"] == "차트·거래"
       and dict(config.tab_groups("us"))["찾기"][2] == ("timing", "차트"))
@@ -426,7 +429,30 @@ col = pathlib.Path("tools/collect.py").read_text(encoding="utf-8")
 check("수집기가 실험 단계를 부르고 워크플로가 이어받음",
       "pp = build_paper(out_dir, markets)" in col and "paper_portfolio.json" in wf
       and "paper_portfolio.json" in real)
-check("후보 탭이 실험을 그림", "_render_paper(market, use_demo)" in app_src)
+check("모의 매수 탭이 실험을 그림 (17:04 후보 탭에서 뺌)",
+      '_render_paper(market, opts["demo"])' in app_src
+      and "_render_paper(market, use_demo)" not in app_src)
+
+print("\n== 성장형 문턱 6 · 더 나은 기업 순서 · 모의 매수 규칙 변경 (11/13 17:02)")
+import growth as _g  # noqa: E402
+import integrate as _ig  # noqa: E402
+import paper as _pp  # noqa: E402
+
+check("성장 품질 6개 이상 (사용자 승인)", _g.GROWTH_MIN_PASS == 6)
+_a = _ig.Candidate(ticker="A", name="a", track="growth"); _a.lamps = {"x": "g"}; _a.gscore = 6
+_b = _ig.Candidate(ticker="B", name="b", track="growth"); _b.lamps = {"x": "g"}; _b.gscore = 7
+check("등 수가 같으면 성장 품질 더 많이 통과한 회사 먼저", sorted([_a, _b], key=_ig.Candidate.sort_key)[0].ticker == "B")
+_pf = {"pos": [{"m": "kr", "track": "growth", "t": "A", "n": "가", "d0": "d", "p0": 10.0, "l0": {}, "p": 11.0,
+                "l": {}, "state": "hold", "b0": 1, "b": 1},
+               {"m": "kr", "track": "stable", "t": "B", "n": "나", "d0": "d", "p0": 10.0, "l0": {}, "p": 10.0,
+                "l": {}, "state": "hold", "b0": 1, "b": 1}], "events": []}
+check("규칙 변경 — 성장형만 실험에서 뺌(지우지 않음) · 새 묶음 시작 가능 · 요약에서 제외",
+      _pp.reset_track(_pf, "d2", "growth", "규칙", {("kr", "A"): 12.0}) == 1 and len(_pf["pos"]) == 2
+      and _pf["pos"][0]["state"] == "void" and not _pp.has_sleeve(_pf, "kr", "growth")
+      and _pp.has_sleeve(_pf, "kr", "stable") and _pp.summary(_pf, "kr", "growth")["n"] == 0
+      and _pf["events"][-1][4] == "reset")
+check("수집기가 문턱 변경을 알아채고 성장형을 다시 시작", "paper.reset_track(pf, day, \"growth\"" in col
+      and '"rules": {"growth_min": growth.GROWTH_MIN_PASS}' in col)
 
 print("\n== 차트 전략 백테스트 (techtest, 11/13)")
 import techtest  # noqa: E402
@@ -487,8 +513,12 @@ res = techtest.run({f"S{i}": bars() for i in range(20)}, {}, {"S1"})
 check("A5 — 5봉 창 안에서 따로 맞아도 대기, 같은 날 규칙은 아님",
       techtest._armed([120, 50, 50], [20, 20, 8], 2, 10.0, 5)
       and not techtest._armed([120, 50, 50], [20, 20, 8], 2, 10.0, 1))
-check("묶음 — 변형 6개 · 오늘 신호 A/C · 기간", set(res["variants"]) == set(techtest.VARIANTS)
-      and set(res["signals"]) == {"A", "C"} and res["window"]["to"] == "d199")
+check("묶음 — 변형 9개(스토캐스틱 S · S_vol · SX 포함) · 오늘 신호 A/S/C · 기간",
+      set(res["variants"]) == set(techtest.VARIANTS) and len(techtest.VARIANTS) == 9
+      and set(res["signals"]) == {"A", "C", "S"} and res["window"]["to"] == "d199")
+_si = {"sk": [50, 40, 25, 20, 22, 30, 35], "sd": [50, 45, 35, 25, 21, 24, 28]}
+check("슬로우 스토캐스틱 확인 — 30 이하 뒤 %K 가 %D 위로", techtest._stoch_up(_si, 6)
+      and not techtest._stoch_up({"sk": [50] * 7, "sd": [40] * 7}, 6))
 check("C 는 허용 종목만", all(x["s"] == "S1" for x in res["variants"]["C"]["recent"]))
 check("짧은 · 빈 일봉은 건너뜀", techtest.run({"X": {"close": [1, 2]}, "Y": {}})["n_syms"] == 0)
 bh = ui.render_backtest(res, "kr")

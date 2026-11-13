@@ -1557,6 +1557,18 @@ def render_holdings_tab(data: dict[str, dict[str, Quote]], fx,
                     + (f" {missing}종목은 차트 계산 대상이 아닙니다 (ETF · 지수 밖 종목)."
                        if chart_from and missing else "")), unsafe_allow_html=True)
 
+    # 실적 서프라이즈 — 내 종목 (2026-11-13 사용자: "내 종목에 대한 실적서프라이즈는
+    # 그 칸에서 보여주면"). '오늘 › 실적' 탭과 같은 화면 · 같은 대상(보유 · 관심)입니다.
+    # 켤 때만 받습니다 — 접는 칸은 닫혀 있어도 안을 계산해서 이 탭이 느려집니다.
+    if market in ("kr", "us") and st.toggle("실적 서프라이즈 보기 (내 종목)", value=False,
+                                            key=f"hold_earn_{market}"):
+        try:
+            render_earnings_tab(use_demo, market=market)
+        except Exception as exc:  # noqa: BLE001 - 실적이 내 종목 화면을 무너뜨리지 않게
+            st.markdown(ui.render_notice(
+                f"<b>실적을 받지 못했습니다.</b> {type(exc).__name__} — '오늘 › 실적' 탭에서 "
+                "다시 볼 수 있습니다."), unsafe_allow_html=True)
+
     render_signals_tab(data, use_demo, market=market)
 
     # 국내 본주 목록은 한국 쪽입니다 — 미국만 볼 때는 보일 이유가 없습니다

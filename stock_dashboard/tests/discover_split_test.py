@@ -74,6 +74,36 @@ html = ui.render_screen_table([S("214150", "클래시스"), S("NVDA", "NVIDIA")]
 check("국내 — 이름이 앞(크게), 코드는 작게", "클래시스<span class='sc-name'>214150" in html, "")
 check("미국 — 티커가 앞", "NVDA<span class='sc-name'>NVIDIA" in html, "")
 
+# 내 종목 탭 — 실적 서프라이즈 스위치
+calls_e: list = []
+st = app.st
+keep = {k: getattr(app, k) for k in ("_render_portfolio", "_detect_signals", "render_signals_tab",
+                                     "render_analysis_tab", "render_earnings_tab")}
+keep_st = {k: getattr(st, k) for k in ("markdown", "toggle", "expander")}
+app._render_portfolio = lambda *a, **k: None
+app._detect_signals = lambda *a, **k: ([], None)
+app.render_signals_tab = lambda *a, **k: None
+app.render_analysis_tab = lambda *a, **k: None
+app.render_earnings_tab = lambda use_demo, market="kr": calls_e.append(market)
+on = {"v": False}
+st.markdown = lambda *a, **k: None
+st.toggle = lambda label, value=False, key=None, **k: on["v"] if str(key).startswith("hold_earn") else value
+st.expander = lambda *a, **k: collect._Any()
+try:
+    app.render_holdings_tab({}, None, True, market="kr")
+    check("실적 스위치 꺼짐 — 받지 않음", calls_e == [])
+    on["v"] = True
+    app.render_holdings_tab({}, None, True, market="us")
+    check("실적 스위치 켜면 그 시장 실적", calls_e == ["us"], str(calls_e))
+    app.render_earnings_tab = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x"))
+    app.render_holdings_tab({}, None, True, market="kr")
+    check("실적이 실패해도 내 종목 화면은 그려짐", True)
+finally:
+    for k, v in keep.items():
+        setattr(app, k, v)
+    for k, v in keep_st.items():
+        setattr(st, k, v)
+
 print()
 if FAILS:
     print(f"실패 {len(FAILS)}개: {FAILS}")

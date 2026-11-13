@@ -5084,6 +5084,14 @@ def render_candidate_excluded(cands: list, limit: int = 30) -> str:
 _CHK = {"pass": ("✓", "g"), "fail": ("✗", "r"), "unknown": ("?", "u")}
 
 
+def render_rule_box(title: str, lines: list) -> str:
+    """규칙 설명 상자 (11/13) — 줄마다 구분선, 잘리지 않게(legend 는 두 줄에서 접힘)."""
+    items = "".join(f'<li class="ck"><div class="ck-t rb">{_safe_inline(x)}</div></li>'
+                    for x in lines if x)
+    return (f'<div class="dash-cklist dash-rulebox"><div class="ck-h">{_esc(title)}</div>'
+            f'<ul>{items}</ul></div>') if items else ""
+
+
 def render_checklist(items: list, title: str = "추가 확인", sub: str = "") -> str:
     """근거 탭 확인 목록 (11/13) — [(상태, 항목, 근거 글)]. 줄마다 구분선 · 항목 아래 근거.
 

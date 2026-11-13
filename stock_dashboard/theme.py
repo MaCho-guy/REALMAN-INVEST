@@ -189,13 +189,17 @@ def build_vars(convention: str, scope: str = ":root") -> str:
      표를 카드로 세워서 감당합니다 (아래 .dash-stk). */
   @media (max-width: 640px) {{
     {scope} {{
-      /* 11/13 16:46 "내용 글자 좀 더 줄여도 지장 없다" — 한 단계씩 내림 (전 13·14·15·16·17·18.5) */
-      --fs-1: 0.75rem;   /* 12px */
-      --fs-2: 0.82rem;   /* 13px */
-      --fs-3: 0.88rem;   /* 14px */
-      --fs-4: 0.94rem;   /* 15px */
-      --fs-5: 1.00rem;   /* 16px */
-      --fs-6: 1.10rem;   /* 17.5px */
+      /* 11/13 16:46 "내용 글자 좀 더 줄여도 지장 없다" — 한 단계씩 내림 (전 13·14·15·16·17·18.5)
+         11/13 17:20 "탭 눌렀을 때 글자가 너무 커서 스크롤을 많이 함 — 요약(버튼) 이 정도 크기로"
+         → 본문을 내비 버튼 글자(13px)에 맞춰 한 단계 더 (전 12·13·14·15·16·17.5) */
+      --fs-1: 0.72rem;   /* 11.5px */
+      --fs-2: 0.78rem;   /* 12.5px */
+      --fs-3: 0.82rem;   /* 13px — 본문 */
+      --fs-4: 0.88rem;   /* 14px */
+      --fs-5: 0.94rem;   /* 15px */
+      --fs-6: 1.03rem;   /* 16.5px */
+      --fs-nav: 0.82rem; /* 13px — 내비 버튼 고정 (사용자 확인 17:20) */
+      --fs-num: 0.88rem; /* 14px — 지수 값 · 시장 전환 고정 */
     }}
   }}
 """
@@ -1916,6 +1920,7 @@ def build_rules() -> str:
   .dash-cklist li.g .ck-m, .dash-cklist li.g .ck-w {{ color: #5b8c6a; }}
   .dash-cklist li.r .ck-m, .dash-cklist li.r .ck-w {{ color: #9a5a4a; }}
   .dash-cklist li.u .ck-m, .dash-cklist li.u .ck-w {{ color: var(--dash-ink-muted); }}
+  .dash-cklist .ck-t.rb {{ margin-left: 0; }}
   /* 가격 부담 높음 · 선행 EPS −5% 이하 — 빼지 않고 눈에 띄게 (2026-11-13) */
   .pk-chip.warn {{ border: 1.5px solid var(--dash-ink-2);
                   background: transparent; color: var(--dash-ink); }}
@@ -2952,6 +2957,8 @@ def build_type_rules() -> str:
     폰 기준 단계를 이렇게 맞춥니다: 13 태그 · 시각 / 14 설명 · 캡션 / 15 본문 /
     16 강조 라벨 / 17 카드 제목 / 18.5 섹션 제목 / 21↑ 수치.
     → 16:46 사용자 "더 줄여도 된다" 로 폰 단계를 한 칸씩 내림: 12 / 13 / 14 / 15 / 16 / 17.5.
+    → 17:20 "요약(버튼) 이 정도 크기로" — 본문 13px: 11.5 / 12.5 / 13 / 14 / 15 / 16.5.
+      내비 버튼 13px · 지수 값 14px · 시장 전환 14px 은 고정(사용자 확인).
     """
     return """
   /* ⓪ 글꼴 하나로 — 스트림릿 글 상자(stMarkdownContainer)는 'Source Sans'(한글 없음)를
@@ -2993,13 +3000,13 @@ def build_type_rules() -> str:
     .dash-clock { margin-left: 0; flex-basis: 100%; font-size: var(--fs-1); }
     div[data-testid="stElementContainer"]:has(.dash-marketmark)
       + div[data-testid="stElementContainer"] button {
-      font-size: var(--fs-3) !important; padding: 2px 12px !important; min-height: 30px; }
+      font-size: var(--fs-num) !important; padding: 2px 12px !important; min-height: 30px; }
     div[data-testid="stElementContainer"]:has(.dash-marketmark)
-      + div[data-testid="stElementContainer"] button p { font-size: var(--fs-3) !important; }
+      + div[data-testid="stElementContainer"] button p { font-size: var(--fs-num) !important; }
     .dash-mstrip { gap: 5px; margin: 0 0 10px; }
     .ms-cell { padding: 6px 8px; gap: 0; }
     .ms-label { font-size: var(--fs-1); }
-    .ms-val { font-size: var(--fs-3); line-height: 1.2; }   /* 14px — 16:46 "숫자 조금 더 줄여도" */
+    .ms-val { font-size: var(--fs-num); line-height: 1.2; }   /* 14px 고정 — 16:46 "숫자 조금 더 줄여도" */
     .ms-chg { font-size: var(--fs-1); }
     /* 내비 — 묶음 이름을 버튼 줄 맨 앞에 (줄을 따로 쓰지 않음), 버튼은 작게 */
     div[data-testid="stColumn"]:has(.dash-navmark) {
@@ -3021,7 +3028,7 @@ def build_type_rules() -> str:
     div[data-testid="stColumn"]:has(.dash-navmark) button {
       min-height: 28px !important; padding: 1px 9px !important; }
     div[data-testid="stColumn"]:has(.dash-navmark) button p {
-      font-size: var(--fs-2) !important; }
+      font-size: var(--fs-nav) !important; }   /* 13px 고정 — 사용자가 "누르기 불편하지 않다" 확인(17:20) */
     /* ④ 본문 내용칸 촘촘하게 (11/13 17:02 "본문 내용칸 축소") — 여백 · 칸 사이 간격 */
     [data-testid="stMain"] [data-testid="stVerticalBlock"] { gap: 0.55rem; }
     .dash-section-head { margin: 14px 0 6px; padding: 6px 10px; gap: 2px 8px; }

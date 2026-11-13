@@ -1936,14 +1936,20 @@ def _render_paper(market: str, use_demo: bool) -> None:
     html = ui.render_paper(pf, market)
     st.markdown(html or ui.render_notice("이 시장에는 아직 묶음이 없습니다."),
                 unsafe_allow_html=True)
-    st.markdown(ui.render_legend(
-        f"<b>규칙</b> — 첫 회차에 시장마다 안정형 상위 {paper.STABLE_N} · 성장형 상위 "
-        f"{paper.GROWTH_N}종목을 같은 비중으로 그 회차 종가에 매수(이후 추가 매수 없음). "
-        "매수 근거(후보 관문)가 깨진 회차의 종가로 매도 — 안정형: 품질 통과 상실 · 가격 부담 높음 · "
-        "선행 EPS 90일 −5% 이하 · 실적 추세 악화 / 성장형: 성장 품질 미통과 · PEG "
-        f"{__import__('growth').PEG_OK} 초과 · 선행 EPS 90일 −5% 이하. 등이 바뀌면 '변경' 으로 "
-        f"적음. 시장 = 같은 기간 {paper.BENCH[market]}. 수수료 · 세금 · 환율 없음 · 실제 체결가 아님 "
-        "— 규칙을 점검하려는 기록이지 투자 성과가 아닙니다."), unsafe_allow_html=True)
+    # 규칙 — 두 줄에서 접히는 legend 대신 잘리지 않는 상자 (11/13 17:20 "밑에 글자 잘림")
+    import growth  # noqa: PLC0415
+    st.markdown(ui.render_rule_box("규칙", [
+        f"<b>매수</b> — 첫 회차에 시장마다 안정형 상위 {paper.STABLE_N} · 성장형 상위 "
+        f"{paper.GROWTH_N}종목을 같은 비중으로 그 회차 종가에. 이후 추가 매수 없음",
+        "<b>매도(안정형)</b> — 품질 통과 상실 · 가격 부담 높음 · 선행 EPS 90일 −5% 이하 · "
+        "실적 추세 악화 중 하나라도 생긴 회차의 종가",
+        f"<b>매도(성장형)</b> — 성장 품질 {growth.GROWTH_MIN_PASS}개 미만 · PEG {growth.PEG_OK} 초과 · "
+        "선행 EPS 90일 −5% 이하 중 하나라도 생긴 회차의 종가",
+        "<b>기록</b> — 등이 바뀌면 '변경', 판정할 데이터가 없으면 팔지 않고 '판정 불가', 규칙이 "
+        "바뀌면 그 묶음을 실험에서 빼고(기록은 남김) 새 규칙으로 다시 시작",
+        f"<b>비교</b> — 같은 기간 시장({paper.BENCH[market]}). 수수료 · 세금 · 환율 없음 · 실제 "
+        "체결가 아님 — 규칙을 점검하려는 기록이지 투자 성과가 아닙니다",
+    ]), unsafe_allow_html=True)
 
 
 def _render_growth_picks(stable_cands: list, meta: dict, market: str) -> None:

@@ -423,8 +423,16 @@ sm = paper.summary(pf2, "kr", "stable")
 check("요약 — 보유 · 매도 · 평균 · 시장", sm["sold"] == 1 and abs(sm["avg"] + 0.05) < 1e-9
       and abs(sm["bench"] + 0.04) < 1e-9)
 ph = ui.render_paper(pf2, "kr")
+import theme as _th_  # noqa: E402
+_css_all = _th_.build_css("kr")
 check("화면 — 카드 · 매도 이유 · 변경점", "pp-row sold" in ph and "근거 깨짐" in ph and "논거 변경점" in ph)
 check("빈 실험은 그리지 않음", ui.render_paper({"pos": []}, "kr") == "")
+_rb = ui.render_rule_box("규칙", ["<b>매수</b> — 가", "나"])
+check("규칙 상자 — 접지 않음(잘림 없음) · 줄마다 구분", "dash-clamp" not in _rb and _rb.count('class="ck"') == 2
+      and ui.render_rule_box("규칙", []) == "" and 'ui.render_rule_box("규칙"' in app_src)
+check("폰 본문 13px · 내비 버튼 13px 고정 (17:20)", "--fs-3: 0.82rem;   /* 13px — 본문 */" in _css_all
+      and "font-size: var(--fs-nav) !important; }   /* 13px 고정" in _css_all
+      and "--fs-nav: 0.82rem;" in _css_all)
 col = pathlib.Path("tools/collect.py").read_text(encoding="utf-8")
 check("수집기가 실험 단계를 부르고 워크플로가 이어받음",
       "pp = build_paper(out_dir, markets)" in col and "paper_portfolio.json" in wf

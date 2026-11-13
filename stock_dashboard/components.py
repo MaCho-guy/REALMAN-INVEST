@@ -4845,6 +4845,24 @@ def _bf_markdown(md: str) -> str:
     return "".join(parts)
 
 
+def _bf_split_headings(md: str) -> list[tuple[str, str]]:
+    """마크다운을 제목(#) 단위로 — [(제목, 본문)]. 첫 제목 앞 글은 ('참고', 글).
+
+    ``` 블록 안의 # 는 제목으로 보지 않습니다.
+    """
+    out: list[tuple[str, list[str]]] = [("참고", [])]
+    fence = False
+    for line in (md or "").splitlines():
+        s = line.strip()
+        if s.startswith("```"):
+            fence = not fence
+        if not fence and s.startswith("#") and s.lstrip("#").strip():
+            out.append((s.lstrip("#").strip(), []))
+            continue
+        out[-1][1].append(line)
+    return [(t, "\n".join(b).strip()) for t, b in out if "\n".join(b).strip()]
+
+
 def _bf_section(sec: dict) -> str:
     rows = sec.get("rows") or []
     n_kv = sum(1 for r in rows if r["kind"] == "kv")
@@ -4897,8 +4915,14 @@ def render_briefing_view(bf, parsed: dict | None, rest_md: str = "") -> str:
             f'<div class="bf-meta">{_esc(bf.date)} · {_esc(bf.age_label)} · 아침 예약 작업이 쓴 글</div>'
             f'<h2>{_esc(bf.title or "제목 없음")}</h2>{lead}{stale}{warn}</header>')
     grid = f'<div class="bf-grid">{"".join(secs)}</div>' if secs else ""
-    more = (f'<section class="bf-sec bf-wide bf-more">{_bf_markdown(rest_md)}</section>'
-            if (rest_md or "").strip() else "")
+    # 덧붙인 글 — 제목(#)마다 카드 한 장, 제목 앞 글은 '참고' 카드 (12:52 "문단마다 카드로")
+    cards: list[str] = []
+    for title, md in _bf_split_headings(rest_md):
+        inner = _bf_markdown(md)
+        if not inner:
+            continue
+        cards.append(f'<section class="bf-sec bf-wide bf-more"><h3>{_esc(title)}</h3>{inner}</section>')
+    more = f'<div class="bf-grid bf-grid-more">{"".join(cards)}</div>' if cards else ""
     src = ""
     if bf.sources:
         items = "".join(

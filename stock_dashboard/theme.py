@@ -1633,6 +1633,7 @@ def build_rules() -> str:
   .bf-when {{ display: inline-block; font-weight: 750; font-variant-numeric: tabular-nums;
              background: var(--grp-tint, var(--dash-raised)); border-radius: var(--r-chip);
              padding: 0 7px; margin-right: 8px; }}
+  .bf-grid-more {{ grid-template-columns: 1fr; }}
   .bf-more h4 {{ font-size: var(--fs-4); font-weight: 750; margin: 14px 0 6px; padding: 0;
                 color: var(--dash-ink); }}
   .bf-more h4:first-child {{ margin-top: 0; }}
@@ -1827,10 +1828,11 @@ def build_rules() -> str:
   .pk-gap.up {{ color: var(--dash-up); }} .pk-gap.down {{ color: var(--dash-down); }}
   .pk-gap.flat {{ color: var(--dash-ink-muted); }}
   .pk-chips {{ display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }}
-  .pk-chart {{ position: relative; margin: 0 0 8px; }}
-  .pk-chart svg {{ display: block; width: 100%; height: 44px; }}
-  .pk-chart span {{ position: absolute; right: 2px; top: -2px; font-size: var(--fs-1);
-                   color: var(--dash-ink-muted); background: var(--dash-surface); padding: 0 3px; }}
+  /* 12:52 폰: '최근 60거래일' 글자가 선을 가림 → 글자는 선 위 별도 줄로 */
+  .pk-chart {{ display: flex; flex-direction: column; margin: 0 0 8px; }}
+  .pk-chart svg {{ display: block; width: 100%; height: 44px; order: 2; }}
+  .pk-chart span {{ order: 1; align-self: flex-end; font-size: var(--fs-1);
+                   color: var(--dash-ink-muted); line-height: 1.3; margin-bottom: 2px; }}
   .pk-chip {{ font-size: var(--fs-2); font-weight: 650; border-radius: var(--r-pill);
              padding: 3px 10px; white-space: nowrap; color: var(--dash-ink);
              background: var(--dash-raised); }}

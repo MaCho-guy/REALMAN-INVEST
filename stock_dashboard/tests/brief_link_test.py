@@ -156,11 +156,16 @@ html = ui.render_briefing_view(bf, parsed, rest)
 check("등락색 — ▼ 하락 · ▲ 상승", 'bf-mv down">▼0.35%' in html and 'bf-mv up">▲6.92%' in html)
 check("일정 시각 칩", '<span class="bf-when">22:30</span>' in html
       and '<span class="bf-when">11/14~16</span>' in html)
-check("덧붙인 글 — 제목 · 굵게 · 목록", "<h4>리스크 요인</h4>" in html and "<b>금리 레벨</b>" in html)
+check("덧붙인 글 — 굵게 · 목록", "<b>금리 레벨</b>" in html and "<ul>" in html)
 check("HTML 은 글자로만 (스크립트 안 돎)", "<script>" not in html and "&lt;script&gt;" in html)
 check("링크는 http(s) 만", 'href="https://example.com/x"' in html and "javascript:" not in html.replace(
     "(javascript:alert(1))", ""), "")
 check("출처는 접어서 · 도메인만", "<summary>출처 1곳</summary>" in html and ">example.com</a>" in html)
+check("덧붙인 글 — 제목마다 카드 · 제목 앞 글은 '참고' 카드",
+      html.count('class="bf-sec bf-wide bf-more"') == 2 and "<h3>참고</h3>" in html
+      and "<h3>리스크 요인</h3>" in html)
+check("``` 안의 # 는 제목 아님", [t for t, _b in ui._bf_split_headings("# 가\n글\n```\n# 아님\n```\n## 나\n글")]
+      == ["가", "나"])
 check("고정폭 덩어리(pre)로 그리지 않음", "<pre" not in html and "```" not in html)
 
 tabs = {m: [k for _g, items in config.tab_groups(m) if _g == "오늘" for k, _l in items] for m in ("kr", "us")}

@@ -1484,8 +1484,8 @@ def render_summary_tab(data: dict[str, dict[str, Quote]], fx,
             picks, meta = [], {}
         if picks:
             st.markdown(ui.render_section_head(
-                "통합 후보 · 한국", f"네 모델 등 · {_when_kst(meta.get('p'))} 수집 · "
-                "자세히는 찾기 › 통합 후보", len(picks)), unsafe_allow_html=True)
+                "후보 · 한국", f"품질 · 가격 · 선행 EPS · {_when_kst(meta.get('p'))} 수집 · "
+                "자세히는 찾기 › 후보", len(picks)), unsafe_allow_html=True)
             st.markdown(ui.render_candidate_cards(picks, 3, compact=True),
                         unsafe_allow_html=True)
 
@@ -1754,10 +1754,10 @@ def _when_kst(ts) -> str:
 def render_picks_tab(use_demo: bool, *, market: str = "kr") -> None:
     """찾기 › 통합 후보 (한국) — 네 모델의 등을 종목마다 나란히 (integrate.py)."""
     st.markdown(ui.render_section_head(
-        "통합 후보 · 한국",
-        "품질 · 가격 · 차트 · 거래 — 네 모델이 같이 가리키는 종목"), unsafe_allow_html=True)
+        "후보 · 한국",
+        "좋은 회사인가 · 싼가 · 이익 전망이 깎이고 있지 않은가"), unsafe_allow_html=True)
     if market != "kr":
-        st.markdown(ui.render_notice("통합 후보는 지금 한국만 있습니다."),
+        st.markdown(ui.render_notice("후보는 지금 한국만 있습니다."),
                     unsafe_allow_html=True)
         return
     if use_demo:
@@ -1781,11 +1781,11 @@ def render_picks_tab(use_demo: bool, *, market: str = "kr") -> None:
             unsafe_allow_html=True)
     picks, out = integrate.split(cands)
     st.markdown(ui.render_notice(
-        f"<b>{len(picks)}종목</b> — 품질 통과 {len(cands)}종목 가운데 가격 부담이 높지 않고 "
-        f"선행 EPS 90일이 −{abs(config.EPS_DOWN_WARN) * 100:g}% 아래로 깎이지 않은 종목. "
-        "순서: 충족한 등의 수 → 선행 EPS 상향 → 가격 여유. "
-        "<b>규칙으로 고른 '먼저 공시를 읽어볼 종목' 이지 매수 권유가 아닙니다.</b>"),
-        unsafe_allow_html=True)
+        f"<b>규칙 한 문장</b> — 품질 기준을 통과하고, 가격 부담이 높지 않고, 선행 EPS 90일이 "
+        f"−{abs(config.EPS_DOWN_WARN) * 100:g}% 아래로 깎이지 않은 종목. "
+        f"오늘 <b>{len(picks)}종목</b>(품질 통과 {len(cands)} 가운데). 충족한 등이 많은 순, "
+        "같으면 차트가 과매도에 막 들어온 종목(타이밍)이 먼저. "
+        "<b>먼저 공시를 읽어볼 종목이지 매수 권유가 아닙니다.</b>"), unsafe_allow_html=True)
     if picks:
         st.markdown(ui.render_candidate_cards(picks, integrate.MAX_PICKS),
                     unsafe_allow_html=True)
@@ -1797,13 +1797,118 @@ def render_picks_tab(use_demo: bool, *, market: str = "kr") -> None:
         st.markdown(ui.render_notice("오늘은 관문을 통과한 종목이 없습니다 — 그것도 답입니다."),
                     unsafe_allow_html=True)
     st.markdown(ui.render_legend(
-        "<b>등</b> — 품질: 품질 깔때기 통과 · 가격: 역DCF 요구 성장률 ≤ 과거(낮음=충족, "
-        "경계·판정 안 함=보통) · 차트: 과매도 진입=충족, 과매도 쪽=보통, 과매수 쪽=주의 · "
-        "거래: 변동성 수축 · 신고가 근처 · 시장 대비 강함 · 낙폭 과대 반등 중 하나=충족, "
-        "거래대금 급증 · 전통 밸류만=보통"), unsafe_allow_html=True)
+        "<b>등</b> — 품질: 9개 기준 중 확인된 미달 2개 이하 · 가격: 역DCF 요구 성장률 ≤ 과거 "
+        "(낮음=충족, 경계·판정 안 함=보통) · 선행 EPS: 90일 상향=충족, 보합·소폭 하향=보통 · "
+        "<b>타이밍</b>: CCI · 스토캐스틱이 최근 3거래일 안에 과매도로 들어감. "
+        "한 종목의 자세한 근거는 찾기 › 근거, 차트 · 거래 패턴은 찾기 › 차트·거래"),
+        unsafe_allow_html=True)
     if out:
         with st.expander(f"관문에서 빠진 품질 통과 종목 {len(out)}개 — 이유", expanded=False):
             st.markdown(ui.render_candidate_excluded(out), unsafe_allow_html=True)
+
+
+def render_basis_tab(data, fx, use_demo: bool, phone: bool = False, *,
+                     market: str = "kr") -> None:
+    """찾기 › 근거 (한국) — 한 종목이 왜 후보인지 · 왜 빠졌는지 (11/13).
+
+    예전의 '품질 깔때기' · '밸류에이션' 탭은 지우지 않고 아래 스위치 안에 둡니다.
+    """
+    st.markdown(ui.render_section_head(
+        "근거 · 한국", "종목 하나를 골라 왜 후보인지 · 왜 빠졌는지 봅니다"),
+        unsafe_allow_html=True)
+    if market != "kr" or use_demo:
+        st.markdown(ui.render_notice("근거 화면은 한국 수집기 파일로만 그립니다."),
+                    unsafe_allow_html=True)
+        return
+    cands, meta = _kr_integrated(use_demo)
+    fpay = _universe_or_none("funnel_kr", use_demo)
+    screens = [x for x in (buffett.from_summary(r) for r in (fpay.get("screens") or [])) if x]
+    if not screens:
+        st.markdown(ui.render_notice(
+            "품질 심사 파일(funnel_kr.json)을 읽지 못했습니다."), unsafe_allow_html=True)
+    else:
+        frows = {r.get("t"): r for r in (fpay.get("rows") or []) if isinstance(r, dict)}
+        by_c = {c.ticker: c for c in cands}
+        by_s = {sc.ticker: sc for sc in screens}
+        picks, out = integrate.split(cands)
+        held_b = [sc for sc in screens if buffett.held_back_kr(sc)]
+        rest = sorted([sc for sc in screens if sc.ok and sc.ticker not in by_c
+                       and not buffett.held_back_kr(sc)],
+                      key=lambda x: (x.failed_count, -x.passed_count, x.name))
+        order = ([c.ticker for c in picks] + [c.ticker for c in out]
+                 + [sc.ticker for sc in held_b] + [sc.ticker for sc in rest])
+
+        def _state(t):
+            c = by_c.get(t)
+            if c is not None:
+                return "후보" if not c.excluded else "빠짐"
+            sc = by_s.get(t)
+            return "보류" if sc is not None and buffett.held_back_kr(sc) else "품질 미달"
+
+        if st.session_state.get("basis_pick") not in order:
+            st.session_state.pop("basis_pick", None)
+        pick = st.selectbox(
+            f"종목 (후보 {len(picks)} → 빠짐 {len(out)} → 보류 {len(held_b)} → 품질 미달 순)",
+            order, key="basis_pick",
+            format_func=lambda t: f"{_state(t)} · {by_s[t].name[:18]} · {t}")
+        c, sc, fr = by_c.get(pick), by_s.get(pick), frows.get(pick) or {}
+        if c is not None:
+            st.markdown(ui.render_candidate_cards([c], 1), unsafe_allow_html=True)
+            why = (f"<b>빠진 이유</b> — {c.excluded}" if c.excluded
+                   else "<b>후보</b> — 세 관문(품질 · 가격 · 선행 EPS)을 모두 넘었습니다")
+            st.markdown(ui.render_notice(
+                f"{why} · 차트: {c.notes.get('chart', '')} · 거래 스크리너: "
+                f"{c.notes.get('trade', '')}"), unsafe_allow_html=True)
+        elif sc is not None:
+            st.markdown(ui.render_notice(
+                f"<b>{_state(pick)}</b> — 판정 {sc.known_count} 중 통과 {sc.passed_count} · "
+                f"미달 {sc.failed_count} (통과 기준: 확인된 미달 "
+                f"{config.KR_QUALITY_MAX_FAIL}개 이하 · 판정 {config.KR_QUALITY_MIN_KNOWN}개 이상)"),
+                unsafe_allow_html=True)
+        if fr:
+            pv, pn = funnel.price_cells(fr.get("p"))
+            ev, en = funnel.eps_cells(fr.get("f"))
+            st.markdown(ui.render_legend(
+                f"<b>가격(역DCF 요구 성장률)</b> {pv} — {pn} · <b>선행 EPS 90일</b> {ev} {en} "
+                f"· 가격 계산 {_when_kst(meta.get('p'))}"), unsafe_allow_html=True)
+        if sc is not None:
+            st.markdown(ui.render_section_head(
+                "품질 9개 기준", f"DART 사업보고서 · 심사 {_when_kst(meta.get('q'))}"),
+                unsafe_allow_html=True)
+            st.markdown(ui.render_screen(sc, show_source=False), unsafe_allow_html=True)
+    # 예전 탭 두 개 — 지우지 않고 스위치로 (접는 칸 안에 접는 칸 불가라 스위치)
+    if st.toggle("품질 깔때기 전체 보기 (단계표 · 통과 종목 표 · 보류)", value=False,
+                 key="basis_funnel"):
+        _discover_kr(use_demo, part="funnel")
+    if st.toggle("밸류에이션 사분면 보기 (손으로 고른 목록 · 처음 1~3분)", value=False,
+                 key="basis_val"):
+        # (줄을 나눈 이유: smoke_test 가 'render_valuation_tab(data, fx,' 첫 호출에서
+        #  opts["phone"] 전달을 확인합니다 — 그 검사는 화면 분기 쪽 호출을 보려는 것)
+        render_valuation_tab(
+            data, fx, use_demo, phone, market=market)
+
+
+def render_timing_tab(use_demo: bool, *, market: str = "kr") -> None:
+    """찾기 › 차트·거래 (한국) — 타이밍 · 수급을 따로 보고 싶을 때만 (참고용, 11/13)."""
+    st.markdown(ui.render_section_head(
+        "차트·거래 · 한국", "참고용 — 가격 · 거래 패턴만 봅니다 (재무 판단은 후보 · 근거에서)"),
+        unsafe_allow_html=True)
+    views = {"screener": "거래 스크리너", "chart": "차트 조건 (전체 목록)"}
+    pick = None
+    picker = getattr(st, "segmented_control", None)
+    if picker is not None:
+        try:
+            pick = picker("보기", list(views), default="screener", key="timing_view",
+                          format_func=lambda k: views[k], label_visibility="collapsed")
+        except Exception:  # noqa: BLE001
+            pick = None
+    if pick not in views:
+        pick = st.radio("보기", list(views), horizontal=True, key="timing_view_r",
+                        format_func=lambda k: views[k], label_visibility="collapsed")
+    if pick == "chart":
+        render_chart_tab(use_demo, market=market, today=False)
+    else:
+        render_screener_tab(use_demo, market=market)
 
 
 def render_discover_tab(use_demo: bool, *, market: str = "all") -> None:
@@ -2881,7 +2986,7 @@ def _render_today_picks(market: str, use_demo: bool, held: set) -> int:
 TODAY_PICKS_MAX = 10
 
 
-def render_chart_tab(use_demo: bool, *, market: str = "kr") -> None:
+def render_chart_tab(use_demo: bool, *, market: str = "kr", today: bool = True) -> None:
     """차트 조건 — 일목 양운 · CCI · MACD · 스토캐스틱 슬로우 · −DI (일봉).
 
     2026-11-13 구성: 첫 화면은 **오늘 볼 종목**(품질 통과 ∩ 과매도 진입, 내 종목
@@ -2895,15 +3000,18 @@ def render_chart_tab(use_demo: bool, *, market: str = "kr") -> None:
     held = {i.symbol for i in config.SECTION_WATCHLIST.instruments
             if config.in_market(i, market)}
     # 탭 이름이 이미 '차트 조건' 이라 맨 위 제목은 두지 않습니다 (폰에서 한 줄이라도 짧게)
-    n_file = _render_today_picks(market, use_demo, held)
+    if today:
+        n_file = _render_today_picks(market, use_demo, held)
 
-    # 전체 목록은 켤 때만 — 지금 목록(약 50종목)의 일봉 계산도 이때 합니다.
-    # 첫 화면이 그 계산을 기다리던 것이 '조금 느리게 열림'(11/13 09:23)의 원인.
-    show_all = st.toggle("전체 목록 보기 · 조건으로 고르기"
-                         + (f" ({n_file}종목)" if n_file else ""), value=False,
-                         key=f"chart_all_{market}")
-    if not show_all:
-        return
+        # 전체 목록은 켤 때만 — 지금 목록(약 50종목)의 일봉 계산도 이때 합니다.
+        # 첫 화면이 그 계산을 기다리던 것이 '조금 느리게 열림'(11/13 09:23)의 원인.
+        show_all = st.toggle("전체 목록 보기 · 조건으로 고르기"
+                             + (f" ({n_file}종목)" if n_file else ""), value=False,
+                             key=f"chart_all_{market}")
+        if not show_all:
+            return
+    # today=False — 한국 '차트·거래' 탭(11/13): '오늘 뭘 볼까' 는 찾기 › 후보 한 곳에서만
+    # 답하고, 여기서는 사용자가 고른 '차트 조건' 이므로 전체 목록을 바로 그립니다.
     live_rows = load_chart_rows(market, use_demo)
     rows, semis, from_file, file_note = live_rows, set(), set(), ""
     if market in ("kr", "us"):
@@ -5801,7 +5909,9 @@ SECTION_LOADING = {
     "briefing": "아침 브리핑 — 오늘 아침 글을 받습니다",
     "discover": "종목 발굴 — 아침 수집기가 심사해 둔 결과를 읽습니다",
     "screener": "거래 스크리너 — 아침 수집기가 심사해 둔 결과를 읽습니다",
-    "picks": "통합 후보 — 수집기 파일 네 개를 읽습니다",
+    "picks": "후보 — 수집기 파일을 읽습니다",
+    "basis": "근거 — 수집기 파일을 읽습니다",
+    "timing": "차트·거래 — 수집기 파일을 읽습니다 (차트 전체 목록은 처음 10~30초)",
     "macro": "매크로 — FRED 13종·VIX·공포탐욕 (처음 10~20초)",
     "chart": "차트 조건 — 후보 종목의 1년 일봉 (처음 10~30초)",
     "research": "산업 리포트 — 증권사 리포트 목록 (처음 5~10초)",
@@ -6056,12 +6166,15 @@ def _refresh_watch(waiting: bool, auto_on: bool) -> None:
 def _peek_section(market: str) -> str:
     """지금 그릴 섹션 — 내비보다 먼저 데이터를 받으려고 미리 읽습니다."""
     ordered = config.market_tab_keys(market)
+    moved = config.KR_TAB_MOVED if market == "kr" else {}
     cand = st.session_state.get(f"nav_{market}")
+    cand = moved.get(cand, cand)
     if cand not in ordered:
         try:
             cand = st.query_params.get("s", "")
         except Exception:  # noqa: BLE001
             cand = ""
+        cand = moved.get(cand, cand)       # 예전 주소(?s=discover 등) → 옮긴 탭 (11/13)
     return cand if cand in ordered else ordered[0]
 
 
@@ -6291,6 +6404,10 @@ def render_body(opts: dict) -> None:
                 render_screener_tab(opts["demo"], market=market)
             elif active == "picks":
                 render_picks_tab(opts["demo"], market=market)
+            elif active == "basis":
+                render_basis_tab(data, fx, opts["demo"], opts["phone"], market=market)
+            elif active == "timing":
+                render_timing_tab(opts["demo"], market=market)
             elif active == "valuation":
                 render_valuation_tab(data, fx, opts["demo"], opts["phone"],
                                      market=market)

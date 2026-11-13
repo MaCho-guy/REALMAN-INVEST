@@ -190,20 +190,48 @@ check("품질 미달은 후보 · 빠짐 어디에도 없음", "E" not in {c.tic
 check("가격 높음 · EPS −5% 이하는 빠짐(이유 포함)",
       {c.ticker: c.excluded[:6] for c in out} == {"C": "가격 부담 높음"[:6], "D": "선행 EPS"[:6]},
       str({c.ticker: c.excluded for c in out}))
-check("초록 수가 많은 쪽이 먼저 (A: 품질·가격·거래 3 > B: 2)",
-      [c.ticker for c in picks] == ["A", "B"] and picks[0].greens == 3 and picks[1].greens == 2)
-check("거래대금 급증만은 노랑", picks[1].lamps["trade"] == "y")
-check("일봉이 없으면 차트 등은 없음", picks[0].lamps["chart"] == "-")
+check("등은 세 개(품질 · 가격 · 선행 EPS) — 차트 · 거래는 등이 아님",
+      set(picks[0].lamps) == {"quality", "price", "eps"})
+check("둘 다 3/3 이면 EPS 큰 쪽이 먼저 (B +10% > A +3%)",
+      [c.ticker for c in picks] == ["B", "A"] and picks[0].greens == 3 == picks[1].greens,
+      str([(c.ticker, c.greens) for c in picks]))
+check("거래 스크리너 신호는 근거 글에만", "시장 대비 강함" in picks[1].notes["trade"])
+check("일봉이 없으면 타이밍 꼬리표 없음", not picks[0].timing)
 html = ui.render_candidate_cards(picks)
-check("카드 — 근거 n/4 · 등 낱말 · EPS", "근거 3/4" in html and "충족" in html and "선행 EPS" in html)
+check("카드 — 근거 n/3 · 등 낱말 · 선행 EPS 등", "근거 3/3" in html and "충족" in html
+      and "선행 EPS" in html)
+
+
+class _Row:   # 차트 행 흉내 — 과매도 진입
+    ok, side = True, "os"
+    states = {"cci": "과매도 진입"}
+
+
+fr2 = dict(fr, A={"p": light_p, "f": {"c90": 0.001}})        # A 는 보합(노랑)
+tc = integrate.build(scr, fr2, {"A": _Row()}, {})
+tp, _o = integrate.split(tc)
+check("타이밍 꼬리표 — 과매도 진입이면 붙고, 같은 초록 수 안에서만 앞으로",
+      tp[0].ticker == "B" and tp[1].ticker == "A" and tp[1].timing and tp[1].greens == 2
+      and "타이밍" in ui.render_candidate_cards(tp), str([(c.ticker, c.greens, c.timing) for c in tp]))
 check("요약용 compact 카드는 근거 줄 없음",
       "ic-note" not in ui.render_candidate_cards(picks, 3, compact=True))
 check("빠진 종목 목록", "가격 부담 높음" in ui.render_candidate_excluded(out))
 check("빈 입력에도 깨지지 않음", integrate.build([], {}, {}, {}) == []
       and ui.render_candidate_cards([]) == "")
-check("통합 후보 탭이 한국 찾기 첫 칸",
-      config.MARKET_TABS["kr"][1][1][0] == "picks" and "picks" in config.TAB_ORDER
-      and config.SPECIAL_TAB_LABELS["picks"] == "통합 후보")
+check("한국 찾기 = 후보 · 근거 · 차트·거래 3칸 (11/13 단순화)",
+      dict(config.MARKET_TABS["kr"])["찾기"] == ("picks", "basis", "timing")
+      and [config.SPECIAL_TAB_LABELS[k] for k in ("picks", "basis", "timing")]
+      == ["후보", "근거", "차트·거래"])
+check("예전 탭은 옮긴 곳으로 (주소 · 세션)",
+      config.KR_TAB_MOVED == {"discover": "basis", "valuation": "basis",
+                              "screener": "timing", "chart": "timing"}
+      and "config.KR_TAB_MOVED" in app_src)
+check("옮긴 화면을 지우지 않고 스위치로 부름",
+      '_discover_kr(use_demo, part="funnel")' in app_src.split("def render_basis_tab")[1][:6000]
+      and "data, fx, use_demo, phone, market=market)" in app_src
+      and "render_chart_tab(use_demo, market=market, today=False)" in app_src
+      and "render_screener_tab(use_demo, market=market)" in app_src)
+check("미국 찾기는 그대로", dict(config.MARKET_TABS["us"])["찾기"] == ("discover", "valuation", "chart"))
 check("화면이 거래 스크리너 품질 스위치를 기본 켬",
       '"품질 통과 · 보류 종목만", value=True' in app_src)
 

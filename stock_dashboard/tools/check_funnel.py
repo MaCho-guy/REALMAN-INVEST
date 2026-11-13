@@ -118,10 +118,10 @@ def check_kr_extra(d: dict) -> list[str]:
     lamp = {"g": "●", "y": "◐", "r": "✕", "-": "○"}
     for i, c in enumerate(picks[:integrate.MAX_PICKS], 1):
         ls = " ".join(f"{n}{lamp[c.lamps[k]]}" for k, n in
-                      (("quality", "품질"), ("price", "가격"), ("chart", "차트"), ("trade", "거래")))
-        print(f"  {i:2}. {c.name[:12]:12} {c.ticker} 근거 {c.greens}/4 · {ls} · "
-              f"{integrate.eps_text(c.eps_c90)}")
-        print(f"      가격: {c.notes['price']} | 차트: {c.notes['chart']} | 거래: {c.notes['trade']}")
+                      (("quality", "품질"), ("price", "가격"), ("eps", "EPS")))
+        print(f"  {i:2}. {c.name[:12]:12} {c.ticker} 근거 {c.greens}/3 · {ls}"
+              f"{' · 타이밍' if c.timing else ''}")
+        print(f"      가격: {c.notes['price']} | EPS: {c.notes['eps']} | 차트: {c.notes['chart']}")
         if c.excluded or c.lamps["quality"] != "g":
             bad.append(f"통합 후보 {c.ticker} 가 관문을 통과하지 않았는데 후보에 있음")
     for c in out:

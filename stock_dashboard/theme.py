@@ -1847,8 +1847,9 @@ def build_rules() -> str:
               padding: 2px 10px; border-radius: var(--r-pill);
               background: var(--grp-mid, var(--dash-raised)); color: var(--dash-ink); }}
   .ic-lamps {{ display: grid; gap: 4px; margin: 6px 0 10px; }}
-  .ic-lamps.compact {{ grid-template-columns: repeat(4, minmax(0, 1fr)); }}
-  .ic-lamp {{ display: grid; grid-template-columns: 12px 2.6em 2.6em minmax(0, 1fr);
+  .ic-lamps.compact {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
+  .pk-tag.ic-timing {{ background: var(--grp-mid, var(--dash-raised)); font-weight: 700; }}
+  .ic-lamp {{ display: grid; grid-template-columns: 12px 4.4em 2.6em minmax(0, 1fr);
              align-items: center; gap: 6px; font-size: var(--fs-2); }}
   .ic-lamps.compact .ic-lamp {{ grid-template-columns: 12px auto; }}
   .ic-lamps.compact .ic-w {{ display: none; }}

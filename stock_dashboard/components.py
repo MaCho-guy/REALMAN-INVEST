@@ -5034,12 +5034,12 @@ def render_pick_cards(items: list[dict]) -> str:
     return f'<div class="dash-picks">{"".join(cards)}</div>{legend}'
 
 
-# ── 통합 후보 (한국) — 네 모델 등 (2026-11-13) ─────────────────────────────────
+# ── 후보 (한국) — 등 세 개 (2026-11-13, 같은 날 네 개 → 세 개로 단순화) ──────────
 #
-# 종목당 카드 한 장: 순위 · 이름 · '근거 n/4' / 등 네 개(품질 · 가격 · 차트 · 거래)와
-# 근거 한 줄씩 / 선행 EPS 칩. 폰에서는 한 줄에 한 장.
+# 종목당 카드 한 장: 순위 · 이름 · '근거 n/3' · 타이밍 꼬리표 / 등 세 개(품질 · 가격 ·
+# 선행 EPS)와 근거 한 줄씩. 폰에서는 한 줄에 한 장.
 
-_LAMP_ORDER = (("quality", "품질"), ("price", "가격"), ("chart", "차트"), ("trade", "거래"))
+_LAMP_ORDER = (("quality", "품질"), ("price", "가격"), ("eps", "선행 EPS"))
 _LAMP_WORD = {"g": "충족", "y": "보통", "r": "주의", "-": "없음"}
 
 
@@ -5047,7 +5047,8 @@ def render_candidate_cards(cands: list, limit: int = 10, *, compact: bool = Fals
     """cands: integrate.Candidate 목록. compact=True 면 근거 줄 없이 등만 (요약 탭용)."""
     cards = []
     for i, c in enumerate(list(cands or [])[:limit], 1):
-        tags = (('<span class="pk-tag">새로 진입</span>' if getattr(c, "new_entry", False) else "")
+        tags = (('<span class="pk-tag ic-timing" title="차트가 최근 3거래일 안에 과매도로 들어감">타이밍</span>'
+                 if getattr(c, "timing", False) else "")
                 + ('<span class="pk-tag">반도체</span>' if getattr(c, "semi", False) else ""))
         lamps = []
         for key, label in _LAMP_ORDER:
@@ -5057,20 +5058,12 @@ def render_candidate_cards(cands: list, limit: int = 10, *, compact: bool = Fals
             lamps.append(f'<div class="ic-lamp {col}"><i aria-hidden="true"></i>'
                          f'<span class="ic-l">{label}</span>'
                          f'<span class="ic-w">{_LAMP_WORD.get(col, "")}</span>{note}</div>')
-        c90 = c.eps_c90
-        if c90 is None:
-            eps = '<span class="pk-chip plain">선행 EPS 추정 없음</span>'
-        else:
-            cls = "up" if c90 > 0.005 else ("down" if c90 < -0.005 else "flat")
-            arrow = "▲" if cls == "up" else ("▼" if cls == "down" else "→")
-            eps = (f'<span class="pk-chip eps {cls}">선행 EPS {arrow} {c90 * 100:+.1f}%'
-                   "<small> 90일</small></span>")
+        n = len(_LAMP_ORDER)
         cards.append(
             f'<div class="pk-card ic-card"><div class="pk-top"><span class="pk-n">{i}</span>'
             f'<b>{_esc(c.name)}</b><span class="pk-code">{_esc(c.ticker)}</span>{tags}'
-            f'<span class="ic-score">근거 {c.greens}/4</span></div>'
-            f'<div class="ic-lamps{" compact" if compact else ""}">{"".join(lamps)}</div>'
-            f'<div class="pk-chips">{eps}</div></div>')
+            f'<span class="ic-score">근거 {c.greens}/{n}</span></div>'
+            f'<div class="ic-lamps{" compact" if compact else ""}">{"".join(lamps)}</div></div>')
     if not cards:
         return ""
     return f'<div class="dash-picks ic-picks">{"".join(cards)}</div>'

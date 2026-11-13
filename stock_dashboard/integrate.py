@@ -1,18 +1,21 @@
-"""통합 후보 (한국) — 네 모델(품질 · 가격 · 차트 · 거래)을 한 줄에 모읍니다.
+"""후보 (한국) — 세 질문: 좋은 회사인가 · 싼가 · 이익 전망이 깎이고 있지 않은가.
 
-2026-11-13 사용자: "4대를 토대로 통합하여 매수를 노려볼만한 종목 제안까지". 네 탭이
-각자 다른 질문에 답하던 것을, 종목마다 **등 네 개**로 나란히 보여 줍니다.
+2026-11-13 사용자: "4대를 토대로 통합하여 매수를 노려볼만한 종목 제안까지" → 같은 날
+"찾기안들 기준이 너무 복잡하다" 로 단순화. 처음에는 등 네 개(품질 · 가격 · 차트 · 거래)
+였는데, 차트(많이 내림)와 거래(많이 오름)는 방향이 반대인 신호라 '충족 개수' 로 더하면
+뜻이 없어지고, 실제 순위를 가르는 것도 품질 · 가격 · 선행 EPS 셋이었습니다.
 
-    ① 품질   (품질 깔때기)   초록 = 통과 (미달 2개 이하 · 판정 7개 이상)
-    ② 가격   (밸류에이션)    초록 = 가격 부담 낮음 · 노랑 = 경계 / 판정 안 함 · 빨강 = 높음
-    ③ 차트   (차트 조건)     초록 = 과매도 진입 · 노랑 = 과매도 쪽 · 빨강 = 과매수 쪽
-    ④ 거래   (거래 스크리너)  초록 = 추세 · 반등 신호(①수축 ②신고가 ④상대강도 ⑤반등)
-                              · 노랑 = ⑥거래대금 급증만(방향 모름) 또는 ③밸류만
+    등 ① 품질      초록 = 통과 (미달 2개 이하 · 판정 7개 이상) — 후보는 전부 초록
+    등 ② 가격      초록 = 가격 부담 낮음 · 노랑 = 경계 / 판정 안 함 · 빨강 = 높음(관문)
+    등 ③ 선행 EPS  초록 = 90일 상향(+0.5% 이상) · 노랑 = 보합 · 소폭 하향 · 빈칸 = 추정 없음
+                   · 빨강 = −5% 이하(관문)
+    꼬리표 '타이밍'  차트가 과매도 진입(최근 3봉)이면 — 순서에만 씁니다
 
 관문 (하나라도 걸리면 후보가 아니고 '빠진 이유' 에 적습니다):
     품질 통과가 아님 · 가격 부담 높음 · 선행 EPS 90일 −5% 이하 (실적 추정이 깎이는 중)
 
-순서: 초록 수 → 선행 EPS 90일 변화 큰 순(추정 없음은 뒤) → 가격 여유(요구 − 과거 성장률이 낮은 순).
+순서: 초록 수 → 타이밍 꼬리표 → 선행 EPS 90일 변화 큰 순(추정 없음은 뒤) → 가격 여유.
+거래 스크리너 신호는 근거(notes["trade"])에만 남기고 등으로 세지 않습니다.
 
 **한 점수로 합치지 않습니다** — 초록 수는 순서를 정하는 데만 쓰고, 화면에는 등 네 개와
 근거 글을 그대로 보입니다. 이 목록은 규칙으로 고른 '먼저 공시를 읽어볼 종목' 이지
@@ -43,13 +46,14 @@ MAX_PICKS = 10
 class Candidate:
     ticker: str
     name: str
-    lamps: dict = field(default_factory=dict)      # {"quality","price","chart","trade": 색}
+    lamps: dict = field(default_factory=dict)      # {"quality","price","eps": 색}
     notes: dict = field(default_factory=dict)      # 등마다 근거 한 줄
     eps_c90: float | None = None
     price_gap: float | None = None
     excluded: str = ""                             # 관문에 걸린 이유 ('' = 후보)
     semi: bool = False
     new_entry: bool = False
+    timing: bool = False                           # 차트 과매도 진입 (꼬리표)
 
     @property
     def greens(self) -> int:
@@ -57,7 +61,7 @@ class Candidate:
 
     def sort_key(self):
         c = self.eps_c90
-        return (-self.greens, c is None, -(c or 0.0),
+        return (-self.greens, not self.timing, c is None, -(c or 0.0),
                 self.price_gap if self.price_gap is not None else 1.0, self.ticker)
 
 
@@ -110,6 +114,18 @@ def _chart(row) -> tuple[str, str]:
     return GRAY, "중립"
 
 
+def _eps(f: dict | None) -> tuple[str, str]:
+    c = (f or {}).get("c90")
+    if c is None:
+        return GRAY, "추정 없음 (야후)"
+    txt = f"90일 {funnel.eps_arrow(c)} {c * 100:+.1f}%"
+    if funnel.eps_down(f):
+        return RED, txt + " — 추정이 깎이는 중"
+    if c >= funnel.EPS_FLAT:
+        return GREEN, txt + " 상향"
+    return YELLOW, txt + (" 보합" if c > -funnel.EPS_FLAT else " 소폭 하향")
+
+
 def _trade(keys: list[str]) -> tuple[str, str]:
     green = [k for k in keys if k in TRADE_GREEN]
     if green:
@@ -139,9 +155,11 @@ def build(screens: list, frows: dict, chart_rows: dict, hits: dict,
         fr = frows.get(t)
         c = Candidate(ticker=t, name=sc.name, semi=t in semis, new_entry=t in new)
         for key, (col, note) in (("quality", _quality(sc)), ("price", _price(fr)),
-                                 ("chart", _chart(chart_rows.get(t))),
-                                 ("trade", _trade(by_hit.get(t, [])))):
+                                 ("eps", _eps((fr or {}).get("f")))):
             c.lamps[key], c.notes[key] = col, note
+        chart_col, c.notes["chart"] = _chart(chart_rows.get(t))
+        c.timing = chart_col == GREEN
+        c.notes["trade"] = _trade(by_hit.get(t, []))[1]
         c.eps_c90 = ((fr or {}).get("f") or {}).get("c90")
         c.price_gap = funnel.price_gap((fr or {}).get("p"))
         if c.lamps["price"] == RED:

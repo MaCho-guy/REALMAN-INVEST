@@ -1068,8 +1068,9 @@ TAB_ORDER: tuple[str, ...] = (
     "briefing",     # 아침 브리핑 — 예약 작업이 매일 쓰는 미국장 글 (11/13, 매크로에서 옮김)
     "holdings",     # 내가 가진 종목 — 변화 감지 + 시세 + 공시 분석
     "discover",     # 품질 깔때기 — 재무 품질 → 가격 → 차트 (한·미)
-    "screener",     # 거래 스크리너 — 한국 주가·거래 패턴 6개 (11/13 종목 발굴에서 나눔)
-    "picks",        # 통합 후보 — 한국, 품질 · 가격 · 차트 · 거래 네 모델의 등 (11/13)
+    "picks",        # 후보 — 한국, 품질 · 가격 · 선행 EPS 세 등 + 타이밍 꼬리표 (11/13)
+    "basis",        # 근거 — 한국, 한 종목의 9개 기준 · 역DCF · EPS + 품질 깔때기 · 밸류에이션 (11/13)
+    "timing",       # 차트·거래 — 한국, 거래 스크리너 · 차트 조건 전체 목록 (11/13, 참고용)
     "valuation",    # 걸러낸 종목 밸류에이션 — 역DCF + 사분면
     "chart",        # 차트 조건 — 일목 양운 · CCI · MACD · DMI (일봉)
     "sector_heat",  # 한국 — 섹터 온도 (KODEX 업종 ETF)
@@ -1104,6 +1105,9 @@ TABS_RETIRED: dict[str, str] = {
     "screen": "발굴 · 미국 → 종목 발굴 탭",
     "screen_kr": "발굴 · 국내 → 종목 발굴 탭",
     "diag": "진단 → 화면 위쪽 패널",
+    # 2026-11-13 "찾기안들이 너무 복잡하다" → 한국 찾기를 후보 · 근거 · 차트·거래 3칸으로.
+    # 화면 함수(render_screener_tab)는 그대로이고 '차트·거래' 탭 안에서 부릅니다.
+    "screener": "거래 스크리너 → 찾기 › 차트·거래 (11/13)",
 }
 
 #: 섹션(= 종목 묶음)으로 존재하면서 탭에서 내려간 것만. 되돌리려면 이 목록에서
@@ -1139,7 +1143,9 @@ SECTIONS_MERGED_INTO: dict[str, str] = {
 MARKET_TABS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
     "kr": (
         ("오늘", ("summary", "briefing", "holdings")),
-        ("찾기", ("picks", "discover", "screener", "valuation", "chart")),
+        # 2026-11-13: 5칸 → 3칸. 품질 깔때기 · 밸류에이션은 '근거' 안, 거래 스크리너 ·
+        # 차트 조건은 '차트·거래' 안 (스위치). 미국은 그대로.
+        ("찾기", ("picks", "basis", "timing")),
         ("한국 시장", ("sector_heat", "supply", "research", "semi_research",
                    "kr_flows")),
         ("공통", ("calendar", "macro", "cycle")),
@@ -1152,6 +1158,10 @@ MARKET_TABS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
     ),
 }
 
+#: 한국 찾기를 3칸으로 줄이며(11/13) 옮긴 탭 — 예전 주소(?s=discover 등)로 들어오면 여기로
+KR_TAB_MOVED: dict[str, str] = {"discover": "basis", "valuation": "basis",
+                                "screener": "timing", "chart": "timing"}
+
 #: 처음 열었을 때의 시장
 DEFAULT_MARKET = "kr"
 
@@ -1162,7 +1172,9 @@ SPECIAL_TAB_LABELS = {
     "holdings": "내 종목",
     "discover": "품질 깔때기",
     "screener": "거래 스크리너",
-    "picks": "통합 후보",
+    "picks": "후보",
+    "basis": "근거",
+    "timing": "차트·거래",
     "macro": "매크로",
     "sector_heat": "섹터 온도",
     "kr_flows": "뉴스 · 공시 · 지표",

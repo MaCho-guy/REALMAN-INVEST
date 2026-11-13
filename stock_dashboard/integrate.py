@@ -29,6 +29,7 @@ import buffett
 import chart_signals
 import config
 import funnel
+import growth
 
 GREEN, YELLOW, RED, GRAY = "g", "y", "r", "-"
 
@@ -57,6 +58,8 @@ class Candidate:
     semi: bool = False
     new_entry: bool = False
     timing: bool = False                           # 차트 과매도 진입 (꼬리표)
+    track: str = "stable"                          # 'stable' 안정형 · 'growth' 성장형 (11/13)
+    also: bool = False                             # 다른 트랙 후보에도 있음
 
     @property
     def greens(self) -> int:
@@ -173,11 +176,15 @@ def build(screens: list, frows: dict, chart_rows: dict, hits: dict,
         if c.eps_c90 is not None and abs(c.eps_c90) > EPS_OUTLIER:
             c.eps_c90 = None                           # 순서에서는 '추정 없음' 처럼 뒤로
         c.price_gap = funnel.price_gap((fr or {}).get("p"))
+        gr = s.get("gr") if isinstance(s, dict) else None
         if c.lamps["price"] == RED:
             c.excluded = "가격 부담 높음"
         elif funnel.eps_down((fr or {}).get("f")):
             c.excluded = (f"선행 EPS 90일 {c.eps_c90 * 100:+.1f}% "
                           f"(−{abs(config.EPS_DOWN_WARN) * 100:g}% 이하)")
+        elif (gr or {}).get("td"):
+            # 11/13 강화(사용자 승인): 10년 평균이 좋아도 최근 실적이 계속 꺾이면 뺌
+            c.excluded = "실적 추세 악화 — 매출 · 영업이익이 3년 연속 함께 감소"
         out.append(c)
     picks = sorted([c for c in out if not c.excluded], key=Candidate.sort_key)
     rest = sorted([c for c in out if c.excluded], key=Candidate.sort_key)
@@ -192,3 +199,145 @@ def eps_text(c90) -> str:
     if c90 is None:
         return "선행 EPS 추정 없음"
     return f"선행 EPS 90일 {funnel.eps_arrow(c90)} {c90 * 100:+.1f}%"
+
+
+# ── 성장형 (11/13) — 안정형과 따로. 안정형 목록 · 순서에는 영향 없음 ──────────────
+
+def _growth_lamp(gr, market) -> tuple[str, str]:
+    p, k = growth.score(gr, market)
+    if not gr:
+        return GRAY, "성장 지표 없음 (다음 수집부터)"
+    col = GREEN if growth.passes(gr, market) else RED
+    return col, f"7개 중 통과 {p} (판정 {k}) · 기준 {growth.GROWTH_MIN_PASS}개 이상"
+
+
+def _peg_lamp(f, price) -> tuple[str, str, float | None]:
+    fpe, g1, pg = growth.peg(f, price)
+    if pg is None:
+        why = ("선행 EPS 없음" if fpe is None else
+               f"선행 PER {fpe:.1f} · 내년 EPS 성장 " +
+               ("없음" if g1 is None else f"{g1 * 100:+.1f}% (플러스여야 PEG 계산)"))
+        return YELLOW, "PEG 판정 안 함 — " + why, None
+    txt = f"PEG {pg:.2f} (선행 PER {fpe:.1f} ÷ 내년 EPS 성장 {g1 * 100:.1f}%)"
+    if pg <= growth.PEG_GOOD:
+        return GREEN, txt, pg
+    if pg <= growth.PEG_OK:
+        return YELLOW, txt, pg
+    return RED, txt + f" — {growth.PEG_OK} 초과", pg
+
+
+def _trend_lamp(f) -> tuple[str, str]:
+    """성장형 '추정 흐름' — 30일 · 90일이 둘 다 상향이면 충족."""
+    f = f or {}
+    c30, c90 = f.get("c30"), f.get("c90")
+    if c90 is None or abs(c90) > EPS_OUTLIER:
+        return GRAY, "추정 없음 · 이상값"
+    if funnel.eps_down(f):
+        return RED, f"90일 {c90 * 100:+.1f}% — 추정이 깎이는 중"
+    up90 = c90 >= funnel.EPS_FLAT
+    up30 = c30 is not None and c30 >= funnel.EPS_FLAT
+    txt = f"90일 {c90 * 100:+.1f}%" + ("" if c30 is None else f" · 30일 {c30 * 100:+.1f}%")
+    if up90 and up30:
+        return GREEN, txt + " — 상향 지속"
+    return YELLOW, txt + (" — 최근 30일은 상향 아님" if up90 else " — 상향 아님")
+
+
+def build_growth(screens: list, frows: dict, chart_rows: dict, semis: set = (),
+                 new: set = (), market: str = "us", stable: set = ()) -> list[Candidate]:
+    """성장형 후보 — 성장 품질 통과 종목만. 관문: PEG 2.5 초과 · 선행 EPS 90일 −5% 이하.
+
+    등: 성장 품질 · 가격(PEG) · 추정 흐름(30 · 90일 상향 지속) + 타이밍 꼬리표.
+    stable = 안정형 후보 티커 (겹치면 꼬리표만, 순서에는 쓰지 않음).
+    """
+    out: list[Candidate] = []
+    for s in screens or []:
+        if not isinstance(s, dict):
+            continue
+        gr = s.get("gr") or {}
+        if not gr or not growth.passes(gr, market):
+            continue
+        sc = buffett.from_summary(s)
+        if sc is None or not sc.ok:
+            continue
+        t = sc.ticker
+        fr = frows.get(t) or {}
+        row = chart_rows.get(t)
+        price = getattr(row, "price", None) if row is not None else None
+        c = Candidate(ticker=t, name=sc.name, semi=t in semis, new_entry=t in new,
+                      track="growth", also=t in stable)
+        c.lamps["growth"], c.notes["growth"] = _growth_lamp(gr, market)
+        c.lamps["price"], c.notes["price"], pg = _peg_lamp(fr.get("f"), price)
+        c.lamps["eps"], c.notes["eps"] = _trend_lamp(fr.get("f"))
+        chart_col, c.notes["chart"] = _chart(row)
+        c.timing = chart_col == GREEN
+        c90 = (fr.get("f") or {}).get("c90")
+        c.eps_c90 = None if c90 is None or abs(c90) > EPS_OUTLIER else c90
+        c.price_gap = pg                         # 성장형은 '가격 여유' 대신 PEG 낮은 순
+        if c.lamps["price"] == RED:
+            c.excluded = f"가격 부담 높음 — PEG {pg:.2f}"
+        elif c.lamps["eps"] == RED:
+            c.excluded = f"선행 EPS 90일 {c90 * 100:+.1f}% (−{abs(config.EPS_DOWN_WARN) * 100:g}% 이하)"
+        out.append(c)
+    picks = sorted([c for c in out if not c.excluded], key=Candidate.sort_key)
+    rest = sorted([c for c in out if c.excluded], key=Candidate.sort_key)
+    return picks + rest
+
+
+# ── 근거 탭 체크리스트 (11/13) ──────────────────────────────────────────────────
+
+def checklist(summary: dict | None, frow: dict | None, row, market: str,
+              med_fpe: float | None) -> list[tuple[str, str, str]]:
+    """[(상태 'pass'/'fail'/'unknown', 항목, 근거 글)] — 등으로 세지 않는 보조 확인."""
+    gr = (summary or {}).get("gr") or {}
+    f = (frow or {}).get("f") or {}
+    out = []
+    c30, c90 = f.get("c30"), f.get("c90")
+    if c90 is None or c30 is None:
+        out.append(("unknown", "추정 상향 지속", "30일 · 90일 추정 변화가 다 있어야 판정"))
+    else:
+        same = (c30 >= 0) == (c90 >= 0)
+        out.append(("pass" if same and c90 >= 0 else "fail", "추정 상향 지속",
+                    f"30일 {c30 * 100:+.1f}% · 90일 {c90 * 100:+.1f}%"
+                    + (" — 방향이 엇갈림" if not same else "")))
+    price = getattr(row, "price", None) if row is not None else None
+    fpe, _g1, _pg = growth.peg(f, price)
+    if fpe is None or med_fpe is None:
+        out.append(("unknown", "가격 교차 확인 (선행 PER)", "선행 EPS 또는 가격 없음"))
+    else:
+        out.append(("pass" if fpe <= med_fpe else "fail", "가격 교차 확인 (선행 PER)",
+                    f"선행 PER {fpe:.1f} · 품질 통과 종목 중앙값 {med_fpe:.1f}"))
+    om3, om10 = gr.get("om3"), gr.get("om10")
+    if om3 is None or om10 is None:
+        out.append(("unknown", "마진 추세", "영업이익률 연도 부족 (다음 수집부터)"))
+    else:
+        out.append(("pass" if om3 >= om10 - growth.OM_TOL else "fail", "마진 추세",
+                    f"영업이익률 최근 3년 {om3 * 100:.1f}% · 전체 평균 {om10 * 100:.1f}%"))
+    td = gr.get("td")
+    out.append(("unknown" if td is None else ("fail" if td else "pass"), "실적 추세",
+                "연도 부족 (다음 수집부터)" if td is None else
+                ("매출 · 영업이익 3년 연속 함께 감소" if td else "3년 연속 동반 감소 아님")))
+    if market == "us":
+        sbcf = gr.get("sbcf")
+        out.append(("unknown" if sbcf is None else
+                    ("pass" if sbcf <= growth.SBC_FCF_MAX else "fail"), "주식보상 부담",
+                    "계정 없음 · FCF 마이너스" if sbcf is None else
+                    f"3년 주식보상비 ÷ FCF {sbcf * 100:.0f}% (기준 {growth.SBC_FCF_MAX * 100:.0f}% 이하)"))
+    p, k = growth.score(gr, market)
+    out.append(("pass" if gr and growth.passes(gr, market) else ("unknown" if not gr else "fail"),
+                "성장형 기준", f"7개 중 통과 {p} (판정 {k}) — 통과면 성장형 후보" if gr
+                else "성장 지표 없음 (다음 수집부터)"))
+    return out
+
+
+def median_fpe(frows: dict, chart_rows: dict, tickers) -> float | None:
+    vals = []
+    for t in tickers:
+        row = chart_rows.get(t)
+        fpe, _g, _p = growth.peg((frows.get(t) or {}).get("f"),
+                                 getattr(row, "price", None) if row is not None else None)
+        if fpe is not None and 0 < fpe < 200:
+            vals.append(fpe)
+    if not vals:
+        return None
+    vals.sort()
+    return vals[len(vals) // 2]

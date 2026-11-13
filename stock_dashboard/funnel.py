@@ -300,7 +300,9 @@ EPS_FLAT = 0.005
 
 
 def eps_part(raw: dict | None, now: float | None = None) -> dict | None:
-    """야후 추정 추이 한 종목 → {n: NTM EPS, c90 · c30: 변화율(소수), w, cur}.
+    """야후 추정 추이 한 종목 → {n: NTM EPS, c90 · c30: 변화율(소수), w, cur, e0 · e1 · g1}.
+
+    g1 = 내년 ÷ 올해 회계연도 추정 − 1 (올해 추정이 0 이하면 없음).
 
     추정치가 0 이하이면 변화율이 뜻을 잃어 c90 · c30 을 None 으로 둡니다.
     """
@@ -326,9 +328,18 @@ def eps_part(raw: dict | None, now: float | None = None) -> dict | None:
     def chg(old):
         return (n / old - 1.0) if old is not None and old > 0 and n > 0 else None
 
-    return {"n": n, "c90": chg(blend(raw.get("p0"), raw.get("p1"))),
-            "c30": chg(blend(raw.get("m0"), raw.get("m1"))),
-            "w": round(w, 3), "cur": raw.get("cur") or ""}
+    e0, e1 = raw.get("e0"), raw.get("e1")
+    out = {"n": n, "c90": chg(blend(raw.get("p0"), raw.get("p1"))),
+           "c30": chg(blend(raw.get("m0"), raw.get("m1"))),
+           "w": round(w, 3), "cur": raw.get("cur") or ""}
+    # 올해 · 내년 회계연도 추정과 내년 예상 성장률 (11/13 — 성장형 PEG 용)
+    if e0 is not None:
+        out["e0"] = e0
+    if e1 is not None:
+        out["e1"] = e1
+    if e0 is not None and e1 is not None and e0 > 0:
+        out["g1"] = round(e1 / e0 - 1.0, 4)
+    return out
 
 
 def eps_arrow(c) -> str:

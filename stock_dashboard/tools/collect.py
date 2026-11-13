@@ -349,6 +349,7 @@ def build_universe_us(app, out_dir: str, *, members_fn=None, ticker_map_fn=None,
     import buffett  # noqa: PLC0415
     import config  # noqa: PLC0415
     import funnel  # noqa: PLC0415
+    import growth  # noqa: PLC0415
     import universe  # noqa: PLC0415
     from sources import edgar, edgar_facts, universe_src  # noqa: PLC0415
 
@@ -426,9 +427,12 @@ def build_universe_us(app, out_dir: str, *, members_fn=None, ticker_map_fn=None,
                 screen.name = m["name"]
             # 품질을 통과한 종목만 역DCF 입력(FCF 이력 · 순부채)을 같이 남깁니다 —
             # 가격 단계가 SEC 에 다시 묻지 않게 (funnel.py)
+            # 성장 지표(11/13) — 연간 숫자가 메모리에 있을 때 뽑아 둡니다 (growth.py)
+            gr = growth.safe_metrics(screen) if screen.ok else {}
             d = (funnel.dcf_inputs(screen)
-                 if screen.ok and screen.passed_count >= config.FUNNEL_MIN_PASS else None)
-            screens.append(buffett.to_summary(screen, s=m.get("sector", ""), d=d))
+                 if screen.ok and (screen.passed_count >= config.FUNNEL_MIN_PASS
+                                   or growth.passes(gr, "us")) else None)
+            screens.append(buffett.to_summary(screen, s=m.get("sector", ""), d=d, gr=gr))
         del facts_map
         print(f"  미국 {min(i + size, len(todo))}/{len(todo)} · {time.time() - t0:.0f}초 · "
               f"못 받음 {len(errors)}")
@@ -563,6 +567,7 @@ def build_funnel_kr(app, out_dir: str, *, screens_fn=None, caps_fn=None, ohlc_fn
     import chart_signals  # noqa: PLC0415
     import config  # noqa: PLC0415
     import funnel  # noqa: PLC0415
+    import growth  # noqa: PLC0415
     import universe  # noqa: PLC0415
     from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
     from sources import naver, yahoo  # noqa: PLC0415
@@ -594,9 +599,11 @@ def build_funnel_kr(app, out_dir: str, *, screens_fn=None, caps_fn=None, ohlc_fn
             sc = got.get(code)
             if sc is None:
                 continue
+            gr = growth.safe_metrics(sc) if sc.ok else {}
             d = (funnel.dcf_inputs(sc)
-                 if buffett.passes(sc, config.FUNNEL_MIN_PASS, by_ratio=True) else None)
-            screens.append(buffett.to_summary(sc, d=d))
+                 if buffett.passes(sc, config.FUNNEL_MIN_PASS, by_ratio=True)
+                 or (sc.ok and growth.passes(gr, "kr")) else None)
+            screens.append(buffett.to_summary(sc, d=d, gr=gr))
         q_made = int(time.time())
     t_q = time.time() - t0
 

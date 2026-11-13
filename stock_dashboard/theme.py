@@ -1863,6 +1863,18 @@ def build_rules() -> str:
   .ic-note {{ color: var(--dash-ink-2); min-width: 0; overflow-wrap: anywhere; }}
   .ic-out {{ margin: 4px 0 0; padding-left: 1.1em; font-size: var(--fs-2); color: var(--dash-ink-2); }}
   .ic-out li {{ margin: 2px 0; }} .ic-out span {{ color: var(--dash-ink-muted); }}
+  /* 근거 탭 체크리스트 (11/13) */
+  .dash-check {{ background: var(--dash-surface); border: 1px solid var(--dash-divider);
+                border-radius: var(--r-card); padding: 10px 14px; margin: 6px 0 12px; }}
+  .dash-check .ck-h {{ font-weight: 750; margin-bottom: 4px; }}
+  .dash-check ul {{ list-style: none; margin: 0; padding: 0; }}
+  .dash-check li.ck {{ display: grid; grid-template-columns: 1.4em 8.5em minmax(0, 1fr);
+                      gap: 6px; align-items: baseline; padding: 3px 0; font-size: var(--fs-2); }}
+  .dash-check .ck-m {{ text-align: center; }}
+  .dash-check li.g .ck-m {{ color: #5b8c6a; }} .dash-check li.r .ck-m {{ color: #9a5a4a; }}
+  .dash-check li.u .ck-m {{ color: var(--dash-ink-muted); }}
+  .dash-check .ck-l {{ font-weight: 650; }} .dash-check .ck-t {{ color: var(--dash-ink-2);
+                      overflow-wrap: anywhere; }}
   /* 가격 부담 높음 · 선행 EPS −5% 이하 — 빼지 않고 눈에 띄게 (2026-11-13) */
   .pk-chip.warn {{ border: 1.5px solid var(--dash-ink-2);
                   background: transparent; color: var(--dash-ink); }}

@@ -5040,6 +5040,8 @@ def render_pick_cards(items: list[dict]) -> str:
 # 선행 EPS)와 근거 한 줄씩. 폰에서는 한 줄에 한 장.
 
 _LAMP_ORDER = (("quality", "품질"), ("price", "가격"), ("eps", "선행 EPS"))
+#: 성장형(11/13) — 성장 품질 7개 · PEG · 추정 흐름(30 · 90일 상향 지속)
+_LAMP_ORDER_GROWTH = (("growth", "성장 품질"), ("price", "가격 PEG"), ("eps", "추정 흐름"))
 _LAMP_WORD = {"g": "충족", "y": "보통", "r": "주의", "-": "없음"}
 
 
@@ -5049,16 +5051,19 @@ def render_candidate_cards(cands: list, limit: int = 10, *, compact: bool = Fals
     for i, c in enumerate(list(cands or [])[:limit], 1):
         tags = (('<span class="pk-tag ic-timing" title="차트가 최근 3거래일 안에 과매도로 들어감">타이밍</span>'
                  if getattr(c, "timing", False) else "")
-                + ('<span class="pk-tag">반도체</span>' if getattr(c, "semi", False) else ""))
+                + ('<span class="pk-tag">반도체</span>' if getattr(c, "semi", False) else "")
+                + (f'<span class="pk-tag">{"안정형" if getattr(c, "track", "") == "growth" else "성장형"}'
+                   "에도</span>" if getattr(c, "also", False) else ""))
+        order = _LAMP_ORDER_GROWTH if getattr(c, "track", "") == "growth" else _LAMP_ORDER
         lamps = []
-        for key, label in _LAMP_ORDER:
+        for key, label in order:
             col = (c.lamps or {}).get(key, "-")
             note = "" if compact else (
                 f'<span class="ic-note">{_esc((c.notes or {}).get(key, ""))}</span>')
             lamps.append(f'<div class="ic-lamp {col}"><i aria-hidden="true"></i>'
                          f'<span class="ic-l">{label}</span>'
                          f'<span class="ic-w">{_LAMP_WORD.get(col, "")}</span>{note}</div>')
-        n = len(_LAMP_ORDER)
+        n = len(order)
         cards.append(
             f'<div class="pk-card ic-card"><div class="pk-top"><span class="pk-n">{i}</span>'
             f'<b>{_esc(c.name)}</b><span class="pk-code">{_esc(c.ticker)}</span>{tags}'
@@ -5074,3 +5079,19 @@ def render_candidate_excluded(cands: list, limit: int = 30) -> str:
     rows = [f"<li><b>{_esc(c.name)}</b> <span>{_esc(c.ticker)}</span> — {_esc(c.excluded)}</li>"
             for c in list(cands or [])[:limit]]
     return f'<ul class="ic-out">{"".join(rows)}</ul>' if rows else ""
+
+
+_CHK = {"pass": ("✓", "g"), "fail": ("✗", "r"), "unknown": ("?", "u")}
+
+
+def render_checklist(items: list, title: str = "체크리스트") -> str:
+    """근거 탭 체크리스트 (11/13) — [(상태, 항목, 근거 글)]. 등으로 세지 않는 보조 확인."""
+    rows = []
+    for state, label, text in items or []:
+        mark, cls = _CHK.get(state, ("?", "u"))
+        rows.append(f'<li class="ck {cls}"><b class="ck-m">{mark}</b><span class="ck-l">'
+                    f"{_esc(label)}</span><span class=\"ck-t\">{_esc(text)}</span></li>")
+    if not rows:
+        return ""
+    return (f'<div class="dash-check"><div class="ck-h">{_esc(title)}</div>'
+            f'<ul>{"".join(rows)}</ul></div>')

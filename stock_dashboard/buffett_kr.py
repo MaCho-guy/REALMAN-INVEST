@@ -190,7 +190,9 @@ KR_RULES_BY_KEY = {r.key: r for r in KR_RULES}
 #:   4 (2026-11-12): 연결재무제표가 없는 회사는 별도로 · 차입금 · 현금 표준ID 추가 ·
 #:                   통과 판정을 '판정된 기준 중 비율' 로 (감가상각비가 재무제표 본문에
 #:                   없어 주주이익 · 설비투자 기준이 대부분 판정 불가이기 때문)
-KR_REV = 4
+#:   5 (2026-11-13): 성장 지표(growth.metrics → `gr`) — 연간 숫자가 심사 중에만 메모리에 있어
+#:                   다시 심사해야 채워짐 (DART 약 19분 한 번)
+KR_REV = 5
 
 
 def find_account(accounts, rule: KrAccount):

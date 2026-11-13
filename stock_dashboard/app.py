@@ -1757,7 +1757,7 @@ def _integrated(use_demo: bool, market: str = "kr") -> tuple[list, dict]:
     meta = {"q": q_made, "p": fpay.get("made"), "c": cpay.get("made"),
             "t": upay.get("made"), "have": bool(screens),
             "chart": bool(items), "trade": bool(hits), "market": market,
-            "screens": screens}
+            "screens": screens, "frows": frows, "rows": rows, "semis": semis, "new": new}
     return cands, meta
 
 
@@ -1798,6 +1798,22 @@ def render_picks_tab(use_demo: bool, *, market: str = "kr") -> None:
         st.markdown(ui.render_notice(
             f"{' · '.join(missing)} 파일을 읽지 못해 그 등은 '없음' 으로 둡니다."),
             unsafe_allow_html=True)
+    # 안정형 | 성장형 (11/13) — 성장형은 따로 계산하고 안정형 목록 · 순서는 건드리지 않습니다
+    tracks = {"stable": "안정형", "growth": "성장형"}
+    track = None
+    picker = getattr(st, "segmented_control", None)
+    if picker is not None:
+        try:
+            track = picker("트랙", list(tracks), default="stable", key=f"picks_track_{market}",
+                           format_func=lambda k: tracks[k], label_visibility="collapsed")
+        except Exception:  # noqa: BLE001
+            track = None
+    if track not in tracks:
+        track = st.radio("트랙", list(tracks), horizontal=True, key=f"picks_track_r_{market}",
+                         format_func=lambda k: tracks[k], label_visibility="collapsed")
+    if track == "growth":
+        _render_growth_picks(cands, meta, market)
+        return
     picks, out = integrate.split(cands)
     st.markdown(ui.render_notice(
         f"<b>규칙 한 문장</b> — 품질 기준({'확인된 미달 2개 이하' if kr else '9개 중 7개 이상'})을 "
@@ -1825,6 +1841,52 @@ def render_picks_tab(use_demo: bool, *, market: str = "kr") -> None:
         unsafe_allow_html=True)
     if out:
         with st.expander(f"관문에서 빠진 품질 통과 종목 {len(out)}개 — 이유", expanded=False):
+            st.markdown(ui.render_candidate_excluded(out), unsafe_allow_html=True)
+
+
+def _render_growth_picks(stable_cands: list, meta: dict, market: str) -> None:
+    """후보 › 성장형 (11/13, growth.py · integrate.build_growth)."""
+    import growth  # noqa: PLC0415
+
+    stable = {c.ticker for c in integrate.split(stable_cands)[0]}
+    cands = integrate.build_growth(meta.get("screens") or [], meta.get("frows") or {},
+                                   meta.get("rows") or {}, meta.get("semis") or set(),
+                                   meta.get("new") or set(), market, stable)
+    have = any(isinstance(s, dict) and s.get("gr") for s in meta.get("screens") or [])
+    rmin = growth.REV_MIN.get(market, 0.15) * 100
+    st.markdown(ui.render_notice(
+        f"<b>규칙 한 문장</b> — 성장 품질 7개 중 {growth.GROWTH_MIN_PASS}개 이상(매출 3년 연 "
+        f"{rmin:.0f}%↑ · 매출총이익률 유지 · 영업 레버리지 · 영업현금흐름 플러스 · Rule of "
+        f"{growth.RULE40_MIN.get(market, 40):.0f} · 주식보상비 ≤ 매출 {growth.SBC_REV_MAX * 100:.0f}% · "
+        f"재무 안전)을 넘고, PEG(선행 PER ÷ 내년 EPS 성장률)가 {growth.PEG_OK} 이하이고, 선행 EPS "
+        f"90일이 −{abs(config.EPS_DOWN_WARN) * 100:g}% 아래로 깎이지 않은 종목. "
+        "<b>안정형과 따로 계산하며 안정형 판단에 섞지 않습니다.</b> 성장주는 기대가 꺾이면 "
+        "크게 빠집니다 — 먼저 공시를 읽어볼 종목이지 매수 권유가 아닙니다."),
+        unsafe_allow_html=True)
+    if not have:
+        st.markdown(ui.render_notice(
+            "<b>성장 지표가 아직 파일에 없습니다.</b> 수집기가 새 기준으로 다시 심사하면 "
+            "채워집니다 (미국 약 70초 · 한국 DART 약 19분, 다음 수집부터)."),
+            unsafe_allow_html=True)
+        return
+    picks, out = integrate.split(cands)
+    if picks:
+        st.markdown(ui.render_candidate_cards(picks, integrate.MAX_PICKS), unsafe_allow_html=True)
+        if len(picks) > integrate.MAX_PICKS:
+            st.markdown(ui.render_legend(
+                f"앞 {integrate.MAX_PICKS}종목만 보입니다 (후보 {len(picks)})."),
+                unsafe_allow_html=True)
+    else:
+        st.markdown(ui.render_notice("오늘은 성장형 관문을 넘은 종목이 없습니다."),
+                    unsafe_allow_html=True)
+    st.markdown(ui.render_legend(
+        "<b>등</b> — 성장 품질: 7개 중 통과 수 · 가격 PEG: ≤ "
+        f"{growth.PEG_GOOD} 충족, ≤ {growth.PEG_OK} 보통 · 추정 흐름: 선행 EPS 30일 · 90일 둘 다 "
+        "상향이면 충족 · <b>타이밍</b>: 차트 과매도 진입 · 순서: 충족 수 → 타이밍 → 선행 EPS "
+        "90일 → PEG 낮은 순 · 선행 EPS · 내년 성장률은 야후 애널리스트 평균"),
+        unsafe_allow_html=True)
+    if out:
+        with st.expander(f"관문에서 빠진 성장 품질 통과 종목 {len(out)}개 — 이유", expanded=False):
             st.markdown(ui.render_candidate_excluded(out), unsafe_allow_html=True)
 
 
@@ -1861,13 +1923,18 @@ def render_basis_tab(data, fx, use_demo: bool, phone: bool = False, *,
         order = ([c.ticker for c in picks] + [c.ticker for c in out]
                  + [sc.ticker for sc in held_b] + [sc.ticker for sc in rest])
 
+        import growth  # noqa: PLC0415
+        gr_of = {r.get("t"): r.get("gr") for r in (meta.get("screens") or [])
+                 if isinstance(r, dict) and r.get("gr")}
+
         def _state(t):
+            g = " · 성장형 통과" if growth.passes(gr_of.get(t), market) else ""
             c = by_c.get(t)
             if c is not None:
-                return "후보" if not c.excluded else "빠짐"
+                return ("후보" if not c.excluded else "빠짐") + g
             sc = by_s.get(t)
             return ("보류" if sc is not None and integrate.held_back(sc, market)
-                    else "품질 미달")
+                    else "품질 미달") + g
 
         if st.session_state.get(f"basis_pick_{market}") not in order:
             st.session_state.pop(f"basis_pick_{market}", None)
@@ -1897,6 +1964,21 @@ def render_basis_tab(data, fx, use_demo: bool, phone: bool = False, *,
             st.markdown(ui.render_legend(
                 f"<b>가격(역DCF 요구 성장률)</b> {pv} — {pn} · <b>선행 EPS 90일</b> {ev} {en} "
                 f"· 가격 계산 {_when_kst(meta.get('p'))}"), unsafe_allow_html=True)
+        # 체크리스트 (11/13) — 등으로 세지 않는 보조 확인
+        summ = next((r for r in (meta.get("screens") or [])
+                     if isinstance(r, dict) and r.get("t") == pick), None)
+        q_tickers = [c.ticker for c in cands]
+        med = integrate.median_fpe(meta.get("frows") or {}, meta.get("rows") or {}, q_tickers)
+        st.markdown(ui.render_checklist(
+            integrate.checklist(summ, fr, (meta.get("rows") or {}).get(pick), market, med),
+            title="체크리스트 — 등에 세지 않는 보조 확인"), unsafe_allow_html=True)
+        if summ and summ.get("gr"):
+            import growth  # noqa: PLC0415
+            gcs = growth.checks(summ.get("gr"), market)
+            st.markdown(ui.render_checklist(
+                [(st_, f"{nm}", tx) for _k, nm, st_, tx in gcs],
+                title=f"성장 품질 7개 — 통과 {sum(1 for c in gcs if c[2] == 'pass')}"),
+                unsafe_allow_html=True)
         if sc is not None:
             st.markdown(ui.render_section_head(
                 "품질 9개 기준", f"{'DART 사업보고서' if kr else 'SEC EDGAR 10년 재무'} · "

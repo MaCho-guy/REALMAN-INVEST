@@ -1008,7 +1008,8 @@ def run_checks(screen: Screen, th: Thresholds | None = None) -> Screen:
 #:                   무차입 추정 · 자본 마이너스 부채 판정 · 조사에서 나온 태그 추가
 #:   3 (2026-11-12): 품질 통과 종목에 역DCF 입력(FCF 이력 · 순부채)을 같이 남김 (funnel.py)
 #:   4 (2026-11-12): 역DCF 입력의 FCF 에서 주식보상비용을 뺌
-SCREEN_REV = 4
+#:   5 (2026-11-13): 성장 지표(growth.metrics → 심사 묶음의 `gr`) · 성장형 통과 종목에도 역DCF 입력
+SCREEN_REV = 5
 
 #: 연간 보고서 양식 — 이 양식으로 낸 12개월 구간의 끝이 회계연도 말입니다
 ANNUAL_FORMS = ("10-K", "20-F", "40-F")

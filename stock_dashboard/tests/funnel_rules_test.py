@@ -258,6 +258,88 @@ check("화면이 미국 차트 표기를 맞춘다", 'str(t).replace("-", ".")' 
 check("화면이 거래 스크리너 품질 스위치를 기본 켬",
       '"품질 통과 · 보류 종목만", value=True' in app_src)
 
+print("\n=== 성장형 (11/13) — 지표 · 판정 · 후보 · 안정형 불변 ===")
+import growth  # noqa: E402
+
+
+def _yr(y, rev, gp, op, ocf, capex, sbc=None, eq=100.0, ltd=10.0, cash=50.0, ie=1.0):
+    return buffett.YearRow(year=y, end=f"{y}-12-31", revenue=rev, gross_profit=gp,
+                           operating_income=op, operating_cash_flow=ocf, capex=capex, sbc=sbc,
+                           equity=eq, long_term_debt=ltd, cash=cash, interest_expense=ie)
+
+
+fast = buffett.Screen("GRW", "성장회사", years=[
+    _yr(2018 + i, 100 * 1.3 ** i, 70 * 1.3 ** i, 20 * 1.4 ** i, 30 * 1.3 ** i, 5 * 1.3 ** i,
+        sbc=5 * 1.3 ** i) for i in range(7)])
+gm = growth.metrics(fast)
+check("지표 — 매출 3년 30% · 영업이익 40% · Rule of 40 · 순현금",
+      abs(gm["rev3"] - 0.30) < 1e-3 and abs(gm["op3"] - 0.40) < 1e-3 and gm["r40"] > 40
+      and gm["nc"] == 1 and gm["td"] == 0, str(gm))
+gcs = growth.checks(gm, "us")
+check("성장 품질 7개 전부 통과", [c[2] for c in gcs] == ["pass"] * 7, str(gcs))
+slow = buffett.Screen("DEC", "꺾이는회사", years=[
+    _yr(2018 + i, 100 - 10 * i, 40 - 4 * i, 20 - 3 * i, 25, 5) for i in range(7)])
+sm = growth.metrics(slow)
+check("3년 연속 동반 감소 → td=1 · 성장 미달", sm["td"] == 1 and not growth.passes(sm, "us"))
+check("연도가 모자라면 키가 없음(판정 불가)",
+      "rev3" not in growth.metrics(buffett.Screen("N", years=fast.years[:2])))
+check("이상한 숫자에도 수집이 멈추지 않음", growth.safe_metrics(object()) == {})
+check("빈 화면에도 깨지지 않음", growth.metrics(buffett.Screen("E")) == {}
+      and growth.checks(None)[0][2] == "unknown")
+check("한국은 매출 10% · Rule of 30", growth.checks({"rev3": 0.12}, "kr")[0][2] == "pass"
+      and growth.checks({"rev3": 0.12}, "us")[0][2] == "fail")
+fpe, g1, pg = growth.peg({"n": 5.0, "g1": 0.20}, 100.0)
+check("PEG = 선행 PER ÷ 내년 성장률(%) — 20 ÷ 20 = 1.0", fpe == 20.0 and abs(pg - 1.0) < 1e-9)
+check("내년 성장률이 0 이하면 PEG 없음", growth.peg({"n": 5.0, "g1": -0.1}, 100.0)[2] is None)
+ep = funnel.eps_part({"e0": 2.0, "e1": 2.5, "p0": 2.0, "p1": 2.4, "fye": None})
+check("EPS 파트에 e0 · e1 · g1(+25%)", ep["e0"] == 2.0 and ep["e1"] == 2.5 and ep["g1"] == 0.25)
+
+
+class _PRow:
+    ok, side, price = True, "-", 100.0
+    states = {}
+
+
+gs = [dict(summ("G1", [P] * 5 + [F] * 4), gr=gm), dict(summ("G2", [P] * 5 + [F] * 4), gr=gm),
+      dict(summ("G3", [P] * 5 + [F] * 4), gr=gm), dict(summ("SL", [P] * 9), gr=sm)]
+gfr = {"G1": {"f": {"n": 5.0, "g1": 0.20, "c90": 0.05, "c30": 0.02}},     # PEG 1.0 · 상향 지속
+       "G2": {"f": {"n": 2.0, "g1": 0.10, "c90": 0.05, "c30": 0.02}},     # PEG 5.0 → 빠짐
+       "G3": {"f": {"n": 5.0, "g1": 0.20, "c90": -0.08, "c30": -0.02}}}   # EPS 하향 → 빠짐
+grows = {t: _PRow() for t in gfr}
+gc = integrate.build_growth(gs, gfr, grows, market="us", stable={"G1"})
+gp_, go_ = integrate.split(gc)
+check("성장형 — 버핏식 품질 미달이어도 성장 품질 통과면 후보", [c.ticker for c in gp_] == ["G1"]
+      and gp_[0].greens == 3 and gp_[0].track == "growth" and gp_[0].also)
+check("성장형 관문 — PEG 2.5 초과 · EPS 하향은 빠짐",
+      {c.ticker: c.excluded[:6] for c in go_} == {"G2": "가격 부담 높음"[:6], "G3": "선행 EPS"[:6]},
+      str({c.ticker: c.excluded for c in go_}))
+check("성장 미달(SL)은 성장형에 없음", "SL" not in {c.ticker for c in gc})
+gh = ui.render_candidate_cards(gp_)
+check("성장형 카드 — 등 이름 · '안정형에도'", "성장 품질" in gh and "가격 PEG" in gh
+      and "추정 흐름" in gh and "안정형에도" in gh)
+
+# 안정형 불변 — gr(성장 지표)이 붙어도 td 가 아니면 목록 · 순서가 같다
+base = integrate.build(scr, fr, {}, hit)
+withgr = integrate.build([dict(x, gr=gm) for x in scr], fr, {}, hit)
+check("안정형 불변 — 성장 지표가 붙어도 같은 목록 · 순서",
+      [(c.ticker, c.excluded) for c in base] == [(c.ticker, c.excluded) for c in withgr])
+tdc = integrate.build([dict(x, gr={"td": 1}) if x["t"] == "A" else x for x in scr], fr, {}, hit)
+check("추세 악화 관문 — 3년 연속 동반 감소면 안정형에서 빠짐",
+      next(c for c in tdc if c.ticker == "A").excluded.startswith("실적 추세 악화"))
+
+ck = integrate.checklist(dict(summ("G1", [P] * 9), gr=gm), gfr["G1"], _PRow(), "us", 25.0)
+check("체크리스트 — 6항목 · 선행 PER 20 ≤ 중앙값 25 통과",
+      len(ck) == 6 and ck[1][0] == "pass" and ck[0][0] == "pass", str(ck))
+check("체크리스트 화면", "✓" in ui.render_checklist(ck) and ui.render_checklist([]) == "")
+check("한국 체크리스트는 주식보상 항목 없음",
+      len(integrate.checklist({}, {}, None, "kr", None)) == 5)
+check("수집기가 성장 지표를 싣는다",
+      'gr = growth.safe_metrics(screen)' in pathlib.Path("tools/collect.py").read_text(encoding="utf-8")
+      and buffett.SCREEN_REV >= 5)
+import buffett_kr as _bk2  # noqa: E402
+check("한국도 다시 심사(KR_REV)", _bk2.KR_REV >= 5)
+check("화면 — 후보 탭에 안정형 | 성장형", '"stable": "안정형", "growth": "성장형"' in app_src)
+
 print("\n" + "=" * 54)
 if FAILURES:
     print(f"실패 {len(FAILURES)}건: {FAILURES}")

@@ -134,12 +134,45 @@ def check_kr_extra(d: dict) -> list[str]:
     return bad
 
 
+def check_growth(d: dict) -> list[str]:
+    """성장형 (11/13) — 심사 묶음에 gr 이 있으면 시장마다 후보 수 · 앞 5종목."""
+    import growth  # noqa: PLC0415
+    bad: list[str] = []
+    for market, uni, fun, ch in (("us", "universe_us", "funnel_us", "chart_us"),
+                                 ("kr", "funnel_kr", "funnel_kr", "chart_kr")):
+        screens = d[uni].get("screens") or []
+        have = sum(1 for x in screens if x.get("gr"))
+        print(f"\n[{market.upper()} 성장형] 성장 지표 있는 종목 {have}/{len(screens)}")
+        if not have:
+            print("  (수집기가 새 기준으로 다시 심사하기 전 — 건너뜀)")
+            continue
+        fix = (lambda t: t) if market == "kr" else (lambda t: str(t).replace("-", "."))
+        rows = {fix(r.ticker): r for r in (chart_signals.row_from_dict(x)
+                                            for x in d[ch].get("rows") or []) if r}
+        frows = {r["t"]: r for r in d[fun].get("rows") or []}
+        gpass = [x for x in screens if growth.passes(x.get("gr"), market)]
+        nof = [x["t"] for x in gpass if x["t"] not in frows]
+        cands = integrate.build_growth(screens, frows, rows, market=market)
+        p, o = integrate.split(cands)
+        print(f"  성장 품질 통과 {len(gpass)} → 후보 {len(p)} · 빠짐 {len(o)}"
+              f" · 가격 · EPS 줄 없음 {len(nof)}")
+        if nof:
+            bad.append(f"{market}: 성장 품질 통과인데 깔때기 줄 없음 {nof[:8]}")
+        for i, c in enumerate(p[:5], 1):
+            print(f"   {i}. {c.name[:16]:16} {c.ticker} {c.greens}/3 · {c.notes['price'][:40]}"
+                  f" | {c.notes['eps']}")
+        td = sum(1 for x in screens if (x.get("gr") or {}).get("td"))
+        print(f"  실적 추세 악화(td) {td}종목")
+    return bad
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dir", default=None)
     a = ap.parse_args()
     d = {n: load(n, a.dir) for n in FILES}
-    bad = check_market("us", d) + check_market("kr", d) + check_kr_extra(d)
+    bad = (check_market("us", d) + check_market("kr", d) + check_kr_extra(d)
+           + check_growth(d))
     print()
     for b in bad:
         print("틀림:", b)

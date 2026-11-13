@@ -1,0 +1,5 @@
+# 11/13 — 개인 정보 · 인증키가 공개 저장소에 올라가지 않게
+**/.streamlit/secrets.toml
+secrets.toml
+.env
+.env.*

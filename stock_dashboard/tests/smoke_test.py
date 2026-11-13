@@ -1897,8 +1897,11 @@ check_true("기록이 매니페스트와 같은 범위를 본다",
 
 print("\n=== 진단 패널이 앱을 죽이지 않는다 ===")
 _ctrl = _app_src.split("def controls()")[1].split("\ndef ")[0]
+# 11/13: 잠금 확인(access.unlocked)이 try 안에 들어가 글자 그대로 비교 대신 '마지막 try 와
+# 호출 사이에 except 가 없다' 로 봅니다 — 호출이 여전히 try 안에 있다는 뜻
+_dseg = _ctrl.split("render_diag_panel()")[0]
 check_true("진단 패널 호출을 감싼다",
-           "try:\n                render_diag_panel()" in _ctrl,
+           "try:" in _dseg and "except" not in _dseg[_dseg.rfind("try:"):],
            "controls() 안에서 죽으면 화면이 통째로 빕니다")
 check_true("실패해도 나머지는 그린다", "나머지 화면은 그대로 씁니다" in _ctrl)
 

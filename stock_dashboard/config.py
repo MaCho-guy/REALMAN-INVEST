@@ -1608,6 +1608,8 @@ KR_SECTORS: tuple[tuple[str, str, str], ...] = (
 
 #: 섹터당 가져올 헤드라인 수. 9섹터 × 3건 = 27건이면 한 화면입니다.
 SECTOR_NEWS_PER = 3
+#: 섹터 뉴스의 최대 나이(일). 이보다 오래된 기사는 버립니다 (2026-11-13).
+SECTOR_NEWS_DAYS = 7
 
 def tab_groups(market: str = "kr") -> list[tuple[str, list[tuple[str, str]]]]:
     """[(그룹명, [(key, 라벨), …]), …] — 그 시장에서 보이는 섹션만."""

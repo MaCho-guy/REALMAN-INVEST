@@ -2649,6 +2649,13 @@ def render_simple_rows(rows: list) -> str:
     return f'<table class="dash-kv"><tbody>{body}</tbody></table>'
 
 
+def _news_meta(h) -> str:
+    """'매체 · 11/12' — 기사 날짜를 늘 같이 보입니다 (2026-11-13 '오래된 기사' 점검)."""
+    pub = getattr(h, "published", "") or ""
+    day = f"{pub[5:7]}/{pub[8:10]}" if len(pub) >= 10 else ""
+    return " · ".join(x for x in (getattr(h, "source", "") or "", day) if x)
+
+
 def render_sector_news(sectors, headlines: dict, errors: dict) -> str:
     """섹터별 뉴스 — 섹터당 몇 줄씩, 한 화면에."""
     blocks = []
@@ -2666,8 +2673,8 @@ def render_sector_news(sectors, headlines: dict, errors: dict) -> str:
             + (f'<a class="dash-inline-link" href="{_esc(h.url)}" '
                f'target="_blank" rel="noopener noreferrer">{_esc(h.title)}</a>'
                if h.url else _esc(h.title))
-            + (f' <span class="dash-news-meta">{_esc(h.source)}</span>'
-               if h.source else "")
+            + (f' <span class="dash-news-meta">{_esc(_news_meta(h))}</span>'
+               if _news_meta(h) else "")
             + "</li>"
             for h in items
         )

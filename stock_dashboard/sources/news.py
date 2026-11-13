@@ -118,8 +118,59 @@ def _from_yfinance(symbol: str, limit: int) -> list[Headline]:
 # 한국 종목 — 구글 뉴스 RSS
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _from_google_rss(query: str, limit: int) -> list[Headline]:
-    url = GOOGLE_NEWS_RSS.format(q=urllib.parse.quote(query))
+#: 구글 뉴스에서 받을 기사의 최대 나이(일). 2026-11-13 사용자: "섹터별 뉴스에
+#: 엄청 오래된 것들이 뜬다". 원인 — RSS 검색 결과는 **관련도 순**인데 위에서부터
+#: 몇 건만 잘라 썼습니다. 그래서 몇 달 된 기사가 맨 위에 오면 그대로 나왔습니다.
+#: 이제는 검색어에 기간을 걸고(when:Nd), 받은 기사 **전부**를 날짜순으로 줄 세운 뒤
+#: 기간 밖 기사는 버립니다. 부르는 쪽이 성격에 맞게 정합니다 (마감 기사는 2일).
+NEWS_MAX_DAYS = 14
+_MONTHS = {"Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, "May": 5, "Jun": 6,
+           "Jul": 7, "Aug": 8, "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12}
+
+
+def _pub_time(pub: str) -> dt.datetime | None:
+    """'Tue, 04 Nov 2026 02:13:00 GMT' → UTC datetime (모르면 None)."""
+    m = re.search(r"(\d{1,2})\s+(\w{3})\s+(\d{4})(?:\s+(\d{1,2}):(\d{2}))?", pub or "")
+    if not m or m.group(2) not in _MONTHS:
+        return None
+    try:
+        return dt.datetime(int(m.group(3)), _MONTHS[m.group(2)], int(m.group(1)),
+                           int(m.group(4) or 0), int(m.group(5) or 0),
+                           tzinfo=dt.timezone.utc)
+    except ValueError:
+        return None
+
+
+def parse_google_rss(body: str, limit: int, max_days: int | None = NEWS_MAX_DAYS,
+                     now: dt.datetime | None = None) -> list[Headline]:
+    """RSS 글 → 최근 기사부터 limit 건. max_days 보다 오래된 기사와 날짜 모르는
+    기사는 버립니다 (max_days=None 이면 나이로 거르지 않음 — 그래도 날짜순)."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    got: list[tuple[dt.datetime | None, Headline]] = []
+    seen: set[str] = set()
+    for block in re.findall(r"<item>(.*?)</item>", body or "", re.S):
+        def grab(tag: str) -> str:
+            m = re.search(rf"<{tag}[^>]*>(.*?)</{tag}>", block, re.S)
+            return _clean(m.group(1)) if m else ""
+
+        title = grab("title")
+        if not title or title in seen:
+            continue
+        when = _pub_time(grab("pubDate"))
+        if max_days is not None and (when is None or now - when > dt.timedelta(days=max_days)):
+            continue
+        seen.add(title)
+        got.append((when, Headline(title=title, url=grab("link"), source=grab("source"),
+                                   published=when.date().isoformat() if when else "")))
+    got.sort(key=lambda x: x[0] or dt.datetime.min.replace(tzinfo=dt.timezone.utc),
+             reverse=True)
+    return [h for _w, h in got[:limit]]
+
+
+def _from_google_rss(query: str, limit: int, max_days: int | None = NEWS_MAX_DAYS
+                     ) -> list[Headline]:
+    q = f"{query} when:{max_days}d" if max_days else query
+    url = GOOGLE_NEWS_RSS.format(q=urllib.parse.quote(q))
     try:
         resp = requests.get(
             url,
@@ -130,41 +181,7 @@ def _from_google_rss(query: str, limit: int) -> list[Headline]:
         body = resp.text
     except requests.RequestException:
         return []
-
-    out: list[Headline] = []
-    for block in re.findall(r"<item>(.*?)</item>", body, re.S)[: limit * 2]:
-        def grab(tag: str) -> str:
-            m = re.search(rf"<{tag}>(.*?)</{tag}>", block, re.S)
-            return _clean(m.group(1)) if m else ""
-
-        title = grab("title")
-        if not title:
-            continue
-        link = grab("link")
-        source = grab("source")
-
-        published = ""
-        pub = grab("pubDate")
-        if pub:
-            # 예: "Tue, 04 Nov 2026 02:13:00 GMT"
-            m = re.search(r"(\d{1,2})\s+(\w{3})\s+(\d{4})", pub)
-            if m:
-                months = {"Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, "May": 5, "Jun": 6,
-                          "Jul": 7, "Aug": 8, "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12}
-                month = months.get(m.group(2))
-                if month:
-                    try:
-                        published = dt.date(
-                            int(m.group(3)), month, int(m.group(1))
-                        ).isoformat()
-                    except ValueError:
-                        published = ""
-
-        out.append(Headline(title=title, url=link, source=source, published=published))
-        if len(out) >= limit:
-            break
-
-    return out
+    return parse_google_rss(body, limit, max_days)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -233,7 +250,7 @@ def fetch_for_many(
     return out
 
 
-def fetch_sector_news(sectors, *, limit: int = 3
+def fetch_sector_news(sectors, *, limit: int = 3, max_days: int = 7
                       ) -> tuple[dict[str, list[Headline]], dict[str, str]]:
     """섹터별 헤드라인. sectors = [(키, 표시이름, 검색어), …].
 
@@ -245,12 +262,12 @@ def fetch_sector_news(sectors, *, limit: int = 3
     errors: dict[str, str] = {}
     for key, _label, query in sectors:
         try:
-            items = _from_google_rss(query, limit)
+            items = _from_google_rss(query, limit, max_days)
         except Exception as exc:  # noqa: BLE001
             errors[key] = f"{type(exc).__name__}: {exc}"
             continue
         if items:
             out[key] = items
         else:
-            errors[key] = "헤드라인이 비었습니다."
+            errors[key] = f"최근 {max_days}일 기사가 없습니다."
     return out, errors

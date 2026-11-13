@@ -597,7 +597,8 @@ def load_close_headlines(use_demo: bool):
     if use_demo:
         return demo_mod.demo_sector_news(specs + (("_", "_", "_"),))[0]
     try:
-        return news.fetch_sector_news(specs, limit=3)[0]
+        # 마감 기사는 오늘 · 어제 것만 (11/13 '오래된 기사' 점검 때 같이 고침)
+        return news.fetch_sector_news(specs, limit=3, max_days=2)[0]
     except Exception:  # noqa: BLE001 - 기사는 보조입니다
         return {}
 
@@ -1000,7 +1001,8 @@ def load_sector_news(use_demo: bool):
         return demo_mod.demo_sector_news(config.KR_SECTORS)
     try:
         return news.fetch_sector_news(config.KR_SECTORS,
-                                      limit=config.SECTOR_NEWS_PER)
+                                      limit=config.SECTOR_NEWS_PER,
+                                      max_days=config.SECTOR_NEWS_DAYS)
     except Exception as exc:  # noqa: BLE001
         return {}, {"_": f"{type(exc).__name__}: {exc}"}
 

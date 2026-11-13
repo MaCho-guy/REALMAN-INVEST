@@ -68,14 +68,17 @@ PALETTE: dict[Mode, dict[str, str]] = {
 #: 사용자: "섹션 별로 구분 잘 가게 · 옅은 파스텔 · 섹션 별로 다른 색깔").
 #: 묶음 순서대로 씁니다. (키, 옅은 바탕, 고른 항목 바탕, 선). 글자는 늘 --dash-ink
 #: (세 바탕 모두 명암비 9 이상). 등락색(적 · 청 · 녹)과 헷갈리지 않게 채도를 낮춘
-#: 하늘 · 민트 · 복숭아 · 버터입니다 — 색은 '어느 묶음인가' 만 뜻합니다.
+#: 채도를 낮춘 하늘 · 세이지 · 샌드 · 웜 그레이입니다 — 색은 '어느 묶음인가' 만 뜻합니다.
 GROUP_TONES: tuple[tuple[str, str, str, str], ...] = (
-    ("today", "#e3f1fb", "#c3e0f5", "#5a9fd0"),     # 하늘
-    ("find", "#e2f4ef", "#bfe6dc", "#57a896"),      # 민트
-    ("market", "#fdeae2", "#f9d0c0", "#dc8a6c"),    # 복숭아
-    ("common", "#f8f2d8", "#efe2a9", "#b8a243"),    # 버터
+    ("today", "#e9f1f7", "#d3e3ef", "#6f9dbd"),     # 흐린 하늘
+    ("find", "#eaf2ec", "#d5e5d9", "#78a587"),      # 세이지
+    ("market", "#f7eee3", "#eedcc6", "#c49a6c"),    # 샌드
+    ("common", "#efefec", "#e0dfda", "#96948d"),    # 웜 그레이
 )
-# 09:40 사용자: "보라색은 맘에 안 듦" — 연보라파랑 · 라일락을 하늘 · 버터로 바꿨습니다.
+# 09:40 "보라색은 맘에 안 듦" · 09:46 "파스텔톤은 좋은데 색조합이 이상함" —
+# 하늘 · 민트 · 복숭아 · 버터는 채도가 제각각이라 따로 놀았습니다. 채도를 한 단계
+# 낮추고 밝기를 맞춘 한 벌(흐린 하늘 · 세이지 · 샌드 · 웜 그레이)로 바꿨습니다.
+# '공통' 은 일부러 무채색입니다 — 어느 시장에도 속하지 않는 묶음.
 
 
 def group_tone(index: int) -> tuple[str, str, str, str]:
@@ -1500,42 +1503,87 @@ def build_rules() -> str:
 
   /* ── 시장 띠 ──────────────────────────────────────────────────────── */
   /* 카드가 아니라 한 장의 띠. 칸 사이 세로선, 큰 숫자, 작은 이름. */
-  /* 2026-11-13 폰: "지수 수치 맨 위 표시가 너무 밋밋". 한 장의 띠(세로선) →
-     떠 있는 칸 여섯. 칸 위쪽에 등락색 선, 등락률은 옅은 등락색 알약. 색의 뜻은
-     그대로(상승 적 · 하락 청)이고 ▲▼ 와 부호를 같이 적습니다. */
+  /* 2026-11-13 폰: "지수 수치 맨 위 표시가 너무 밋밋" (09:40) → "다시" (09:46).
+     칸마다 흰 카드. 오른쪽 위 모서리에서 등락색이 옅게 번지고(방향이 한눈에),
+     숫자는 크게, 그 아래 '▲ 전일 대비 값 · 등락률' 을 등락색으로 적습니다.
+     색의 뜻은 그대로(상승 적 · 하락 청), ▲▼ 와 부호를 같이 적습니다. */
   .dash-mstrip {{
     display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 8px; margin: 0 0 var(--sp-4);
   }}
   .ms-cell {{
-    padding: 9px 12px 10px; min-width: 0;
+    position: relative; overflow: hidden;
+    padding: 10px 12px 10px; min-width: 0;
     background: var(--dash-surface); border-radius: var(--r-card);
-    border-top: 3px solid var(--dash-divider);
-    box-shadow: 0 1px 2px rgba(21,24,28,.06), 0 2px 8px rgba(21,24,28,.04);
-    display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+    border: 1px solid var(--dash-divider);
+    display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
   }}
-  .ms-cell.up {{ border-top-color: var(--dash-up); }}
-  .ms-cell.down {{ border-top-color: var(--dash-down); }}
-  .ms-label {{ font-size: var(--fs-2); font-weight: 600; color: var(--dash-ink-2);
-              letter-spacing: .01em; max-width: 100%;
+  .ms-cell::before {{
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(120% 90% at 100% 0%,
+      color-mix(in srgb, var(--ms-tone, transparent) 16%, transparent) 0%,
+      transparent 62%);
+  }}
+  .ms-cell.up {{ --ms-tone: var(--dash-up); }}
+  .ms-cell.down {{ --ms-tone: var(--dash-down); }}
+  .ms-cell > * {{ position: relative; }}
+  .ms-label {{ font-size: var(--fs-2); font-weight: 650; color: var(--dash-ink-2);
+              max-width: 100%;
               white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
-  .ms-val {{ font-size: var(--fs-7); font-weight: 780; color: var(--dash-ink);
-            font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+  .ms-val {{ font-size: var(--fs-7); font-weight: 800; color: var(--dash-ink);
+            font-variant-numeric: tabular-nums; letter-spacing: -0.025em;
             line-height: 1.2; white-space: nowrap; }}
   .ms-chg {{ font-size: var(--fs-2); font-weight: 700;
-            font-variant-numeric: tabular-nums; white-space: nowrap;
-            border-radius: var(--r-pill); padding: 1px 8px; margin-top: 1px; }}
-  .ms-chg.up {{ color: var(--dash-up);
-               background: color-mix(in srgb, var(--dash-up) 11%, var(--dash-surface)); }}
-  .ms-chg.down {{ color: var(--dash-down);
-                 background: color-mix(in srgb, var(--dash-down) 11%, var(--dash-surface)); }}
-  .ms-chg.flat {{ color: var(--dash-ink-muted); background: var(--dash-raised); }}
+            font-variant-numeric: tabular-nums; white-space: nowrap; }}
+  .ms-chg small {{ font-size: inherit; font-weight: 600; opacity: .85; }}
+  .ms-chg.up {{ color: var(--dash-up); }}
+  .ms-chg.down {{ color: var(--dash-down); }}
+  .ms-chg.flat {{ color: var(--dash-ink-muted); }}
   @media (max-width: 760px) {{
     .dash-mstrip {{ grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }}
-    .ms-cell {{ padding: 7px 8px 8px; }}
+    .ms-cell {{ padding: 8px 9px 8px; }}
     .ms-val {{ font-size: var(--fs-5); }}
-    .ms-chg {{ padding: 1px 6px; }}
+    .ms-chg small {{ display: none; }}      /* 좁으면 등락률만 */
   }}
+
+  /* ── 섹터 온도 — 순위 막대 · 온도 격자 (2026-11-13) ─────────────────── */
+  .dash-sbar2, .dash-hgrid {{
+    background: var(--dash-surface); border: 1px solid var(--dash-divider);
+    border-radius: var(--r-card); padding: 12px 12px 10px; margin: 0 0 var(--sp-3);
+  }}
+  .sb-head {{ display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px;
+             margin-bottom: 8px; }}
+  .sb-head b {{ font-size: var(--fs-4); color: var(--dash-ink); }}
+  .sb-head span {{ font-size: var(--fs-2); color: var(--dash-ink-muted); }}
+  .sb-row {{ display: grid; grid-template-columns: 5.6em minmax(0, 1fr) 3.4em;
+            align-items: center; gap: 8px; padding: 3px 0; }}
+  .sb-name {{ font-size: var(--fs-3); font-weight: 600; color: var(--dash-ink);
+             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+  .sb-track {{ position: relative; height: 14px; border-radius: var(--r-chip);
+              background: var(--dash-raised); }}
+  .sb-track::after {{ content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px;
+                     width: 1px; background: var(--dash-ink-muted); opacity: .55; }}
+  .sb-track i {{ position: absolute; top: 0; bottom: 0; border-radius: var(--r-chip); }}
+  .sb-track i.up {{ background: color-mix(in srgb, var(--dash-up) 62%, var(--dash-surface)); }}
+  .sb-track i.down {{ background: color-mix(in srgb, var(--dash-down) 62%, var(--dash-surface)); }}
+  .sb-val {{ font-size: var(--fs-3); font-weight: 700; text-align: right;
+            font-variant-numeric: tabular-nums; }}
+  .sb-val.up {{ color: var(--dash-up); }}
+  .sb-val.down {{ color: var(--dash-down); }}
+  .sb-val.flat {{ color: var(--dash-ink-muted); }}
+  .hg-row {{ display: grid; grid-template-columns: 5.6em repeat(4, minmax(0, 1fr));
+            gap: 3px; margin-bottom: 3px; align-items: stretch; }}
+  .hg-head span {{ font-size: var(--fs-1); color: var(--dash-ink-muted); text-align: center; }}
+  .hg-name {{ font-size: var(--fs-3); font-weight: 600; color: var(--dash-ink);
+             align-self: center;
+             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+  .hg-cell {{ font-size: var(--fs-2); font-weight: 600; text-align: center;
+             color: var(--dash-ink); padding: 6px 0; border-radius: var(--r-chip);
+             font-variant-numeric: tabular-nums; }}
+  .hg-cell.strong {{ font-weight: 750; }}
+  .hg-cell.na {{ color: var(--dash-ink-muted); background: var(--dash-raised); }}
+  .hg-bench {{ padding-bottom: 5px; margin-bottom: 6px;
+              border-bottom: 1px dashed var(--dash-divider); }}
 
   /* ── 요약 상태판 ──────────────────────────────────────────────────── */
   .dash-sgrid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));

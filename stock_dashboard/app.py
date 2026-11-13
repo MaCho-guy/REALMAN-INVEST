@@ -3323,7 +3323,12 @@ def render_sector_heat_tab(use_demo: bool) -> None:
         if note:
             st.markdown(ui.render_notice(note), unsafe_allow_html=True)
     st.markdown(ui.render_sector_heat_summary(rows), unsafe_allow_html=True)
-    st.markdown(ui.render_sector_heat(rows), unsafe_allow_html=True)
+    # 2026-11-13 폰: "너무 허접하고 비어 보임" — 순위 막대 + 온도 격자를 먼저,
+    # 원래 표(52주 위치 · 3개월 추이까지)는 접는 칸으로.
+    st.markdown(ui.render_sector_bars(rows), unsafe_allow_html=True)
+    st.markdown(ui.render_sector_heatgrid(rows), unsafe_allow_html=True)
+    with st.expander("자세히 — 52주 위치 · 3개월 추이 · 종목코드", expanded=False):
+        st.markdown(ui.render_sector_heat(rows), unsafe_allow_html=True)
     st.markdown(
         ui.render_footnote(
             "색 진하기는 크기입니다 — 기간마다 눈금이 다릅니다(1일 ±3% · "

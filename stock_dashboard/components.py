@@ -2964,6 +2964,69 @@ def render_sector_heat(rows: list) -> str:
     )
 
 
+def render_sector_bars(rows: list) -> str:
+    """업종 순위 막대 — KODEX 200 대비 1개월 초과수익, 가운데 선에서 좌(약세) · 우(강세).
+
+    2026-11-13 폰: "섹터 온도란 너무 허접하고 비어 보임". 폰에서는 표가 종목별 카드로
+    풀려 색이 사라지고 숫자만 세로로 늘어섰습니다. 한 화면에 순위가 보이게 막대로.
+    """
+    ranked = [r for r in rows if r.ok and not r.benchmark and r.rel_1m is not None]
+    if not ranked:
+        return ""
+    ranked.sort(key=lambda r: r.rel_1m, reverse=True)
+    top = max(abs(r.rel_1m) for r in ranked) or 1.0
+    out = []
+    for r in ranked:
+        w = abs(r.rel_1m) / top * 50.0
+        cls = "up" if r.rel_1m > 0 else ("down" if r.rel_1m < 0 else "flat")
+        side = f"left:50%;width:{w:.1f}%" if r.rel_1m >= 0 else f"right:50%;width:{w:.1f}%"
+        out.append(
+            f'<div class="sb-row"><span class="sb-name">{_esc(r.label)}</span>'
+            f'<span class="sb-track"><i class="{cls}" style="{side}"></i></span>'
+            f'<span class="sb-val {cls}">{r.rel_1m:+.1f}</span></div>')
+    return ('<div class="dash-sbar2"><div class="sb-head"><b>시장 대비 강약</b>'
+            "<span>1개월 · KODEX 200 대비 %p · ← 약세 | 강세 →</span></div>"
+            + "".join(out) + "</div>")
+
+
+def render_sector_heatgrid(rows: list) -> str:
+    """기간별 온도 격자 — 업종 × (1일 · 1주 · 1개월 · 3개월). 색 = 방향, 진하기 = 크기.
+
+    표(table)가 아니라 격자(div)라서 폰에서도 풀리지 않고 한 화면에 들어옵니다.
+    순서는 막대와 같습니다 (기준선이 맨 위, 그다음 시장 대비 강한 순).
+    """
+    import sector_heat as _sh  # noqa: PLC0415
+
+    ok = [r for r in rows if r.ok]
+    if not ok:
+        return ""
+    bench = [r for r in ok if r.benchmark]
+    rest = sorted([r for r in ok if not r.benchmark],
+                  key=lambda r: (r.rel_1m is None, -(r.rel_1m or 0.0)))
+    head = ('<div class="hg-row hg-head"><span></span>'
+            + "".join(f"<span>{_esc(lab)}</span>" for _k, lab, _n in _sh.PERIODS) + "</div>")
+    body = []
+    for r in bench + rest:
+        cells = []
+        for k, _lab, _n in _sh.PERIODS:
+            v = r.returns.get(k)
+            if v is None:
+                cells.append('<span class="hg-cell na">—</span>')
+                continue
+            strength = min(1.0, abs(v) / _sh.COLOR_SCALE[k]) if _sh.COLOR_SCALE.get(k) else 0.0
+            pct = round(10 + strength * 55)
+            var = "--dash-up" if v > 0 else ("--dash-down" if v < 0 else "--dash-flat")
+            cells.append(
+                f'<span class="hg-cell{" strong" if strength > 0.6 else ""}" style="background:'
+                f'color-mix(in srgb, var({var}) {pct}%, var(--dash-surface))">{v:+.1f}</span>')
+        body.append(
+            f'<div class="hg-row{" hg-bench" if r.benchmark else ""}">'
+            f'<span class="hg-name">{_esc(r.label)}</span>{"".join(cells)}</div>')
+    return ('<div class="dash-hgrid"><div class="sb-head"><b>기간별 수익률</b>'
+            "<span>% · 붉을수록 상승 · 푸를수록 하락</span></div>"
+            + head + "".join(body) + "</div>")
+
+
 def render_sector_heat_summary(rows: list) -> str:
     """표 위의 한 줄 — 강세·약세 업종. 표를 다 읽기 전에 결론부터."""
     import sector_heat as _sh  # noqa: PLC0415
@@ -3098,8 +3161,13 @@ def render_market_strip(items) -> str:
             dec = min(dec, 2)
         val = "—" if price is None else fmt_num(price * scale, dec) + unit
         cls = direction_class(pct) if pct is not None else "flat"
+        prev = getattr(q, "prev_close", None) if q is not None else None
+        diff = ((price - prev) * scale if (price is not None and prev) else None)
+        diff_txt = ("" if diff is None else
+                    f"<small>{fmt_num(abs(diff), dec)} · </small>")
         chg = ("" if pct is None else
-               f'<span class="ms-chg {cls}">{direction_glyph(pct)}{fmt_pct(pct)}</span>')
+               f'<span class="ms-chg {cls}">{direction_glyph(pct)}{diff_txt}'
+               f"{fmt_pct(pct)}</span>")
         cells.append(
             f'<div class="ms-cell {cls}"><div class="ms-label">{_esc(label)}</div>'
             f'<div class="ms-val">{_esc(val)}</div>{chg}</div>')

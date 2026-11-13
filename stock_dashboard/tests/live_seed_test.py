@@ -327,7 +327,7 @@ for needle, why in (
 check("접는 칸 글자에 색을 직접 준다 (기기 설정을 따르지 않게)",
       "summary" in native and "var(--dash-ink" in native)
 check("위쪽 단추 줄은 줄바꿈하지 않는다", "flex-wrap: nowrap" in native.replace("flex-wrap:nowrap", "flex-wrap: nowrap"))
-check("위쪽 단추 4개가 한 줄", "dash-ctrlmark" in src and "st.columns([2, 2, 2, 2])" in src)
+check("위쪽 단추 둘(설정 · 갱신)이 한 줄", "dash-ctrlmark" in src and 'pane = _pane("설정"' in src)
 check("앱이 밝은 테마를 직접 건다", "_force_light_theme()" in src)
 
 print("\n=== 설정 파일 문법 ===")

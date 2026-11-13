@@ -160,6 +160,7 @@ from sources import (
 )
 from sources import safe
 from sources.model import Quote
+import theme
 from theme import build_css
 
 KST = ZoneInfo("Asia/Seoul")
@@ -4822,6 +4823,15 @@ def render_cycle_tab(use_demo: bool, *, market: str = "all") -> None:
         ),
         unsafe_allow_html=True,
     )
+    with st.expander("판단 근거 — 이 화면이 사이클을 읽는 방법", expanded=False):
+        st.markdown(ui.render_criteria_table(
+            cycle.judgement_rules(),
+            intro="재고 지표로만 봅니다. 출처는 DART 분기보고서(삼성전자 · SK하이닉스)와 "
+                  "SEC EDGAR XBRL(마이크론)이고, 각 패널에 기준 분기가 적혀 있습니다. "
+                  "기준선은 <code>cycle.py</code> 의 값입니다.",
+            foot="한국 2사는 분기보고서가 분기말 45일 뒤에 나와 마이크론보다 한 분기 "
+                 "늦을 수 있습니다. 판정은 읽는 순서를 정하는 용도이지 매매 신호가 "
+                 "아닙니다."), unsafe_allow_html=True)
     if True:  # 메모리 사이클은 어느 시장에서 열어도 같은 화면입니다
         st.markdown(
             ui.render_footnote(
@@ -5218,12 +5228,21 @@ def controls() -> dict:
     # 보니 설정 버튼 셋과 갱신 버튼이 위아래로 쌓여 **화면 한 장**을 쓰고
     # 있었습니다 (스트림릿은 좁은 화면에서 칸을 쌓습니다). 표식(.dash-ctrlmark)
     # 을 넣어 두면 theme.build_native_rules 가 이 줄만은 쌓지 않게 합니다.
-    c2, c3, c4, c5 = st.columns([2, 2, 2, 2])
+    # 2026-11-13 폰: "표시 · 데이터 · 진단 · 갱신 칸이 생각보다 많이 잡아먹는다" —
+    # 넷이 화면 폭을 나눠 쓰던 것을 **작은 버튼 둘**(설정 · 갱신)로, 오른쪽에 붙입니다.
+    # 표시 · 데이터 · 진단은 '설정' 한 패널 안의 세 묶음입니다 (기능은 그대로).
+    c2, c5 = st.columns([1, 1])
     with c2:
         st.markdown('<div class="dash-ctrlmark"></div>', unsafe_allow_html=True)
+        pane = _pane("설정", "표시 · 데이터 · 진단")
+    c3 = c4 = c2
+
+    def _sub(title: str):
+        st.markdown(f"**{title}**")
 
     with c2:
-        with _pane("표시", "휴대폰 · 표 모양 · 설명 문구"):
+        with pane:
+            _sub("표시")
             # 등락 색상 고르기를 없앴습니다 (2026-11-12 "빼고 한국식으로 고정").
             # 상승 적색 · 하락 청색 하나만 씁니다. 쓰지 않는 선택지는 설정을
             # 길게 만들 뿐입니다.
@@ -5250,7 +5269,9 @@ def controls() -> dict:
             )
 
     with c3:
-        with _pane("데이터", "갱신 · 환율 · 데모"):
+        with pane:
+            st.divider()
+            _sub("데이터")
             use_demo = st.toggle(
                 "데모 모드 (오프라인)", value=False,
                 help="네트워크 없이 레이아웃만 확인합니다. 표시되는 숫자는 "
@@ -5270,7 +5291,9 @@ def controls() -> dict:
             )
 
     with c4:
-        with _pane("진단", "데이터가 맞는지 확인 · 분석 실행 설정"):
+        with pane:
+            st.divider()
+            _sub("진단")
             # 진단 패널 하나 때문에 앱 전체가 안 켜지면 안 됩니다.
             # 2026-11-11 에 tools/diagnose.py 가 낡았다는 이유로 여기서
             # AttributeError 가 났고, controls() 안이라 화면이 통째로
@@ -5639,12 +5662,17 @@ def _section_nav(market: str, labels: dict) -> str:
     def pick(k: str) -> None:
         st.session_state[key] = k
 
-    st.markdown('<div class="dash-navmark"></div>', unsafe_allow_html=True)
-    for gname, items in groups:
+    # 묶음마다 옅은 색 (11/13) — 표식과 같은 칸에 규칙을 실어 요소를 늘리지 않습니다
+    import theme  # noqa: PLC0415
+
+    st.markdown('<div class="dash-navmark"></div>'
+                f"<style>{theme.nav_group_css(market, groups)}</style>",
+                unsafe_allow_html=True)
+    for gi, (gname, items) in enumerate(groups):
         if not items:
             continue
-        st.markdown(f'<div class="dash-navhead">{gname}</div>',
-                    unsafe_allow_html=True)
+        st.markdown(f'<div class="dash-navhead"><i style="--dot:{theme.group_tone(gi)[3]}">'
+                    f"</i>{gname}</div>", unsafe_allow_html=True)
         for k, _lbl in items:
             _nav_button(labels.get(k, k), f"navbtn_{market}_{k}",
                         k == cur, pick, (k,))
@@ -5805,6 +5833,14 @@ def render_body(opts: dict) -> None:
         active = _section_nav(market, labels)
 
     with body_col:
+        # 지금 묶음의 색을 본문에 넘기고(구역 제목 띠), 맨 위에 '묶음 › 섹션' 을 적습니다
+        _groups = config.tab_groups(market)
+        _gi = next((i for i, (_g, items) in enumerate(_groups)
+                    if any(k == active for k, _l in items)), 0)
+        st.markdown(
+            f"<style>{theme.group_vars_css(_gi)}</style>"
+            f'<div class="dash-crumb"><span>{_groups[_gi][0] if _groups else ""} ›</span>'
+            f"{labels.get(active, active)}</div>", unsafe_allow_html=True)
         if opts["demo"]:
             st.markdown(ui.render_demo_banner(), unsafe_allow_html=True)
 

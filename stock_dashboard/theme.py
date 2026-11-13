@@ -64,6 +64,52 @@ PALETTE: dict[Mode, dict[str, str]] = {
     },
 }
 
+#: 섹션 묶음(내비의 '오늘 · 찾기 · 한국/미국 시장 · 공통')마다의 옅은 색 (2026-11-13
+#: 사용자: "섹션 별로 구분 잘 가게 · 옅은 파스텔 · 섹션 별로 다른 색깔").
+#: 묶음 순서대로 씁니다. (키, 옅은 바탕, 고른 항목 바탕, 선). 글자는 늘 --dash-ink
+#: (세 바탕 모두 명암비 9 이상). 등락색(적 · 청 · 녹)과 헷갈리지 않게 채도를 낮춘
+#: 연보라파랑 · 민트 · 살구 · 라일락입니다 — 색은 '어느 묶음인가' 만 뜻합니다.
+GROUP_TONES: tuple[tuple[str, str, str, str], ...] = (
+    ("today", "#eaeefb", "#cdd7f6", "#7f90d8"),
+    ("find", "#e2f4ef", "#bfe6dc", "#57a896"),
+    ("market", "#fdf0e1", "#f8dcb8", "#d79a55"),
+    ("common", "#f4e9f6", "#e3cbe8", "#ad7fb6"),
+)
+
+
+def group_tone(index: int) -> tuple[str, str, str, str]:
+    return GROUP_TONES[index % len(GROUP_TONES)]
+
+
+def nav_group_css(market: str, groups) -> str:
+    """내비 버튼에 묶음 색을 입히는 규칙. groups = config.tab_groups(market).
+
+    스트림릿은 key 가 있는 위젯에 `st-key-<key>` 클래스를 붙입니다 (1.39+). 그
+    클래스가 없는 버전이면 이 규칙만 안 먹고 내비는 예전 모양으로 돕니다.
+    """
+    col = 'div[data-testid="stColumn"]:has(.dash-navmark)'
+    out = []
+    for gi, (_name, items) in enumerate(groups):
+        _k, tint, mid, line = group_tone(gi)
+        for key, _label in items:
+            b = f"{col} .st-key-navbtn_{market}_{key} button"
+            out.append(
+                f'{b}[kind="secondary"]{{background:{tint} !important;'
+                f"border:1px solid transparent !important;}}"
+                f'{b}[kind="secondary"]:hover{{background:{mid} !important;'
+                f"border-color:{line} !important;}}"
+                f'{b}[kind="primary"]{{background:{mid} !important;'
+                f"border:1.5px solid {line} !important;color:var(--dash-ink) !important;}}"
+                f'{b}[kind="primary"] p{{color:var(--dash-ink) !important;}}')
+    return "".join(out)
+
+
+def group_vars_css(index: int) -> str:
+    """지금 보는 묶음의 색을 본문에 넘기는 변수 (구역 제목 띠가 씁니다)."""
+    _k, tint, mid, line = group_tone(index)
+    return f":root{{--grp-tint:{tint};--grp-mid:{mid};--grp-line:{line};}}"
+
+
 FONT_STACK = 'system-ui, -apple-system, "Segoe UI", "Apple SD Gothic Neo", sans-serif'
 
 
@@ -270,12 +316,16 @@ def build_rules() -> str:
   /* 섹션 제목 — 아래 실선 하나로만 구분했더니 어디서 끊기는지 눈이 못
      잡았습니다. 제목 왼쪽에 남색 굵은 선을 세워 **구역의 시작**을
      표시합니다. 색은 여기서만 쓰고 숫자에는 쓰지 않습니다. */
+  /* 2026-11-13: 실선 + 남색 막대 → 묶음 색의 옅은 띠. 구역이 어디서 시작하는지가
+     띠로 보이고, 띠 색으로 지금 어느 묶음(오늘 · 찾기 · 시장 · 공통)인지 압니다.
+     변수가 없으면(미리보기 등) 예전 남색 막대로 돌아갑니다. */
   .dash-section-head {{
     display: flex; align-items: baseline; gap: var(--sp-3);
     margin: var(--sp-5) 0 var(--sp-3);
-    padding: 0 0 var(--sp-2) 11px;
-    border-bottom: 1px solid var(--dash-divider);
-    border-left: 3px solid var(--dash-accent);
+    padding: 9px 12px 9px 12px;
+    background: var(--grp-tint, transparent);
+    border-left: 4px solid var(--grp-line, var(--dash-accent));
+    border-radius: var(--r-inner);
     font-family: {FONT_STACK};
   }}
   /* 첫 섹션은 위 여백을 줄입니다 — 탭 바로 아래가 비어 보입니다 */
@@ -1355,10 +1405,24 @@ def build_rules() -> str:
     align-self: flex-start;
   }}
   .dash-navhead {{
-    font-size: var(--fs-1); font-weight: 700; letter-spacing: .06em;
-    color: var(--dash-ink-muted);
-    margin: var(--sp-3) 0 var(--sp-2); padding-left: 10px;
+    font-size: var(--fs-2); font-weight: 750; letter-spacing: .04em;
+    color: var(--dash-ink-2);
+    margin: var(--sp-3) 0 var(--sp-2); padding-left: 6px;
+    display: flex; align-items: center; gap: 6px;
   }}
+  /* 묶음 색 점 — 버튼 색과 같은 색 */
+  .dash-navhead i {{
+    width: 9px; height: 9px; border-radius: var(--r-pill); flex: 0 0 auto;
+    background: var(--dot, var(--dash-accent));
+  }}
+  /* 본문 맨 위 — 지금 어디인지 (묶음 › 섹션), 묶음 색 알약 */
+  .dash-crumb {{
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--grp-mid, var(--dash-raised)); color: var(--dash-ink);
+    border-radius: var(--r-pill); padding: 3px 12px;
+    font-size: var(--fs-3); font-weight: 650; margin: 0 0 var(--sp-2);
+  }}
+  .dash-crumb span {{ font-weight: 500; color: var(--dash-ink-2); }}
   .dash-navhead:first-child {{ margin-top: 0; }}
 
   /* 섹션 버튼 — 스트림릿 버튼을 그대로 쓰고 **모양만** 다듬습니다.
@@ -2721,14 +2785,20 @@ def build_native_rules() -> str:
   /* ── 위쪽 조작 줄 — 휴대폰에서도 **한 줄** ─────────────────────────────
      스트림릿은 좁은 화면에서 칸을 위아래로 쌓습니다. 설정 버튼 셋과
      갱신 버튼이 화면 한 장을 다 쓰던 이유입니다. 이 줄만은 쌓지 않습니다. */
+  /* 2026-11-13: 폭을 나눠 쓰지 않고 글자만큼만 — 작은 버튼 둘을 오른쪽에 붙입니다 */
   div[data-testid="stHorizontalBlock"]:has(.dash-ctrlmark) {{
-    flex-wrap: nowrap !important; gap: 6px !important; align-items: stretch;
+    flex-wrap: nowrap !important; gap: 6px !important; align-items: center;
+    justify-content: flex-end !important; margin-bottom: -8px;
   }}
   div[data-testid="stHorizontalBlock"]:has(.dash-ctrlmark) > div[data-testid="stColumn"] {{
-    min-width: 0 !important; width: auto !important; flex: 1 1 0 !important;
+    min-width: 0 !important; width: auto !important; flex: 0 0 auto !important;
+  }}
+  div[data-testid="stHorizontalBlock"]:has(.dash-ctrlmark) > div[data-testid="stColumn"] * {{
+    width: auto !important;
   }}
   div[data-testid="stHorizontalBlock"]:has(.dash-ctrlmark) button {{
-    width: 100% !important; min-height: 38px; padding: 4px 8px !important;
+    min-height: 30px !important; padding: 2px 12px !important;
+    border-radius: var(--r-pill) !important;
   }}
   div[data-testid="stHorizontalBlock"]:has(.dash-ctrlmark) button p {{
     font-size: var(--fs-3) !important; white-space: nowrap;

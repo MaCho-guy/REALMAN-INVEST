@@ -475,6 +475,44 @@ class CheckItem:
     detail: str = ""
 
 
+#: 체크리스트 기준선 — 화면의 '판단 근거' 카드가 이 값을 그대로 읽어 적습니다.
+DIO_RISING_MIN = 2          # DIO 가 이만큼 연속 상승하면 점등 (분기)
+FINISHED_JUMP_PP = 3.0      # 완제품 비중이 직전 분기보다 이만큼 늘면 점등 (%포인트)
+
+
+def judgement_rules() -> list[dict]:
+    """이 화면이 사이클을 어떻게 읽는지 — 지표 · 계산식 · 점등 조건 (2026-11-13
+    사용자: "어떻게 판단하는지 그 판단 근거를 접을 수 있는 카드로")."""
+    return [
+        {"short": "DIO (재고일수)",
+         "rule": "기말 재고 ÷ 매출원가 × 기간일수 (분기 91.25일 · 연간 365일). 재고를 다 "
+                 "파는 데 걸리는 날 수. 절대값은 회사마다 달라 비교하지 않고 아래 '밴드 내 "
+                 f"위치' 로 읽음. {DIO_MIN_DAYS:g}일 미만 · {DIO_MAX_DAYS:g}일 초과는 기간이 "
+                 "안 맞는 값으로 보고 버림"},
+        {"short": "밴드 내 위치",
+         "rule": "수집한 분기들의 DIO 최소 = 0% · 최대 = 100% 로 놓고 최신 분기가 어디인지. "
+                 "100% 에 가까울수록 그 회사 기준으로 재고가 많이 쌓인 상태. 분기가 2개 "
+                 "미만이면 계산하지 않음"},
+        {"short": "① DIO 연속 상승",
+         "rule": f"DIO 가 {DIO_RISING_MIN}분기 연속 직전 분기보다 높으면 점등. 재고가 "
+                 "팔리는 속도보다 빨리 쌓이기 시작했다는 뜻"},
+        {"short": "② 재고-매출 갭",
+         "rule": "재고 증가율 − 매출 증가율 (직전 분기 대비, %포인트)이 0 보다 크면 점등. "
+                 "매출보다 재고가 빨리 늘면 수요가 생산을 못 따라가는 것"},
+        {"short": "③ 완제품 비중 급증",
+         "rule": f"재고 중 완제품 비중이 직전 분기보다 {FINISHED_JUMP_PP:g}%포인트 이상 "
+                 "늘면 점등. 원재료 · 재공품이 아니라 '만들어 놓고 못 판 것' 이 늘어난 "
+                 "경우. 재고 구성은 주석 항목이라 없으면 '판정 불가'"},
+        {"short": "읽는 법",
+         "rule": "점등이 많을수록 재고 쪽에서 본 하강 신호. 세 회사가 같이 켜지면 업황, "
+                 "한 회사만 켜지면 그 회사 사정일 가능성. 한 점수로 합치지 않고 항목별로 봄"},
+        {"short": "보지 않는 것",
+         "rule": "메모리 가격(DRAM · NAND 현물 · 고정가) · CapEx · 수요는 공시 재무제표에서 "
+                 "계산할 수 없어 여기서 판정하지 않음. 잠정실적 레이더는 공시가 떴는지만 "
+                 "알리고 숫자는 읽지 않음"},
+    ]
+
+
 def checklist(trend: InventoryTrend) -> list[CheckItem]:
     """지표체계 v2 §5 중 재고 관련 항목만 자동 판정합니다.
 
@@ -488,7 +526,7 @@ def checklist(trend: InventoryTrend) -> list[CheckItem]:
     else:
         items.append(CheckItem(
             "자사 DIO 2분기 연속 상승",
-            rising >= 2,
+            rising >= DIO_RISING_MIN,
             f"연속 상승 {rising}분기"
             + (f" · 직전 분기 대비 {trend.dio_qoq_change:+.1f}일"
                if trend.dio_qoq_change is not None else ""),
@@ -523,7 +561,7 @@ def checklist(trend: InventoryTrend) -> list[CheckItem]:
             delta = mix["완제품"] - prev_mix["완제품"]
             items.append(CheckItem(
                 "완제품 재고 비중 급증",
-                delta >= 3.0,
+                delta >= FINISHED_JUMP_PP,
                 f"완제품 {prev_mix['완제품']:.1f}% → {mix['완제품']:.1f}% ({delta:+.1f}%p)",
             ))
 

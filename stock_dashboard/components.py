@@ -4552,3 +4552,24 @@ for _name, _fn in list(globals().items()):
     if _name.startswith("render_") and callable(_fn):
         globals()[_name] = _stacking(_fn)
 del _name, _fn
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 차트 조건 — 오늘 볼 종목 (2026-11-13)
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# 사용자(폰): "첫 화면 표는 어떤 걸 의미하는지 모르겠네 · 표가 너무 길어".
+# 지표 상태 칸이 든 넓은 표 대신 **종목당 두 줄**: 이름(+새로·반도체) /
+# 왜 여기 있는지(과매도 진입한 지표 · 가격 판정 · 선행 EPS).
+
+def render_pick_list(items: list[dict]) -> str:
+    """items: [{name, ticker, tags[str], facts[str]}] → 두 줄짜리 목록."""
+    out = []
+    for i, it in enumerate(items, 1):
+        tags = "".join(f'<span class="pk-tag">{_esc(t)}</span>' for t in it.get("tags") or [])
+        facts = " · ".join(_esc(f) for f in it.get("facts") or [] if f)
+        out.append(
+            f'<li><div class="pk-top"><span class="pk-n">{i}</span>'
+            f'<b>{_esc(it.get("name", ""))}</b><span class="pk-code">{_esc(it.get("ticker", ""))}'
+            f'</span>{tags}</div><div class="pk-why">{facts}</div></li>')
+    return f'<ol class="dash-picks">{"".join(out)}</ol>' if out else ""

@@ -1568,6 +1568,15 @@ def build_rules() -> str:
   .dash-ctable td.ht-name span {{ display: inline; }}
   .dash-ctable td.ht-name span.ct-semi {{ font-weight: 600; color: var(--dash-ink); font-size: 0.85em; }}
   .dash-ctable td.ht-name span.ct-new {{ text-decoration: underline; }}
+  .dash-picks {{ list-style: none; margin: 4px 0 var(--sp-2); padding: 0; }}
+  .dash-picks li {{ padding: 8px 2px; border-bottom: 1px solid var(--dash-divider); }}
+  .dash-picks .pk-top {{ display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }}
+  .dash-picks .pk-n {{ color: var(--dash-ink-2); font-size: var(--fs-2); min-width: 1.2em; }}
+  .dash-picks .pk-code {{ color: var(--dash-ink-2); font-size: var(--fs-2); }}
+  .dash-picks .pk-tag {{ font-size: var(--fs-2); font-weight: 600; border: 1px solid var(--dash-divider);
+    border-radius: 4px; padding: 0 5px; }}
+  .dash-picks .pk-why {{ color: var(--dash-ink-2); font-size: var(--fs-2); margin: 2px 0 0 calc(1.2em + 6px);
+    line-height: 1.45; }}
   .dash-ctable .ct-mark {{ display: inline-block; width: 1.1em;
                           color: var(--dash-ink-muted); font-weight: 400; }}
   .dash-ctable td.ct-yes {{

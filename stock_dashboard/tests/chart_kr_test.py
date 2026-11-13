@@ -230,8 +230,10 @@ st.multiselect = lambda *a, **k: []
 st.columns = lambda spec, **k: [collect._Any() for _ in (spec if isinstance(spec, list) else range(spec))]
 st.selectbox = lambda label, options, index=0, **k: options[index] if options else None
 orig_rows = app.load_chart_rows
-app.load_chart_rows = type("F", (), {"__call__": lambda self, m, u: live,
-                                     "age": lambda self, *a: 0})()
+calls_live: list = []
+app.load_chart_rows = type("F", (), {"__call__": lambda self, m, u: calls_live.append(m) or live,
+                                     "age": lambda self, *a: 0,
+                                     "peek": lambda self, *a: None})()
 orig_bars = app.load_chart_bars
 app.load_chart_bars = lambda m, t, u: ({}, "테스트")
 file_rows = [chart_signals.row_from_dict(d) for d in p2["rows"]]
@@ -252,23 +254,25 @@ try:
     html = "\n".join(shown)
     check("탭 그리기 에러 없음 · 1초 이내", sec < 1.0, f"{sec:.2f}초")
     tables = [h for h in shown if "dash-ctable" in h]
-    check("첫 화면은 오늘 볼 종목 표 하나 (전체 목록은 꺼져 있음)", len(tables) == 1,
+    picks_html = next((h for h in shown if "dash-picks" in h), "")
+    check("첫 화면엔 지표 표 없음 · 두 줄 목록 하나", not tables and bool(picks_html),
           str(len(tables)))
-    first_tab = tables[0] if tables else ""
-    n_rows = first_tab.count("<tr>") - 1
+    n_rows = picks_html.count("<li>")
     check("오늘 볼 종목 10개 이하", 0 < n_rows <= 10, str(n_rows))
-    first = first_tab.split("<tbody>")[1].split("</tr>")[0] if "<tbody>" in first_tab else ""
-    check("'새로' 가 맨 위", "ct-new" in first, first[:160])
+    first = picks_html.split("<li>")[1] if n_rows else ""
+    check("'새로' 가 맨 위", "pk-tag\">새로" in first, first[:200])
+    check("근거 줄 — 진입 지표 · 가격 판정", "과매도 진입" in first and "가격" in first, first[:300])
     check("★ 표시 없음 (내 종목은 내 종목 탭)", "ct-star" not in html)
-    check("안내 — 수집 시각 · 품질 통과 수 · 진입 수",
-          "수집기 기준" in html and f"품질 통과 {len(set(quality))}종목" in html, "")
+    check("수집 시각이 제목 바로 아래", any("dash-section-head" in h and "수집" in h for h in shown))
+    check("안내 — 품질 통과 수", f"품질 통과 {len(set(quality))}종목" in html, "")
     check("나머지 안내 (10개 넘을 때)", "종목은 아래 " in html and "전체 목록" in html)
+    check("첫 화면은 지금 목록 일봉을 기다리지 않음", calls_live == [], str(calls_live))
     answers["chart_all_kr"] = True
     shown.clear()
     app.render_chart_tab(False, market="kr")
     tables = [h for h in shown if "dash-ctable" in h]
-    check("전체 목록 켜면 표 둘", len(tables) == 2)
-    full = tables[1] if len(tables) > 1 else ""
+    check("전체 목록 켜면 표 하나 (전체 목록)", len(tables) == 1)
+    full = tables[0] if tables else ""
     first = full.split("<tbody>")[1].split("</tr>")[0] if "<tbody>" in full else ""
     check("전체 목록 첫 줄이 반도체", "ct-semi" in first, first[:120])
     check("전체 목록 표는 30종목까지", full.count("<tr>") <= 31)
@@ -285,12 +289,38 @@ try:
     html = "\n".join(shown)
     check("품질 파일 없으면 안내 + 전체 목록은 그대로", "품질 판정 파일" in html
           and len([h for h in shown if "dash-ctable" in h]) == 1)
+    # 내 종목 탭 — 일봉을 아직 안 받았어도 파일로 '차트 조건 — 내 종목' 칸
+    files = {"chart_kr": p2_new}
+    import config as _cfg  # noqa: E402
+    held_kr = [i for i in _cfg.SECTION_WATCHLIST.instruments if _cfg.in_market(i, "kr")]
+    exp_titles: list = []
+    orig_exp = st.expander
+    st.expander = lambda title, **k: exp_titles.append(title) or collect._Any()
+    orig_port, orig_det, orig_sig, orig_an = (app._render_portfolio, app._detect_signals,
+                                              app.render_signals_tab, app.render_analysis_tab)
+    app._render_portfolio = lambda *a, **k: None
+    app._detect_signals = lambda *a, **k: ([], None)
+    app.render_signals_tab = lambda *a, **k: None
+    app.render_analysis_tab = lambda *a, **k: None
+    try:
+        p2_codes = {d["ticker"] for d in p2_new["rows"]}
+        if any(i.symbol in p2_codes for i in held_kr):
+            shown.clear()
+            app.render_holdings_tab({}, None, False, market="kr")
+            check("내 종목 탭 — 파일로 차트 조건 칸", any("차트 조건 — 내 종목" in t
+                                                     for t in exp_titles), str(exp_titles))
+        else:
+            print("  (시험 데이터에 내 종목 코드가 없어 내 종목 칸 검사는 건너뜀)")
+    finally:
+        st.expander = orig_exp
+        (app._render_portfolio, app._detect_signals, app.render_signals_tab,
+         app.render_analysis_tab) = orig_port, orig_det, orig_sig, orig_an
     files = {}
     answers["chart_all_kr"] = False
     shown.clear()
     app.render_chart_tab(False, market="kr")
     html = "\n".join(shown)
-    check("파일 없을 때도 그려짐", "읽지 못해 오늘 볼 종목" in html)
+    check("파일 없을 때도 그려짐", "읽지 못했습니다" in html)
     answers["chart_all_kr"] = True
     shown.clear()
     app.render_chart_tab(False, market="kr")

@@ -18,6 +18,10 @@ import buildstamp  # noqa: E402
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 if __name__ == "__main__":
+    if "--check" in sys.argv:          # 쓰지 않고 검사만 (push_main · CI, 11/13)
+        rep = buildstamp.verify(ROOT)
+        print("BUILD.json 검사:", "일치" if rep.ok else rep.message())
+        sys.exit(0 if rep.ok else 1)
     data = buildstamp.write_manifest(ROOT)
     print(f"{buildstamp.MANIFEST} 갱신 — 검사 대상 {len(data)}개 파일")
     rep = buildstamp.verify(ROOT)

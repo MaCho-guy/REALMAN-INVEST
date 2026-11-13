@@ -563,6 +563,18 @@ check("근거 — 묶음(후보 · 빠짐 · 보류 · 품질 미달) 고르기 
 check("요약에 아침 브리핑 한 줄 없음", "render_briefing_line(briefings[0])" not in app_src)
 check("안쪽 스크롤 칸은 30줄 넘는 목록만 (18:34)", ui.STACK_LONG == 30)
 
+print("\n== 아침 브리핑 SOX 확인 불가 → 대시보드 시세 (11/13 19:46)")
+_sec = {"title": "지수", "rows": [{"kind": "kv", "label": "SOX반도체", "cells": ["확인 불가"]},
+                                 {"kind": "kv", "label": "S&P500", "cells": ["7,592.40", "▼0.35%"]}]}
+_h1 = ui._bf_section(_sec, {"sox": "필라델피아 반도체(^SOX) 10,507.00 ▼0.50% · 11-12 종가 · 야후"})
+check("확인 불가인 SOX 줄에만 출처 붙은 대시보드 시세 · 글은 그대로",
+      _h1.count("bf-fill") == 1 and "확인 불가" in _h1 and "^SOX" in _h1 and "야후" in _h1)
+check("값이 있거나 채울 값이 없으면 안 붙음", "bf-fill" not in ui._bf_section(_sec, {})
+      and "bf-fill" not in ui._bf_section({"rows": [{"kind": "kv", "label": "SOX", "cells": ["10,000"]}]},
+                                          {"sox": "x"}))
+check("화면이 브리핑 날짜 전날까지의 마지막 거래일로 채움", "def _briefing_fills(bf, use_demo" in app_src
+      and "fills=_briefing_fills(bf, use_demo)" in app_src)
+
 print("\n== 차트 전략 백테스트 (techtest, 11/13)")
 import techtest  # noqa: E402
 

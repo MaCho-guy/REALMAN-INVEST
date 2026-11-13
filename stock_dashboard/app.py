@@ -4840,7 +4840,34 @@ def render_briefing_tab(use_demo: bool) -> None:
         st.markdown(ui.render_briefing_head(bf), unsafe_allow_html=True)
         _render_briefing_body(bf)
         return
-    st.markdown(ui.render_briefing_view(bf, parsed, rest), unsafe_allow_html=True)
+    st.markdown(ui.render_briefing_view(bf, parsed, rest, fills=_briefing_fills(bf, use_demo)),
+                unsafe_allow_html=True)
+
+
+@swr.cached(1_800)
+def load_brief_fill_bars(use_demo: bool) -> dict:
+    """아침 브리핑 빈칸 채우기용 일봉 (지금은 ^SOX 하나, 11/13)."""
+    if use_demo:
+        return {}
+    bars, _errs = yahoo.fetch_daily_bars(["^SOX"], period="1mo")
+    return bars
+
+
+def _briefing_fills(bf, use_demo: bool) -> dict:
+    """브리핑이 '확인 불가' 로 둔 SOX 를 그 브리핑이 다루는 미국 거래일(브리핑 날짜 전날 이전의
+    마지막 거래일) 종가로 — 출처 · 거래일을 같이 적음. 못 받으면 빈 dict (아무것도 안 붙음)."""
+    try:
+        bars = (_soft(load_brief_fill_bars, use_demo, default={}) or {}).get("^SOX") or []
+        target = (dt.date.fromisoformat(bf.date) - dt.timedelta(days=1)).isoformat()
+        rows = [(d, c) for d, c in bars if d <= target]
+        if len(rows) < 2:
+            return {}
+        (d0, c0), (d1, c1) = rows[-2], rows[-1]
+        pct = (c1 / c0 - 1.0) * 100.0
+        arrow = "▲" if pct > 0 else ("▼" if pct < 0 else "")
+        return {"sox": f"필라델피아 반도체(^SOX) {c1:,.2f} {arrow}{abs(pct):.2f}% · {d1[5:]} 종가 · 야후"}
+    except Exception:  # noqa: BLE001
+        return {}
 
 
 def _macro_context(readings: list, data: dict, use_demo: bool) -> list:
@@ -5379,6 +5406,7 @@ SOFT_LABELS = {
     "load_close_headlines": "마감 기사", "load_research": "시황 리포트",
     "load_daily_brief": "전일 브리핑", "load_release_dates": "발표 일정",
     "load_screens": "미국 재무 심사", "load_kr_screens": "국내 재무 심사",
+    "load_brief_fill_bars": "SOX 일봉",
 }
 
 
@@ -5411,6 +5439,7 @@ FETCH_LABELS = {
     "load_universe": "전수 심사", "load_eps_trend": "선행 EPS 추정",
     "load_daily_brief": "전일 브리핑", "load_briefings": "브리핑 글",
     "load_remote_briefings": "아침 브리핑",
+    "load_brief_fill_bars": "SOX 일봉",
 }
 
 #: 이 나이를 넘긴 값은 '몇 시간 전' 을 함께 적고 굵게 보입니다.

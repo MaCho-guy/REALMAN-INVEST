@@ -4883,7 +4883,21 @@ def _bf_split_headings(md: str) -> list[tuple[str, str]]:
     return [(t, "\n".join(b).strip()) for t, b in out if "\n".join(b).strip()]
 
 
-def _bf_section(sec: dict) -> str:
+#: 브리핑이 '확인 불가' 로 둔 값을 대시보드 시세로 옆에 적을 항목 (11/13 19:46 "SOX 확인 안 됨")
+#: 라벨에 이 낱말이 있으면 → fills 의 키
+BF_FILL_KEYS = (("SOX", "sox"), ("필라델피아", "sox"))
+
+
+def _bf_fill_note(label: str, cells: list, fills: dict | None) -> str:
+    """kv 줄 값이 '확인 불가' 이고 대시보드에 같은 지표가 있으면 출처 붙은 한 줄 (글은 그대로)."""
+    if not fills or not any("확인 불가" in str(c) for c in cells):
+        return ""
+    key = next((k for word, k in BF_FILL_KEYS if word.lower() in label.lower()), None)
+    txt = fills.get(key) if key else None
+    return f'<div class="bf-note bf-fill">대시보드 시세 — {_esc(txt)}</div>' if txt else ""
+
+
+def _bf_section(sec: dict, fills: dict | None = None) -> str:
     rows = sec.get("rows") or []
     n_kv = sum(1 for r in rows if r["kind"] == "kv")
     tabular = n_kv >= max(2, len(rows) // 2)
@@ -4900,7 +4914,7 @@ def _bf_section(sec: dict) -> str:
             close_list()
             cells = "".join(f"<span>{_bf_inline(c)}</span>" for c in r["cells"])
             note = (f'<div class="bf-note">{_bf_inline(r["note"])}</div>'
-                    if r.get("note") else "")
+                    if r.get("note") else "") + _bf_fill_note(r["label"], r["cells"], fills)
             body.append(f'<div class="bf-kv"><b>{_esc(r["label"])}</b>'
                         f'<span class="bf-vals">{cells}</span>{note}</div>')
             continue
@@ -4919,7 +4933,8 @@ def _bf_section(sec: dict) -> str:
             f'<h3>{_esc(sec.get("title", ""))}</h3>{"".join(body)}</section>')
 
 
-def render_briefing_view(bf, parsed: dict | None, rest_md: str = "") -> str:
+def render_briefing_view(bf, parsed: dict | None, rest_md: str = "",
+                         fills: dict | None = None) -> str:
     """아침 브리핑 한 편 — 제목 · 한 줄 · 구역 카드 · 덧붙인 글 · 출처."""
     stale = (f'<div class="bf-stale">{_esc(bf.age_label)} 글입니다 — 지금 시장을 설명하지 '
              "못할 수 있습니다</div>" if bf.is_stale else "")
@@ -4930,7 +4945,7 @@ def render_briefing_view(bf, parsed: dict | None, rest_md: str = "") -> str:
         if sec.get("lead") and not sec.get("rows"):
             lead += f'<p class="bf-lead">{_bf_inline(sec["lead"])}</p>'
         else:
-            secs.append(_bf_section(sec))
+            secs.append(_bf_section(sec, fills))
     hero = ('<header class="bf-hero">'
             f'<div class="bf-meta">{_esc(bf.date)} · {_esc(bf.age_label)} · 아침 예약 작업이 쓴 글</div>'
             f'<h2>{_esc(bf.title or "제목 없음")}</h2>{lead}{stale}{warn}</header>')

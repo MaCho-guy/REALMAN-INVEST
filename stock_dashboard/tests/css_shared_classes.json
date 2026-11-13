@@ -1,0 +1,315 @@
+{
+ "dash-bf": [
+  "render_briefing_empty",
+  "render_briefing_head"
+ ],
+ "dash-bf-src": [
+  "render_briefing_empty",
+  "render_briefing_head"
+ ],
+ "dash-bf-title": [
+  "render_briefing_empty",
+  "render_briefing_head"
+ ],
+ "dash-bf-top": [
+  "render_briefing_empty",
+  "render_briefing_head"
+ ],
+ "dash-chain-step": [
+  "_chain_op",
+  "_chain_step"
+ ],
+ "dash-check-detail": [
+  "render_check",
+  "render_price_block",
+  "render_screen"
+ ],
+ "dash-cklist": [
+  "render_checklist",
+  "render_rule_box"
+ ],
+ "dash-dcf-cell": [
+  "render_dcf_cells",
+  "render_discover_card"
+ ],
+ "dash-dcf-grid": [
+  "render_dcf_cells",
+  "render_discover_card"
+ ],
+ "dash-est": [
+  "render_kr_earnings",
+  "render_us_earnings"
+ ],
+ "dash-exp": [
+  "render_kr_exports",
+  "render_liquidity"
+ ],
+ "dash-exp-label": [
+  "render_kr_exports",
+  "render_liquidity"
+ ],
+ "dash-exp-period": [
+  "render_kr_exports",
+  "render_liquidity"
+ ],
+ "dash-exp-top": [
+  "render_kr_exports",
+  "render_liquidity"
+ ],
+ "dash-fg": [
+  "render_feargreed",
+  "render_filing_guide"
+ ],
+ "dash-fk": [
+  "_filing_type_cell",
+  "render_filing_guide"
+ ],
+ "dash-fk-": [
+  "_filing_type_cell",
+  "render_filing_guide"
+ ],
+ "dash-footnote": [
+  "render_analysis_sources",
+  "render_empty_reason",
+  "render_footnote",
+  "render_inventory_panel",
+  "render_notice",
+  "render_portfolio",
+  "render_portfolio_setup"
+ ],
+ "dash-hit-cell": [
+  "render_hit_metrics",
+  "render_liquidity"
+ ],
+ "dash-hit-label": [
+  "render_hit_metrics",
+  "render_liquidity"
+ ],
+ "dash-hit-row": [
+  "render_hit_metrics",
+  "render_liquidity"
+ ],
+ "dash-hit-value": [
+  "render_hit_metrics",
+  "render_liquidity"
+ ],
+ "dash-hold": [
+  "render_holdings_table",
+  "render_portfolio",
+  "render_quote_table"
+ ],
+ "dash-htable": [
+  "render_chart_table",
+  "render_hit_table",
+  "render_holdings_table",
+  "render_macro_table",
+  "render_portfolio",
+  "render_quote_table",
+  "render_research_table"
+ ],
+ "dash-htable-wrap": [
+  "render_chart_table",
+  "render_hit_table",
+  "render_holdings_table",
+  "render_macro_table",
+  "render_portfolio",
+  "render_quote_table",
+  "render_research_table"
+ ],
+ "dash-inline-link": [
+  "_bf_inline",
+  "_safe_inline",
+  "render_analysis_header",
+  "render_analysis_sources",
+  "render_briefing_head",
+  "render_briefing_view",
+  "render_card",
+  "render_company_overview",
+  "render_daily_brief",
+  "render_kchart",
+  "render_kr_earnings",
+  "render_kr_exports",
+  "render_market_filings",
+  "render_news_block",
+  "render_prelim_radar",
+  "render_premium_pair",
+  "render_report_cards",
+  "render_research_table",
+  "render_sector_news",
+  "render_signal_card"
+ ],
+ "dash-kv": [
+  "render_company_overview",
+  "render_simple_rows"
+ ],
+ "dash-macro-err": [
+  "render_feargreed",
+  "render_macro_card",
+  "render_vix"
+ ],
+ "dash-macro-why": [
+  "render_macro_card",
+  "render_vix"
+ ],
+ "dash-missing": [
+  "render_analysis_missing",
+  "render_inventory_panel"
+ ],
+ "dash-missing-body": [
+  "render_analysis_missing",
+  "render_inventory_panel"
+ ],
+ "dash-missing-cmd": [
+  "render_analysis_missing",
+  "render_briefing_empty",
+  "render_discover_card",
+  "render_macro_trigger",
+  "render_screen",
+  "render_verdict"
+ ],
+ "dash-missing-title": [
+  "render_analysis_missing",
+  "render_inventory_panel"
+ ],
+ "dash-news-head": [
+  "render_hit_reasons",
+  "render_news_block"
+ ],
+ "dash-news-meta": [
+  "render_news_block",
+  "render_sector_news"
+ ],
+ "dash-note": [
+  "render_analysis_header",
+  "render_card"
+ ],
+ "dash-notice": [
+  "render_empty_reason",
+  "render_notice",
+  "render_portfolio",
+  "render_portfolio_setup"
+ ],
+ "dash-pair-name": [
+  "render_discover_card",
+  "render_premium_pair"
+ ],
+ "dash-pair-tag": [
+  "render_discover_card",
+  "render_premium_pair"
+ ],
+ "dash-pair-top": [
+  "render_discover_card",
+  "render_premium_pair"
+ ],
+ "dash-paper": [
+  "render_backtest",
+  "render_paper"
+ ],
+ "dash-picks": [
+  "render_candidate_cards",
+  "render_pick_cards",
+  "render_pick_list"
+ ],
+ "dash-screen-checks": [
+  "render_price_block",
+  "render_screen"
+ ],
+ "dash-screen-err": [
+  "render_briefing_head",
+  "render_dcf_cells",
+  "render_kchart",
+  "render_prelim_radar",
+  "render_price_block",
+  "render_screen"
+ ],
+ "dash-screen-name": [
+  "render_discover_card",
+  "render_screen"
+ ],
+ "dash-screen-score": [
+  "render_price_block",
+  "render_screen"
+ ],
+ "dash-section-count": [
+  "render_screener_head",
+  "render_section_head"
+ ],
+ "dash-sig-chip": [
+  "render_inflation_table",
+  "render_macro_trigger",
+  "render_signal_summary",
+  "render_trigger_list"
+ ],
+ "dash-sig-detail": [
+  "render_macro_trigger",
+  "render_signal_card"
+ ],
+ "dash-sig-tags": [
+  "render_macro_trigger",
+  "render_signal_card"
+ ],
+ "dash-sig-title": [
+  "render_macro_trigger",
+  "render_signal_card"
+ ],
+ "dash-sig-top": [
+  "render_macro_trigger",
+  "render_signal_card"
+ ],
+ "dash-signal": [
+  "render_macro_trigger",
+  "render_signal_card"
+ ],
+ "dash-sigtag": [
+  "render_macro_trigger",
+  "render_signal_card"
+ ],
+ "dash-skill-btn": [
+  "render_prompt_links",
+  "render_skill_links"
+ ],
+ "dash-skill-row": [
+  "render_prompt_links",
+  "render_skill_links"
+ ],
+ "dash-table": [
+  "render_discover_map",
+  "render_discover_table",
+  "render_dividend_table",
+  "render_flow_table",
+  "render_inflation_table",
+  "render_inventory_panel",
+  "render_kr_earnings",
+  "render_market_filings",
+  "render_screen_table",
+  "render_sector_heat",
+  "render_us_earnings",
+  "render_valuation_table"
+ ],
+ "dash-table-wrap": [
+  "render_discover_map",
+  "render_discover_table",
+  "render_dividend_table",
+  "render_flow_table",
+  "render_inflation_table",
+  "render_inventory_panel",
+  "render_kr_earnings",
+  "render_market_filings",
+  "render_screen_table",
+  "render_sector_heat",
+  "render_us_earnings",
+  "render_valuation_table"
+ ],
+ "dash-verdict": [
+  "render_discover_card",
+  "render_verdict"
+ ],
+ "dash-verdict-line": [
+  "render_discover_card",
+  "render_verdict"
+ ],
+ "dash-verdict-pos": [
+  "render_discover_card",
+  "render_verdict"
+ ]
+}

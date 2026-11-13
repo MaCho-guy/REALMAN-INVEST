@@ -169,8 +169,10 @@ check("``` 안의 # 는 제목 아님", [t for t, _b in ui._bf_split_headings("#
 check("고정폭 덩어리(pre)로 그리지 않음", "<pre" not in html and "```" not in html)
 
 tabs = {m: [k for _g, items in config.tab_groups(m) if _g == "오늘" for k, _l in items] for m in ("kr", "us")}
-check("오늘 = 요약 · 아침 브리핑 · 내 종목", all(v == ["summary", "briefing", "holdings"] for v in tabs.values()),
-      str(tabs))
+common = {m: [k for _g, items in config.tab_groups(m) if _g == "공통" for k, _l in items] for m in ("kr", "us")}
+check("오늘 = 요약 · 내 종목 / 아침 브리핑은 공통 맨 앞 (11/13 17:03 사용자 요청)",
+      all(v == ["summary", "holdings"] for v in tabs.values())
+      and all(v and v[0] == "briefing" for v in common.values()), f"{tabs} {common}")
 src = open("app.py", encoding="utf-8").read()
 mb = src.split("def render_macro_tab(")[1].split("\ndef ")[0] + src.split("def render_briefing_section(")[1].split("\ndef ")[0]
 check("매크로 탭에는 아침 브리핑을 그리지 않음", "render_briefing_view" not in mb and "render_briefing_head" not in mb)

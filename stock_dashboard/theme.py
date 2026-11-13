@@ -1634,6 +1634,8 @@ def build_rules() -> str:
   .bf-kv > b {{ font-weight: 700; }}
   .bf-vals {{ display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px 12px;
              font-variant-numeric: tabular-nums; text-align: right; }}
+  .bf-fill {{ color: var(--dash-ink); border-left: 2px solid var(--dash-accent); padding-left: 6px;
+             margin-top: 2px; }}
   .bf-note {{ flex-basis: 100%; font-size: var(--fs-3); color: var(--dash-ink-2);
              line-height: 1.5; }}
   .bf-kv-text {{ display: block; color: var(--dash-ink-2); font-size: var(--fs-3);

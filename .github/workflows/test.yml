@@ -1,0 +1,44 @@
+# 테스트 (2026-11-13, 사용자 승인 "배포 전에 자동으로 검사")
+#
+# 올라온 코드마다 stock_dashboard/tests 를 전부 돌립니다. 실패하면 GitHub 가 메일로 알립니다.
+#
+# 주의: Streamlit Cloud 는 main 에 올라오는 즉시 배포하므로, 이 검사가 배포를 **막지는
+# 못합니다**(경보 역할). 배포를 막는 관문은 올리는 쪽의 tools/push_main.py 입니다 —
+# 테스트 · BUILD.json · 캐시 파일 · origin/main 충돌을 확인한 뒤에만 main 에 올립니다.
+name: test
+
+on:
+  push:
+    paths:
+      - "stock_dashboard/**"
+      - ".github/workflows/test.yml"
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: stock_dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: stock_dashboard/requirements.txt
+      - name: 패키지
+        run: pip install -r requirements.txt
+      - name: BUILD.json 이 지금 파일과 맞는지
+        run: python -m tools.stamp --check
+      - name: 테스트 전부
+        run: python -m tools.run_tests

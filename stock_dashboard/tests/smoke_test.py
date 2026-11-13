@@ -1888,12 +1888,17 @@ check_true("기록이 .gitignore 에 있다",
            ".shipped.json" in pathlib.Path(".gitignore").read_text(
                encoding="utf-8"),
            "저장소에 올라가면 받는 쪽 상태와 섞입니다")
-_mod, _add, _rm = _ship.changed(".")
-check_true("지금은 보낼 것이 없다", not (_mod or _add),
-           f"바뀜 {_mod} · 새것 {_add} — 패키징 전에 --mark 를 돌리십시오")
-check_true("기록이 매니페스트와 같은 범위를 본다",
-           set(_ship.load_shipped(".")) == set(_bs.build_manifest(".")),
-           "범위가 다르면 비교가 어긋납니다")
+# 11/13 저녁: 배포가 zip 패키징 → git push(main) 로 바뀌어 .shipped.json 기록이 없는 환경
+# (CI · 새 체크아웃)이 보통입니다. 기록이 있을 때만 '보낼 것' 을 비교합니다.
+if pathlib.Path(_ship.SHIPPED).exists():
+    _mod, _add, _rm = _ship.changed(".")
+    check_true("지금은 보낼 것이 없다", not (_mod or _add),
+               f"바뀜 {_mod} · 새것 {_add} — 패키징 전에 --mark 를 돌리십시오")
+    check_true("기록이 매니페스트와 같은 범위를 본다",
+               set(_ship.load_shipped(".")) == set(_bs.build_manifest(".")),
+               "범위가 다르면 비교가 어긋납니다")
+else:
+    print("  SKIP 보낸 기록(.shipped.json) 없음 — git 배포에서는 비교하지 않음")
 
 print("\n=== 진단 패널이 앱을 죽이지 않는다 ===")
 _ctrl = _app_src.split("def controls()")[1].split("\ndef ")[0]

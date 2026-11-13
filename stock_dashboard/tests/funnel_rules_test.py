@@ -462,6 +462,36 @@ check("규칙 변경 — 성장형만 실험에서 뺌(지우지 않음) · 새 
 check("수집기가 문턱 변경을 알아채고 성장형을 다시 시작", "paper.reset_track(pf, day, \"growth\"" in col
       and '"rules": {"growth_min": growth.GROWTH_MIN_PASS}' in col)
 
+print("\n== 탭 옮길 때 시세를 기다리지 않음 (11/13 17:56)")
+import swr as _swr  # noqa: E402
+import threading as _thr  # noqa: E402
+import time as _time  # noqa: E402
+
+_ev = _thr.Event()
+_calls = []
+
+
+@_swr.cached(60, stale=1800, disk=False, wait_fresh=3.0)
+def _slowq(x):
+    _calls.append(x)
+    if len(_calls) > 1:
+        _ev.wait(5)            # 두 번째(새로 받기)는 느림
+    return f"v{len(_calls)}"
+
+
+_slowq("t")
+_e = _swr._entry(_slowq.key(("t",), {}))
+_e.at -= 120                   # 2분 묵음
+_t0 = _time.time()
+_got = _slowq.quick("t")
+_dt = _time.time() - _t0
+_ev.set()
+check("quick — 묵은 값을 바로 줌(기다리지 않음) · 뒤에서 새로 받기 시작", _got == "v1" and _dt < 0.5,
+      f"{_dt:.2f}s")
+check("화면: 세션 첫 화면만 기다리고 탭을 옮길 땐 quick", "def _quotes_fn()" in app_src
+      and 'st.session_state["_quotes_once"] = True' in app_src
+      and "_refresh_watch(bool(pending)" in app_src)
+
 print("\n== 차트 전략 백테스트 (techtest, 11/13)")
 import techtest  # noqa: E402
 

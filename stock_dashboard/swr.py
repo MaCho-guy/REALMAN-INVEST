@@ -481,6 +481,17 @@ class Cached:
             e.done.set()
 
     def __call__(self, *args, **kwargs):
+        return self._get(args, kwargs, self.wait_fresh)
+
+    def quick(self, *args, **kwargs):
+        """__call__ 과 같되 묵은 값이면 새 값을 **기다리지 않고** 바로 줌 (뒤에서 새로 받음).
+
+        11/13 17:56 "탭을 눌렀을 때 한 번에 안 넘어감" — 시세가 60초를 넘기면 탭을 누를
+        때마다 새 시세를 최대 3초 기다려서, 그동안 화면이 안 바뀐 것처럼 보였습니다.
+        처음 열 때만 기다리고(옛 시세가 안 보이게), 탭을 옮길 때는 이쪽을 씁니다."""
+        return self._get(args, kwargs, 0.0)
+
+    def _get(self, args, kwargs, wait_fresh: float):
         key = self.key(args, kwargs)
         e = _entry(key)
         window = self._window()
@@ -503,7 +514,7 @@ class Cached:
                 # 새 값을 잠깐 기다려 봅니다 (wait_fresh). 그 안에 오면 새 값을,
                 # 안 오면 묵은 값을 줍니다. 한 번의 새로 받기에는 정해진
                 # 시각(wait_until)까지만 — 여러 곳에서 불러도 합쳐서 그만큼.
-                if self.wait_fresh and e.refreshing:
+                if wait_fresh and e.refreshing:
                     left = e.wait_until - time.time()
                     if left > 0:
                         e.done.wait(left)

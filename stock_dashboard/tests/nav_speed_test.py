@@ -70,7 +70,7 @@ check("전부 캐시면 그렇게 말한다", "바로 나왔습니다" in log.su
 src = pathlib.Path("app.py").read_text(encoding="utf-8")
 tree = ast.parse(src)
 WANT = ("_peek_section", "_nav_button", "_section_nav", "_section_jobs",
-        "_prefetch", "_ctx_initializer", "_peek_market")
+        "_prefetch", "_ctx_initializer", "_peek_market", "_quotes_fn")
 fns = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in WANT]
 check("필요한 함수가 app.py 에 있다", len(fns) == len(WANT),
       str(sorted(set(WANT) - {f.name for f in fns})))

@@ -6223,6 +6223,16 @@ def _ctx_initializer():
     return init
 
 
+def _quotes_fn():
+    """시세 받는 함수 — 세션 첫 화면만 새 시세를 잠깐(3초까지) 기다리고, 그 뒤 탭을 옮길 때는
+    묵은 시세를 바로 쓰고 뒤에서 새로 받음 (11/13 17:56 "탭이 한 번에 안 넘어감")."""
+    try:
+        first = not st.session_state.get("_quotes_once")
+    except Exception:  # noqa: BLE001
+        first = True
+    return load_all if first or not hasattr(load_all, "quick") else load_all.quick
+
+
 def _section_jobs(section: str, market: str, use_demo: bool) -> dict:
     """화면별로 **서로 기다릴 필요 없는** 데이터 받기. 이름 → 함수.
 
@@ -6230,7 +6240,8 @@ def _section_jobs(section: str, market: str, use_demo: bool) -> dict:
     세션에 넣은 임시 키가 스레드에서 안 보일 수 있습니다.
     """
     dfp, ffp = dart.key_fingerprint(), fred.key_fingerprint()
-    jobs: dict = {"시세": lambda: load_all(use_demo)}
+    qfn = _quotes_fn()
+    jobs: dict = {"시세": lambda: qfn(use_demo)}
     if section == "summary":
         jobs.update({
             "미국 공시": lambda: load_filings(use_demo),
@@ -6587,8 +6598,10 @@ def render_body(opts: dict) -> None:
     # 공시 → 재고 → 섹터 → 매크로를 한 줄로 기다렸습니다.
     _m = _peek_market()
     _prefetch(_peek_section(_m), _m, opts["demo"], log)
-    data = log.measure("시세", load_all, opts["demo"]) if not log.items \
-        else load_all(opts["demo"])
+    _qfn = _quotes_fn()
+    data = log.measure("시세", _qfn, opts["demo"]) if not log.items \
+        else _qfn(opts["demo"])
+    st.session_state["_quotes_once"] = True
     fx = resolve_fx(data.get("yahoo", {}), opts["fx_override"])
 
     now_kst = dt.datetime.now(KST)
@@ -6732,7 +6745,9 @@ def render_body(opts: dict) -> None:
     notice = _stale_notice(oldest, pending)
     if notice:
         stale_slot.markdown(ui.render_notice(notice), unsafe_allow_html=True)
-    _refresh_watch(bool(notice), bool(opts.get("auto")))
+    # 자동 다시 그리기는 '받는 중'(요약 · 내 종목의 곁가지)일 때만 — 묵은 값만으로는 하지 않음.
+    # 2초마다 도는 조각이 탭 누름과 겹치면 한 번에 안 넘어가는 것처럼 보였음 (11/13 17:56)
+    _refresh_watch(bool(pending), bool(opts.get("auto")))
 
     # 다른 섹션 미리 받기 — 화면을 다 그린 **뒤**에 시작합니다
     try:

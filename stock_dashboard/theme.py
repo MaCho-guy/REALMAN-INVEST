@@ -1435,6 +1435,16 @@ def build_rules() -> str:
   }}
   .dash-crumb span {{ font-weight: 500; color: var(--dash-ink-2); }}
   .dash-navhead:first-child {{ margin-top: 0; }}
+  /* 화면을 바꾸는 중 표시 (11/13 17:56) — 탭을 누르면 곧바로 맨 위에 얇은 띠가 지나갑니다.
+     스트림릿이 실행 중에 .stApp 에 data-test-script-state="running" 을 붙임 */
+  .stApp[data-test-script-state="running"]::before {{
+    content: ""; position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 999999;
+    background: linear-gradient(90deg, transparent, var(--dash-accent), transparent);
+    background-size: 40% 100%; background-repeat: no-repeat;
+    animation: dash-run 1s linear infinite; }}
+  @keyframes dash-run {{ from {{ background-position: -40% 0; }} to {{ background-position: 140% 0; }} }}
+  div[data-testid="stColumn"]:has(.dash-navmark) button:active {{
+    background: var(--grp-mid, var(--dash-raised)) !important; }}
   /* 묶음 줄바꿈 표식 (11/13) — 폰에서만 쓰고 PC 에서는 자리를 차지하지 않게 */
   div[data-testid="stElementContainer"]:has(.dash-navbr) {{ display: none; }}
 

@@ -30,6 +30,16 @@
 비교  '시장' = 같은 날짜들의 후보 전체 동일 비중 평균(일별 수익률 평균을 누적) — 지수
       대신 후보 전체를 씀(같은 종목군 안에서 신호가 나은지 보려고).
 한계  1년치 일봉(앞 30봉은 지표 준비) → 실제 검증 약 10개월 · 한 장세에 쏠릴 수 있음.
+
+타이밍 꼬리표 단독 (timing(), 11/13 저녁 — '스크리너 기준 발전 방향' 1단계, 사용자 승인)
+  후보 순서 2순위로 쓰는 '타이밍'(chart_signals.is_os_entry — CCI 나 스토캐스틱이 최근 3봉
+  안에 기준선 아래로 + 종목의 쪽이 과매도)이 **처음 뜬 날** 종가에 사서 20 · 60봉 뒤 종가와
+  비교. 손절 · 매도 규칙 없음. 기준 = 같은 종목군의 '아무 날이나 샀을 때' 20 · 60봉 평균
+  (차이가 플러스여야 꼬리표가 순서에 쓸 근거가 됨). 판정은 화면과 같은 함수(zone_state ·
+  ChartRow.side · is_os_entry)에 그날까지의 값만 넣어 다시 셉니다 — 지표가 최근 20봉
+  남짓만 쓰므로 30봉부터 판정(화면은 일목 · 120일선 때문에 120봉을 요구하지만 꼬리표
+  자체와는 무관). 같은 날 여러 종목이 몰리면(급락일) 사례 수보다 실제 표본이 적습니다 —
+  사례가 나온 날 수를 같이 적습니다.
 """
 from __future__ import annotations
 
@@ -66,8 +76,10 @@ def indicators(bars: dict) -> dict | None:
     v = (list(v) + [0.0] * n)[:n]
     pdi, mdi, adx = cs.dmi(h, l, c)
     sk, sd = cs.stoch_slow(h, l, c)
+    up, lo = cs.bollinger_series(c)
+    pb = [None if u is None or u == d else (x - d) / (u - d) for x, u, d in zip(c, up, lo)]
     return {"c": c, "cci": cs.cci_series(h, l, c), "pdi": pdi, "mdi": mdi, "adx": adx,
-            "sk": sk, "sd": sd,
+            "sk": sk, "sd": sd, "pb": pb,
             "obv": _obv(c, v), "vol": [x or 0.0 for x in v],
             "date": (bars.get("date") or [""] * n)[:n], "n": n}
 
@@ -203,6 +215,87 @@ def _ew_index(inds: dict) -> dict:
     return idx
 
 
+#: 타이밍 꼬리표 단독 — 몇 봉 뒤 종가와 비교하나
+TIMING_H = (20, 60)
+
+
+def _bb_state(p):
+    """볼린저 %B → (상태, 쪽) — chart_signals.bollinger 와 같은 경계 (수축은 쪽이 없어 생략)."""
+    if p is None:
+        return "", ""
+    if p < 0:
+        return "하단 이탈", "os"
+    if p > 1:
+        return "상단 돌파", "ob"
+    if p <= cs.BB_NEAR:
+        return "하단 근접", "os"
+    if p >= 1 - cs.BB_NEAR:
+        return "상단 근접", "ob"
+    return "", ""
+
+
+def tag(ind: dict, i: int) -> bool:
+    """i 번째 봉에서 화면의 '타이밍' 꼬리표(과매도 진입)가 붙는가 — 그날까지의 값만 씀."""
+    lo = max(0, i - 5)                       # zone_state 는 마지막 4봉만 봄 (최근 3봉 교차)
+    cc, sk = ind["cci"][lo:i + 1], ind["sk"][lo:i + 1]
+    states, sides = {}, {}
+    states["cci"], sides["cci"] = cs.zone_state(cc, cc, cs.CCI_OVERSOLD, cs.CCI_OVERBOUGHT,
+                                                cs.CCI_NEAR, cs.CCI_MID, cs.CCI_NEAR_LOW)
+    states["stoch"], sides["stoch"] = cs.zone_state(sk, sk, cs.STOCH_OVERSOLD,
+                                                    cs.STOCH_OVERBOUGHT, cs.STOCH_NEAR,
+                                                    cs.STOCH_MID, cs.STOCH_NEAR_LOW)
+    states["bb"], sides["bb"] = _bb_state(ind["pb"][i])
+    row = cs.ChartRow("", bars=cs.MIN_BARS, price=ind["c"][i], cci=ind["cci"][i],
+                      stoch_k=ind["sk"][i], states=states, sides=sides)
+    return cs.is_os_entry(row)
+
+
+def timing(inds: dict, allowed: set | None = None) -> dict:
+    """타이밍 꼬리표 단독 — {"all" | "qual": {"20": {...}, "60": {...}}}.
+
+    각 칸: n(사례) · days(사례가 나온 날 수) · win(오른 비율) · avg · med · base(같은 종목군
+    아무 날이나 샀을 때 평균) · diff(avg − base). qual = 오늘 기준 품질 통과 · 보류 ·
+    선행 EPS 90일 −5% 초과(변형 C 와 같은 집합 — 미리 보기 편향, 참고용).
+    """
+    groups = ("all", "qual")
+    ev = {g: {h: [] for h in TIMING_H} for g in groups}
+    evd = {g: {h: set() for h in TIMING_H} for g in groups}
+    base = {g: {h: [0.0, 0] for h in TIMING_H} for g in groups}
+    for s, ind in inds.items():
+        c, n, dates = ind["c"], ind["n"], ind["date"]
+        mine = ["all"] + (["qual"] if allowed is not None and s in allowed else [])
+        prev = tag(ind, WARMUP - 1)
+        for i in range(WARMUP, n):
+            cur = tag(ind, i)
+            fresh = cur and not prev
+            prev = cur
+            for h in TIMING_H:
+                if i + h >= n or not c[i]:
+                    continue
+                r = c[i + h] / c[i] - 1.0
+                for g in mine:
+                    base[g][h][0] += r
+                    base[g][h][1] += 1
+                    if fresh:
+                        ev[g][h].append(r)
+                        evd[g][h].add(dates[i])
+    out: dict = {}
+    for g in groups:
+        out[g] = {}
+        for h in TIMING_H:
+            rs = sorted(ev[g][h])
+            b = base[g][h][0] / base[g][h][1] if base[g][h][1] else None
+            avg = sum(rs) / len(rs) if rs else None
+            out[g][str(h)] = {
+                "n": len(rs), "days": len(evd[g][h]),
+                "win": round(sum(1 for r in rs if r > 0) / len(rs), 3) if rs else None,
+                "avg": None if avg is None else round(avg, 4),
+                "med": round(rs[len(rs) // 2], 4) if rs else None,
+                "base": None if b is None else round(b, 4),
+                "diff": None if avg is None or b is None else round(avg - b, 4)}
+    return out
+
+
 def run(bars_by_sym: dict, names: dict | None = None, allowed: set | None = None) -> dict:
     """시장 하나 — {variants: {이름: 요약}, signals: {A: [...], C: [...]}, window}."""
     names = names or {}
@@ -251,4 +344,5 @@ def run(bars_by_sym: dict, names: dict | None = None, allowed: set | None = None
                     sig.append({"s": s, "n": names.get(s, s), "p": ind["c"][-1],
                                 "d": ind["date"][-1]})
             out["signals"][var] = sig
+    out["timing"] = timing(inds, allowed)
     return out

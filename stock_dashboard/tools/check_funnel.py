@@ -166,13 +166,87 @@ def check_growth(d: dict) -> list[str]:
     return bad
 
 
+def _inputs(d: dict, market: str):
+    """후보 계산 재료 (screens, frows, rows, semis, new) — 수집기 _market_inputs 와 같은 키."""
+    fix = (lambda t: t) if market == "kr" else (lambda t: str(t).replace("-", "."))
+    screens = (d["universe_us"] if market == "us" else d["funnel_kr"]).get("screens") or []
+    items = [x for x in d[f"chart_{market}"].get("rows") or [] if isinstance(x, dict)]
+    rows = {fix(r.ticker): r for r in (chart_signals.row_from_dict(x) for x in items) if r}
+    frows = {r["t"]: r for r in d[f"funnel_{market}"].get("rows") or [] if isinstance(r, dict)}
+    semis = {fix(x.get("ticker")) for x in items if x.get("s")}
+    new = {fix(x.get("ticker")) for x in items if x.get("new")}
+    return screens, frows, rows, semis, new
+
+
+def _counts(market: str, inp) -> tuple:
+    """(품질 통과, 안정형 후보, 성장 품질 통과, 성장형 후보, 품질 통과인데 가격 · EPS 줄 없음)"""
+    screens, frows, rows, semis, new = inp
+    cands = integrate.build(screens, frows, rows, {}, semis, new, market=market)
+    st, _o = integrate.split(cands)
+    gc = integrate.build_growth(screens, frows, rows, semis, new, market, {c.ticker for c in st})
+    gp, _go = integrate.split(gc)
+    return len(cands), len(st), len(gc), len(gp), sum(1 for c in cands if c.ticker not in frows)
+
+
+#: 문턱 민감도 — (이름, 모듈, 속성, 값들). 가운데 값이 지금 규칙이어야 함 (아니면 '틀림').
+SENS = (
+    ("품질 · 미국 통과 수 ≥", "config", "DISCOVER_QUALITY_MIN", (6, 7, 8), "us"),
+    ("품질 · 한국 허용 미달 ≤", "config", "KR_QUALITY_MAX_FAIL", (1, 2, 3), "kr"),
+    ("품질 · 한국 판정 수 ≥", "config", "KR_QUALITY_MIN_KNOWN", (6, 7, 8), "kr"),
+    ("관문 · 선행 EPS 90일 ≤", "config", "EPS_DOWN_WARN", (-0.03, -0.05, -0.08), None),
+    ("성장 품질 통과 수 ≥", "growth", "GROWTH_MIN_PASS", (5, 6, 7), None),
+    ("성장형 관문 · PEG >", "growth", "PEG_OK", (2.0, 2.5, 3.0), None),
+)
+
+
+def check_sensitivity(d: dict) -> list[str]:
+    """문턱을 한 칸씩 움직이면 후보 수가 어떻게 바뀌나 (11/13 저녁, '스크리너 기준 발전 방향' 1단계).
+
+    값을 잠시 바꿔 화면 규칙(integrate)을 다시 돌리고 원래대로 돌려놓습니다. 품질을 넓히면
+    깔때기 파일의 미리 계산 범위(6개 기준 이상) 밖 종목은 가격 · EPS 줄이 없어 '가격 계산
+    없음' 으로 들어갑니다 — 마지막 칸에 그 수를 적습니다.
+    """
+    import config  # noqa: PLC0415
+    import growth  # noqa: PLC0415
+
+    mods = {"config": config, "growth": growth}
+    bad: list[str] = []
+    print("\n[문턱 민감도 — 한 칸씩 움직였을 때]  ★ = 지금 규칙")
+    print("  시장 기준                       값     품질통과 안정형후보 성장품질 성장형후보 줄없음")
+    for market in ("us", "kr"):
+        inp = _inputs(d, market)
+        base = _counts(market, inp)
+        for label, mod, attr, vals, only in SENS:
+            if only and only != market:
+                continue
+            m = mods[mod]
+            cur = getattr(m, attr)
+            if cur not in vals:
+                bad.append(f"민감도: {attr} 지금 값 {cur} 이 표({vals})에 없음 — 표를 고칠 것")
+                continue
+            for v in vals:
+                setattr(m, attr, v)
+                try:
+                    c = _counts(market, inp)
+                finally:
+                    setattr(m, attr, cur)
+                star = "★" if v == cur else " "
+                print(f"  {market.upper():3} {label:24} {star}{v!s:6} {c[0]:6} {c[1]:9} {c[2]:8} "
+                      f"{c[3]:9} {c[4]:5}")
+                if v == cur and c != base:
+                    bad.append(f"민감도: {market} {attr} 지금 값 줄 {c} ≠ 기본 계산 {base}")
+        if _counts(market, inp) != base:
+            bad.append(f"민감도: {market} 값을 돌려놓은 뒤 결과가 달라짐")
+    return bad
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dir", default=None)
     a = ap.parse_args()
     d = {n: load(n, a.dir) for n in FILES}
     bad = (check_market("us", d) + check_market("kr", d) + check_kr_extra(d)
-           + check_growth(d))
+           + check_growth(d) + check_sensitivity(d))
     try:
         import paper  # noqa: PLC0415
         pf = load("paper_portfolio", a.dir)
@@ -198,6 +272,13 @@ def main() -> int:
             for k, v in (r.get("variants") or {}).items():
                 print(f"    {k:6} 거래 {v['trades']:3} 승률 {v['win']} 평균 {v['avg']} 가운데 {v['med']}"
                       f" 초과 {v['excess']} 보유 {v['hold']} {v['why']}")
+            tm = r.get("timing")
+            if not tm:
+                print("    T      타이밍 꼬리표 단독 — 아직 없음 (11/13 저녁 이후 수집부터)")
+            for g in ("all", "qual"):
+                for h, v in ((tm or {}).get(g) or {}).items():
+                    print(f"    T {g:4} {h}봉 사례 {v['n']}(날 {v['days']}) 평균 {v['avg']} 가운데 {v['med']}"
+                          f" 오른 비율 {v['win']} 기준 {v['base']} 차이 {v['diff']}")
     except Exception as exc:  # noqa: BLE001
         print(f"\n[차트 전략 백테스트] 파일 없음 ({type(exc).__name__})")
     print()

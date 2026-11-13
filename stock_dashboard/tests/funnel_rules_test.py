@@ -378,6 +378,65 @@ check("요약 — (날 수, 첫 날)", picks_log.summary(h3, "us") == (2, "2026-
 ps = picks_log.snapshot(scr, fr, {}, "kr")
 check("스냅숏 = 화면과 같은 안정형 후보 순서",
       [r[0] for r in ps["s"]] == [c.ticker for c in integrate.split(integrate.build(scr, fr, {}, {}))[0]])
+print("\n=== 후보 기록 확장 — 빠진 종목 · 문턱 아래 · 미달 표본 · 등 · 규칙 (11/13 저녁) ===")
+import growth as _g2  # noqa: E402
+
+# 미국 규칙으로: A·B 후보, C 가격 높음 + EPS 하향(둘 다), D EPS 하향, F 실적 추세 악화,
+# H 보류(통과 6 · 미달 1 · 불가 2), E 품질 미달
+_grs = {"rev3": 0.30, "gm3": 0.5, "gm3p": 0.5, "op3": 0.4, "ocf3": 10, "fcfm": 0.2, "r40": 50,
+        "sbcr": 0.05, "nc": 1}
+_near = dict(_grs, sbcr=0.5)                                      # 7개 중 6 → 지금 문턱(6) 통과
+_near5 = dict(_grs, sbcr=0.5, r40=10)                             # 5 → 문턱 −1
+xs = [dict(summ("A", [P] * 9), gr=_grs), dict(summ("B", [P] * 8 + [U])),
+      dict(summ("C", [P] * 9)), dict(summ("D", [P] * 9)), dict(summ("F", [P] * 9), gr={"td": 1}),
+      dict(summ("H", [P] * 6 + [F] + [U, U]), gr=_near5), dict(summ("E", [P] * 3 + [F] * 6), gr=_near)]
+xf = {"A": {"p": light_p, "f": {"c90": 0.03, "c30": 0.01, "n": 2.0, "g1": 0.3}},
+      "B": {"p": light_p, "f": {"c90": 0.10}}, "C": {"p": heavy_p, "f": {"c90": -0.09}},
+      "D": {"p": light_p, "f": {"c90": -0.08}}, "F": {"p": light_p, "f": {"c90": 0.02}},
+      "E": {"p": light_p, "f": {"c90": -0.2, "n": 1.0, "g1": 0.1}}}
+_xr = {"A": chart_signals.ChartRow("A", bars=200, price=20.0),
+       "E": chart_signals.ChartRow("E", bars=200, price=5.0)}
+xp = picks_log.snapshot(xs, xf, _xr, "us")
+_ref = integrate.build(xs, xf, _xr, {}, market="us")
+check("확장 스냅숏 — s · g 는 예전 형식 · 화면 순서 그대로",
+      [r[0] for r in xp["s"]] == [c.ticker for c in integrate.split(_ref)[0]] == ["B", "A"]
+      and all(len(r) == 4 for r in xp["s"]) and all(len(r) == 5 for r in xp["g"]), str(xp["s"]))
+check("등 — s · g 와 같은 순서 · 길이, 가격 + EPS 두 글자",
+      len(xp["sl"]) == len(xp["s"]) and len(xp["gl"]) == len(xp["g"])
+      and all(len(x) == 2 for x in xp["sl"] + xp["gl"]), str(xp["sl"]))
+check("빠진 이유 — 걸린 관문 전부 (C 가격+EPS · D EPS · F 실적 추세)",
+      xp["x"] == {"pe": ["C"], "e": ["D"], "t": ["F"]}, str(xp["x"]))
+check("빠진 종목 = 화면의 빠짐 전부 · 이유 모르는 칸(?) 없음",
+      sorted(t for v in xp["x"].values() for t in v)
+      == sorted(c.ticker for c in integrate.split(_ref)[1]) and "?" not in xp["x"])
+check("성장형 — E 는 성장 품질 통과 · EPS 하향으로 빠짐(gx e), H 는 문턱 −1 (gn)",
+      xp["gx"] == {"e": ["E"]} and xp["gn"] == ["H"], f'{xp["gx"]} {xp["gn"]}')
+check("보류 · 개수", xp["qh"] == ["H"] and xp["n"] == {"u": 7, "q": 5, "h": 1, "gp": 2}, str(xp["n"]))
+_qs = [t for t in (f"T{i}" for i in range(400)) if picks_log.in_sample(t)]
+check("미달 표본 — 티커로만 정함 (늘 같은 종목, 약 1/12)",
+      _qs == [t for t in (f"T{i}" for i in range(400)) if picks_log.in_sample(t)]
+      and 15 <= len(_qs) <= 55, str(len(_qs)))
+_qsx = [dict(summ(t, [P] * 3 + [F] * 6)) for t in (f"T{i}" for i in range(400))]
+check("미달 표본은 품질 미달 · 보류 아닌 종목에서만", picks_log.snapshot(_qsx, {}, {}, "us")["qs"]
+      == sorted(_qs))
+_ru = picks_log.rules()
+check("규칙 값 — 문턱 · 관문 · 심사 판", _ru["g"] == _g2.GROWTH_MIN_PASS and _ru["q_us"] == 7
+      and _ru["q_kr"] == [2, 7] and _ru["eps"] == -0.05 and _ru["v"] == 2)
+hs1 = picks_log.append(None, "2026-11-14", 1.0, {"us": xp}, rules_=_ru,
+                       sec={"us": {"A": "IT", "B": ""}})
+hs2 = picks_log.append(hs1, "2026-11-14", 2.0, {"kr": {"s": [], "g": []}}, sec={"kr": {"005930": "반도체"}})
+check("업종 표 합침 · 빈 업종은 안 넣음 · 같은 날 다른 시장만 오면 규칙 이어받음",
+      hs2["sec"] == {"us": {"A": "IT"}, "kr": {"005930": "반도체"}} and hs2["days"][-1]["r"] == _ru
+      and hs2["days"][-1]["us"] == xp)
+check("예전 기록(업종 없음)에 붙여도 그대로", "sec" not in picks_log.append(
+    {"days": [{"d": "2026-11-13", "us": snap}]}, "2026-11-14", 1.0, {"us": snap}))
+check("기록에 나온 티커 모음", picks_log.tickers(xp) >= {"A", "B", "C", "D", "F", "H", "E"})
+_cf = pathlib.Path("tools/check_funnel.py").read_text(encoding="utf-8")
+check("check_funnel — 문턱 민감도 표 (★ = 지금 규칙, 표에 지금 값이 없으면 틀림)",
+      "check_sensitivity(d)" in _cf and '"GROWTH_MIN_PASS", (5, 6, 7)' in _cf)
+check("수집기 — 규칙 · 업종을 넘김", "rules_=picks_log.rules(), sec=sec" in
+      pathlib.Path("tools/collect.py").read_text(encoding="utf-8"))
+
 wf = pathlib.Path("tools/collect_workflow.yml").read_text(encoding="utf-8")
 real = pathlib.Path("../.github/workflows/collect.yml").read_text(encoding="utf-8")
 check("워크플로가 지난 기록을 꺼내 이어 붙임", "picks_history.json" in wf and "picks_history.json" in real)
@@ -575,6 +634,46 @@ bh = ui.render_backtest(res, "kr")
 check("화면 — 변형 카드 · 오늘 신호 · 최근 거래", "A · OBV (기본)" in bh and "오늘 매수 신호" in bh
       and ("최근 거래" in bh or res["variants"]["A"]["trades"] == 0))
 check("빈 결과는 그리지 않음", ui.render_backtest({}, "kr") == "")
+
+print("\n== 타이밍 꼬리표 단독 (techtest.timing, 11/13 저녁)")
+_mis = _tot = _tr = 0
+for _seed in range(6):
+    _r = random.Random(100 + _seed)
+    _c = [100.0]
+    for _ in range(239):
+        _c.append(max(1.0, _c[-1] * (1 + _r.gauss(0, 0.025) - (0.05 if _r.random() < 0.03 else 0))))
+    _h = [x * 1.012 for x in _c]
+    _l = [x * 0.988 for x in _c]
+    _ind = techtest.indicators({"high": _h, "low": _l, "close": _c, "volume": [1] * 240})
+    for _i in range(chart_signals.MIN_BARS - 1, 240):
+        _live = chart_signals.is_os_entry(chart_signals.build_row("X", "", _h[:_i + 1], _l[:_i + 1],
+                                                                  _c[:_i + 1]))
+        _tot += 1
+        _tr += _live
+        _mis += _live != techtest.tag(_ind, _i)
+check("꼬리표 = 화면 판정(build_row · is_os_entry)과 날마다 같음", _mis == 0 and _tr > 20,
+      f"비교 {_tot}일 · 꼬리표 {_tr} · 불일치 {_mis}")
+_tm = res["timing"]
+check("결과 — 전체 · 품질 묶음 × 20 · 60봉, 칸 이름",
+      set(_tm) == {"all", "qual"} and set(_tm["all"]) == {"20", "60"}
+      and set(_tm["all"]["20"]) == {"n", "days", "win", "avg", "med", "base", "diff"})
+check("품질 묶음은 허용 종목만 (S1 하나 → 사례 ≤ 전체)",
+      _tm["qual"]["20"]["n"] <= _tm["all"]["20"]["n"])
+check("허용 목록이 없으면 품질 묶음은 비움",
+      techtest.timing({"Z": techtest.indicators(bars())}, None)["qual"]["20"]["n"] == 0)
+_up = {"high": [100.0 + i for i in range(120)], "low": [99.0 + i for i in range(120)],
+       "close": [99.5 + i for i in range(120)], "volume": [1] * 120}
+check("계속 오르기만 하면 사례 없음 · 차이 없음",
+      techtest.timing({"U": techtest.indicators(_up)})["all"]["20"]["n"] == 0)
+_tc = ui.render_timing_card(_tm)
+check("화면 — T 카드: 20 · 60봉 줄 · 아무 날 대비 · 품질 묶음 참고 줄",
+      "T · 타이밍 꼬리표 단독" in _tc and "20봉 뒤" in _tc and "60봉 뒤" in _tc
+      and "아무 날이나 샀을 때" in _tc and "품질 통과 · 보류 종목만" in _tc)
+check("화면 — 결과 없으면 카드는 '다음 수집부터' (깨지지 않음)",
+      "다음 수집" in ui.render_timing_card(None) and "다음 수집" in ui.render_timing_card({})
+      and "사례 없음" in ui.render_timing_card({"all": {"20": {"n": 0}}, "qual": {}}))
+check("전략 실험 화면에 T 카드가 들어감 (예전 파일도)", "T · 타이밍 꼬리표 단독" in bh
+      and "다음 수집" in ui.render_backtest({"variants": res["variants"]}, "us"))
 check("수집기 · 화면 연결", "build_backtest(out_dir" in col and "_render_backtest(market, use_demo)"
       in app_src and "backtest_tech" in config.UNIVERSE_URLS)
 

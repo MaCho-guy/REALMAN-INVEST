@@ -5204,6 +5204,43 @@ def render_paper(pf: dict, market: str) -> str:
     return f'<div class="dash-paper">{"".join(out)}</div>' if out else ""
 
 
+def _pp(v) -> str:
+    """차이(소수) → '+1.2%p'."""
+    return "—" if v is None else f"{v * 100:+.1f}%p"
+
+
+def render_timing_card(tm: dict | None) -> str:
+    """타이밍 꼬리표 단독 (11/13 저녁, techtest.timing) — 후보 순서에 쓰는 '과매도 진입' 이
+    처음 뜬 날 샀다면 20 · 60봉 뒤가 '아무 날이나 샀을 때' 보다 나았나. 카드 한 장."""
+    title = '<div class="pp-top"><b>T · 타이밍 꼬리표 단독</b>'
+    lead = ('<div class="pp-sub">후보 순서 2순위인 \'타이밍\'(과매도 진입)이 처음 뜬 날 종가에 '
+            '샀다면 — 손절 · 매도 규칙 없이 20 · 60봉 뒤 종가로 비교</div>')
+    if not tm or not isinstance(tm, dict) or not tm.get("all"):
+        return (f'<div class="pp-list"><div class="pp-row">{title}</div>{lead}'
+                '<div class="pp-sub">아직 결과가 없습니다 — 다음 수집(06:43 · 15:43)부터 계산</div>'
+                '</div></div>')
+    a = tm.get("all") or {}
+    d20 = (a.get("20") or {}).get("diff")
+    cls = "flat" if d20 is None else ("up" if d20 > 0.0005 else ("down" if d20 < -0.0005 else "flat"))
+    lines = []
+    for h in ("20", "60"):
+        v = a.get(h) or {}
+        if not v.get("n"):
+            lines.append(f'<div class="pp-sub">{h}봉 뒤 — 사례 없음</div>')
+            continue
+        lines.append(
+            f'<div class="pp-sub">{h}봉 뒤 — 사례 {v["n"]}번(나온 날 {v.get("days", 0)}일) · 평균 '
+            f'{_pct(v["avg"])} · 가운데 {_pct(v["med"])} · 오른 비율 {v["win"] * 100:.0f}% · '
+            f'아무 날이나 샀을 때 평균 {_pct(v["base"])} 대비 <b>{_pp(v["diff"])}</b></div>')
+    q = tm.get("qual") or {}
+    qtxt = " · ".join(f'{h}봉 {_pp((q.get(h) or {}).get("diff"))} (사례 {(q.get(h) or {}).get("n", 0)})'
+                      for h in ("20", "60"))
+    return (f'<div class="pp-list"><div class="pp-row">{title}'
+            f'<span class="pp-r {cls}">20봉 {_pp(d20)}</span></div>{lead}{"".join(lines)}'
+            f'<div class="pp-st">품질 통과 · 보류 종목만(오늘 기준 — 참고) — {qtxt}</div>'
+            '</div></div>')
+
+
 def render_backtest(res: dict, market: str, recent: str = "A") -> str:
     """차트 전략 백테스트 (11/13, techtest.py) — 변형마다 요약 카드 + 오늘 신호 + 최근 거래."""
     import techtest  # noqa: PLC0415
@@ -5234,6 +5271,7 @@ def render_backtest(res: dict, market: str, recent: str = "A") -> str:
             f'<div class="pp-sub">같은 기간 후보 전체 대비 <b>{_pct(v["excess"])}</b> · 평균 보유 '
             f'{v["hold"]}일</div><div class="pp-st">끝난 이유 — {why}</div></div>')
     out.append(f'<div class="pp-list">{"".join(rows)}</div>')
+    out.append(render_timing_card(res.get("timing")))
     for k, label in (("A", "A 기본"), ("S", "S 스토캐스틱 확인"), ("C", "C 펀더멘털 통과만")):
         sig = (res.get("signals") or {}).get(k)
         if sig is None:

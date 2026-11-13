@@ -943,6 +943,9 @@ def build_backtest(out_dir: str, bars: dict, *, now: float | None = None) -> dic
         keyed = {fix(k): x for k, x in b.items()}
         res[m] = techtest.run(keyed, names, allowed)
         info[m] = {k: (x["trades"], x["avg"]) for k, x in res[m]["variants"].items()}
+        tm = (res[m].get("timing") or {}).get("all") or {}
+        info[m]["T"] = {h: ((tm.get(h) or {}).get("n"), (tm.get(h) or {}).get("diff"))
+                        for h in ("20", "60")}
     if not res:
         return {"skipped": "일봉이 없습니다"}
     payload = {"params": {"cost": techtest.COST, "stop": techtest.STOP, "arm_wait": techtest.ARM_WAIT,
@@ -1064,19 +1067,33 @@ def build_picks_history(out_dir: str, markets=("us", "kr"), *, now: float | None
 
     now = time.time() if now is None else now
     day = time.strftime("%Y-%m-%d", time.localtime(now))     # 워크플로 TZ=Asia/Seoul
-    snaps, counts = {}, {}
+    snaps, counts, sec = {}, {}, {}
+    us_sector = {}
+    if "us" in markets:
+        for mem in _read_prev(out_dir, "universe_us.json").get("members") or []:
+            if isinstance(mem, dict) and mem.get("ticker") and mem.get("sector"):
+                us_sector[str(mem["ticker"]).replace("-", ".")] = str(mem["sector"])
     for m in markets:
         v = _market_inputs(out_dir, m)
         if not v:
             continue
         screens, frows, rows, semis, new = v
         snaps[m] = picks_log.snapshot(screens, frows, rows, m, semis, new)
-        counts[m] = {k: len(v) for k, v in snaps[m].items()}
+        counts[m] = {k: len(snaps[m][k]) for k in ("s", "g", "qh", "gn", "qs")}
+        counts[m]["x"] = sum(len(x) for x in snaps[m]["x"].values())
+        counts[m]["gx"] = sum(len(x) for x in snaps[m]["gx"].values())
+        # 업종 — 미국 GICS (universe_us members) · 한국은 반도체만 (네이버 업종 278)
+        seen = picks_log.tickers(snaps[m])
+        sec[m] = ({t: us_sector[t] for t in seen if t in us_sector} if m == "us"
+                  else {t: "반도체" for t in seen if t in semis})
     if not snaps:
         return {"skipped": "깔때기 파일이 없습니다"}
-    hist = picks_log.append(_read_prev(out_dir, "picks_history.json"), day, now, snaps)
+    hist = picks_log.append(_read_prev(out_dir, "picks_history.json"), day, now, snaps,
+                            rules_=picks_log.rules(), sec=sec)
     size_b = _write_out(out_dir, "picks_history.json", universe.dump(hist))
-    return {"day": day, "days": len(hist["days"]), "n": counts, "bytes": size_b}
+    day_b = len(json.dumps(hist["days"][-1], ensure_ascii=False, separators=(",", ":")).encode())
+    return {"day": day, "days": len(hist["days"]), "n": counts, "bytes": size_b,
+            "day_bytes": day_b}
 
 
 def main(argv=None) -> int:

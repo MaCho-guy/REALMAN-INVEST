@@ -3008,6 +3008,9 @@ def build_type_rules() -> str:
       div[data-testid="stElementContainer"]:has(.dash-navhead) {
       flex-basis: auto !important; width: auto !important; align-self: center; }
     div[data-testid="stColumn"]:has(.dash-navmark)
+      div[data-testid="stElementContainer"]:has(.dash-navhead) [data-testid="stMarkdownContainer"] {
+      margin-bottom: 0 !important; }   /* 스트림릿의 −16px 때문에 이름이 버튼보다 아래로 처짐 */
+    div[data-testid="stColumn"]:has(.dash-navmark)
       div[data-testid="stElementContainer"]:has(.dash-navbr) {
       display: block !important; flex-basis: 100% !important; width: 100% !important;
       height: 0 !important; margin: 0 !important; }

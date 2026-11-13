@@ -2953,7 +2953,8 @@ def build_type_rules() -> str:
   /* ⓪ 글꼴 하나로 — 스트림릿 글 상자(stMarkdownContainer)는 'Source Sans'(한글 없음)를
      직접 지정해서, 그 안의 카드 · 문단은 영문 · 숫자만 Source Sans, 한글은 기기 글꼴로
      섞여 그려졌습니다. 같은 15px 이어도 옛 카드(system-ui)보다 작고 가늘어 보였습니다. */
-  .stApp [data-testid="stMarkdownContainer"] { font-family: """ + FONT_STACK + """; }
+  .stApp [data-testid="stMarkdownContainer"],
+  .stApp [data-testid="stCaptionContainer"] p { font-family: """ + FONT_STACK + """; }
   @media (max-width: 640px) {
     /* ① 본문 = 15px — 스트림릿 글과 대시보드 카드가 같은 크기 */
     [data-testid="stMain"] [data-testid="stMarkdownContainer"] { font-size: var(--fs-3); }
@@ -2963,6 +2964,10 @@ def build_type_rules() -> str:
     [data-testid="stMain"] [data-testid="stWidgetLabel"] p,
     [data-testid="stMain"] [data-testid="stExpander"] summary p,
     [data-testid="stMain"] [data-testid="stCheckbox"] label p { font-size: var(--fs-3); }
+    /* 카드 안의 문단 · 목록 — 스트림릿이 p · li 에 16px(1rem)을 직접 줘서 카드 글자(15px)보다
+       컸습니다(아침 브리핑 본문 등). 클래스 없는 p · li 만 카드 크기를 따르게 합니다. */
+    [data-testid="stMain"] [data-testid="stMarkdownContainer"] :is(p, li):not([class]) {
+      font-size: inherit; }
     [data-testid="stMain"] [data-testid="stCaptionContainer"],
     [data-testid="stMain"] [data-testid="stCaptionContainer"] p { font-size: var(--fs-2); }
     [data-testid="stMain"] code { font-size: var(--fs-1); }

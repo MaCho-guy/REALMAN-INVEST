@@ -5084,16 +5084,23 @@ def render_candidate_excluded(cands: list, limit: int = 30) -> str:
 _CHK = {"pass": ("✓", "g"), "fail": ("✗", "r"), "unknown": ("?", "u")}
 
 
-def render_checklist(items: list, title: str = "체크리스트") -> str:
-    """근거 탭 체크리스트 (11/13) — [(상태, 항목, 근거 글)]. 등으로 세지 않는 보조 확인."""
+def render_checklist(items: list, title: str = "추가 확인", sub: str = "") -> str:
+    """근거 탭 확인 목록 (11/13) — [(상태, 항목, 근거 글)]. 줄마다 구분선 · 항목 아래 근거.
+
+    11/13 폰 피드백 — 3칸 표(기호 · 항목 · 근거)는 좁은 폭에서 칸 경계가 안 보여 읽기 힘들었다.
+    한 줄 = 기호 + 항목(굵게) / 그 아래 근거(작게) 두 줄로 세우고 줄 사이에 선을 둡니다.
+    """
     rows = []
     for state, label, text in items or []:
         mark, cls = _CHK.get(state, ("?", "u"))
-        rows.append(f'<li class="ck {cls}"><b class="ck-m">{mark}</b><span class="ck-l">'
-                    f"{_esc(label)}</span><span class=\"ck-t\">{_esc(text)}</span></li>")
+        word = {"g": "좋음", "r": "주의", "u": "자료 부족"}[cls]
+        rows.append(f'<li class="ck {cls}"><div class="ck-top"><b class="ck-m" aria-label="{word}">'
+                    f'{mark}</b><span class="ck-l">{_esc(label)}</span><span class="ck-w">{word}'
+                    f'</span></div><div class="ck-t">{_esc(text)}</div></li>')
     if not rows:
         return ""
-    return (f'<div class="dash-cklist"><div class="ck-h">{_esc(title)}</div>'
+    sub_html = f'<div class="ck-s">{_esc(sub)}</div>' if sub else ""
+    return (f'<div class="dash-cklist"><div class="ck-h">{_esc(title)}</div>{sub_html}'
             f'<ul>{"".join(rows)}</ul></div>')
 
 

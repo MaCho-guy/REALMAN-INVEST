@@ -213,7 +213,9 @@ def build_css(convention: str, stack: bool = True) -> str:
             + build_native_rules()
             + (build_density_rules() if compact else "")
             # 표 → 카드 규칙은 맨 뒤여야 합니다 (표마다 준 폭·여백을 덮습니다)
-            + (build_stack_rules() if stack else "") + "</style>")
+            + (build_stack_rules() if stack else "")
+            # 휴대폰 글자 크기 정리 (11/13) — 표 → 카드 규칙보다도 뒤
+            + build_type_rules() + "</style>")
 
 
 def build_density_rules() -> str:
@@ -1895,16 +1897,22 @@ def build_rules() -> str:
   .hc-f {{ margin-top: 4px; font-size: var(--fs-2); font-weight: 650; color: var(--dash-ink); }}
   /* 근거 탭 체크리스트 (11/13) — 9개 기준 줄(.dash-check)과 이름이 겹쳐 둘 다 깨졌던 것 고침 */
   .dash-cklist {{ background: var(--dash-surface); border: 1px solid var(--dash-divider);
-                border-radius: var(--r-card); padding: 10px 14px; margin: 6px 0 12px; }}
-  .dash-cklist .ck-h {{ font-weight: 750; margin-bottom: 4px; }}
-  .dash-cklist ul {{ list-style: none; margin: 0; padding: 0; }}
-  .dash-cklist li.ck {{ display: grid; grid-template-columns: 1.4em 8.5em minmax(0, 1fr);
-                      gap: 6px; align-items: baseline; padding: 3px 0; font-size: var(--fs-2); }}
-  .dash-cklist .ck-m {{ text-align: center; }}
-  .dash-cklist li.g .ck-m {{ color: #5b8c6a; }} .dash-cklist li.r .ck-m {{ color: #9a5a4a; }}
-  .dash-cklist li.u .ck-m {{ color: var(--dash-ink-muted); }}
-  .dash-cklist .ck-l {{ font-weight: 650; }} .dash-cklist .ck-t {{ color: var(--dash-ink-2);
-                      overflow-wrap: anywhere; }}
+                border-radius: var(--r-card); padding: 12px 14px 4px; margin: 6px 0 12px; }}
+  .dash-cklist .ck-h {{ font-size: var(--fs-5); font-weight: 750; color: var(--dash-ink); }}
+  .dash-cklist .ck-s {{ font-size: var(--fs-2); color: var(--dash-ink-muted); margin-top: 2px; }}
+  .dash-cklist ul {{ list-style: none; margin: 8px 0 0; padding: 0; }}
+  .dash-cklist li.ck {{ padding: 9px 0; border-top: 1px solid var(--dash-divider); margin: 0; }}
+  .dash-cklist .ck-top {{ display: flex; align-items: baseline; gap: 8px; }}
+  .dash-cklist .ck-m {{ flex: 0 0 1.2em; text-align: center; font-size: var(--fs-3); }}
+  .dash-cklist .ck-l {{ flex: 1 1 auto; min-width: 0; font-size: var(--fs-3); font-weight: 650;
+                       color: var(--dash-ink); }}
+  .dash-cklist .ck-w {{ flex: 0 0 auto; font-size: var(--fs-1); font-weight: 650;
+                       padding: 1px 7px; border-radius: var(--r-pill); border: 1px solid currentColor; }}
+  .dash-cklist .ck-t {{ margin: 3px 0 0 calc(1.2em + 8px); font-size: var(--fs-2);
+                       color: var(--dash-ink-2); line-height: 1.5; overflow-wrap: anywhere; }}
+  .dash-cklist li.g .ck-m, .dash-cklist li.g .ck-w {{ color: #5b8c6a; }}
+  .dash-cklist li.r .ck-m, .dash-cklist li.r .ck-w {{ color: #9a5a4a; }}
+  .dash-cklist li.u .ck-m, .dash-cklist li.u .ck-w {{ color: var(--dash-ink-muted); }}
   /* 가격 부담 높음 · 선행 EPS −5% 이하 — 빼지 않고 눈에 띄게 (2026-11-13) */
   .pk-chip.warn {{ border: 1.5px solid var(--dash-ink-2);
                   background: transparent; color: var(--dash-ink); }}
@@ -2925,6 +2933,53 @@ def build_stack_rules() -> str:
       border-bottom: 1px solid var(--dash-divider);
     }}
   }}
+"""
+
+
+def build_type_rules() -> str:
+    """휴대폰 글자 크기 정리 (2026-11-13 "어떤 건 크고 어떤 건 작다").
+
+    폰(375px)에서 탭 15개의 글자 크기를 재 보니 두 가지가 섞여 있었습니다.
+    ① 스트림릿 기본 글(마크다운 문단 · 목록 · 브리핑 본문)은 16px, 대시보드 카드 본문은
+       14~15px — 같은 '본문'이 화면마다 크기가 달랐습니다.
+    ② 위계가 뒤집힌 곳 — 섹션 설명(16px)이 본문보다 큼 · 산업 리포트 카드에서 날짜가
+       제목(17px 굵게)이고 리포트 제목이 15px · 9개 기준 카드에서 종목 코드가 이름보다 큼 ·
+       코드 글자 10.5~12px.
+    폰 기준 단계를 이렇게 맞춥니다: 13 태그 · 시각 / 14 설명 · 캡션 / 15 본문 /
+    16 강조 라벨 / 17 카드 제목 / 18.5 섹션 제목 / 21↑ 수치.
+    """
+    return """
+  @media (max-width: 640px) {
+    /* ① 본문 = 15px — 스트림릿 글과 대시보드 카드가 같은 크기 */
+    [data-testid="stMain"] [data-testid="stMarkdownContainer"] { font-size: var(--fs-3); }
+    [data-testid="stMain"] [data-testid="stMarkdownContainer"] > p,
+    [data-testid="stMain"] [data-testid="stMarkdownContainer"] > ul > li,
+    [data-testid="stMain"] [data-testid="stMarkdownContainer"] > ol > li,
+    [data-testid="stMain"] [data-testid="stWidgetLabel"] p,
+    [data-testid="stMain"] [data-testid="stExpander"] summary p,
+    [data-testid="stMain"] [data-testid="stCheckbox"] label p { font-size: var(--fs-3); }
+    [data-testid="stMain"] [data-testid="stCaptionContainer"],
+    [data-testid="stMain"] [data-testid="stCaptionContainer"] p { font-size: var(--fs-2); }
+    [data-testid="stMain"] code { font-size: var(--fs-1); }
+    /* ② 위계 — 설명은 본문보다 작게, 제목은 크게 */
+    .dash-section-sub, .dash-section-count { font-size: var(--fs-2); }
+    .bf-sec h3 { font-size: var(--fs-4); }
+    .dash-screen-tkr, .dash-screen-name { font-size: var(--fs-4); }
+    .dash-screen-name { color: var(--dash-ink); font-weight: 650; }
+    /* 산업 · 반도체 리포트 카드 — 제목이 카드 제목, 날짜는 아래 한 줄 */
+    table.dash-rt.dash-stk tr { display: flex; flex-direction: column; }
+    table.dash-rt.dash-stk td.rt-title {
+      order: -1; text-align: left !important; font-size: var(--fs-4); font-weight: 650;
+      line-height: 1.45; padding: 0 0 7px !important; border-top: none !important; }
+    table.dash-rt.dash-stk td.rt-title::before { content: none; }
+    table.dash-rt.dash-stk td.rt-date {
+      font-size: var(--fs-3); font-weight: 400; color: var(--dash-ink-2);
+      text-align: right !important; padding: 4px 0 !important;
+      border-top: 1px solid var(--dash-divider) !important; }
+    table.dash-rt.dash-stk td.rt-date::before {
+      content: attr(data-l); float: left; color: var(--dash-ink-muted);
+      font-size: var(--fs-2); font-weight: 500; }
+  }
 """
 
 

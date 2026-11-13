@@ -2066,20 +2066,22 @@ def render_basis_tab(data, fx, use_demo: bool, phone: bool = False, *,
             st.markdown(ui.render_legend(
                 f"<b>가격(역DCF 요구 성장률)</b> {pv} — {pn} · <b>선행 EPS 90일</b> {ev} {en} "
                 f"· 가격 계산 {_when_kst(meta.get('p'))}"), unsafe_allow_html=True)
-        # 체크리스트 (11/13) — 등으로 세지 않는 보조 확인
+        # 추가 확인 (11/13) — 후보 판정에 넣지 않는 참고 항목
         summ = next((r for r in (meta.get("screens") or [])
                      if isinstance(r, dict) and r.get("t") == pick), None)
         q_tickers = [c.ticker for c in cands]
         med = integrate.median_fpe(meta.get("frows") or {}, meta.get("rows") or {}, q_tickers)
         st.markdown(ui.render_checklist(
             integrate.checklist(summ, fr, (meta.get("rows") or {}).get(pick), market, med),
-            title="체크리스트 — 등에 세지 않는 보조 확인"), unsafe_allow_html=True)
+            title="추가 확인", sub="후보 판정(품질 · 가격 · 선행 EPS)과 별개로 보는 참고 항목"),
+            unsafe_allow_html=True)
         if summ and summ.get("gr"):
             import growth  # noqa: PLC0415
             gcs = growth.checks(summ.get("gr"), market)
             st.markdown(ui.render_checklist(
                 [(st_, f"{nm}", tx) for _k, nm, st_, tx in gcs],
-                title=f"성장 품질 7개 — 통과 {sum(1 for c in gcs if c[2] == 'pass')}"),
+                title=f"성장 품질 7개 — 통과 {sum(1 for c in gcs if c[2] == 'pass')}",
+                sub="성장형 후보 판정에 쓰는 항목 · 5개 이상 통과해야 성장형"),
                 unsafe_allow_html=True)
         if sc is not None:
             st.markdown(ui.render_section_head(

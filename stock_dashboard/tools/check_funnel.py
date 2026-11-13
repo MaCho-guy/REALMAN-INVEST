@@ -187,6 +187,19 @@ def main() -> int:
                               f" {paper.ret(p_) * 100:+.1f}% · {p_['state']} {p_.get('why', '')}")
     except Exception as exc:  # noqa: BLE001
         print(f"\n[모의 매수 실험] 파일 없음 ({type(exc).__name__})")
+    try:
+        bt = load("backtest_tech", a.dir)
+        print(f"\n[차트 전략 백테스트] made {bt.get('made')}")
+        for m in ("kr", "us"):
+            r = bt.get(m) or {}
+            print(f"  {m}: 종목 {r.get('n_syms')} · 기간 {r.get('window')} · 오늘 신호 "
+                  f"A {len((r.get('signals') or {}).get('A') or [])} · C "
+                  f"{len((r.get('signals') or {}).get('C') or [])}")
+            for k, v in (r.get("variants") or {}).items():
+                print(f"    {k:6} 거래 {v['trades']:3} 승률 {v['win']} 평균 {v['avg']} 가운데 {v['med']}"
+                      f" 초과 {v['excess']} 보유 {v['hold']} {v['why']}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"\n[차트 전략 백테스트] 파일 없음 ({type(exc).__name__})")
     print()
     for b in bad:
         print("틀림:", b)

@@ -2531,18 +2531,29 @@ _PRICE_WORD = {"light": "가격 부담 낮음", "edge": "가격 경계", "heavy"
 _ENTRY_NAME = {"cci": "CCI", "stoch": "스토캐스틱", "bb": "볼린저"}
 
 
-def _pick_item(row, frow: dict | None, semis: set, new: set) -> dict:
-    """오늘 볼 종목 한 줄 — 이름 / 왜 여기 있는지."""
+def _pick_item(row, frow: dict | None, semis: set, new: set, market: str = "kr") -> dict:
+    """오늘 볼 종목 카드 한 장의 재료 — 전부 수집기 파일에 있는 값입니다."""
     import funnel  # noqa: PLC0415
 
-    entered = [_ENTRY_NAME.get(k, k) for k in chart_signals.SIDED
-               if row.states.get(k) == chart_signals.ENTRY]
-    facts = [" · ".join(entered) + " 과매도 진입" if entered else "과매도 진입"]
+    entered = {k for k in chart_signals.SIDED if row.states.get(k) == chart_signals.ENTRY}
+    names = [_ENTRY_NAME.get(k, k) for k in chart_signals.SIDED if k in entered]
+    facts = [" · ".join(names) + " 과매도 진입" if names else "과매도 진입"]
+    state = funnel.price_state((frow or {}).get("p")) if frow else ""
+    f = (frow or {}).get("f") or {}
     if frow:
-        facts.append(_PRICE_WORD.get(funnel.price_state(frow.get("p")), ""))
+        facts.append(_PRICE_WORD.get(state, ""))
         facts.append(funnel.eps_chip(frow.get("f")))
     tags = (["새로"] if row.ticker in new else []) + (["반도체"] if row.ticker in semis else [])
-    return {"name": row.name, "ticker": row.ticker, "tags": tags, "facts": facts}
+    px = row.price
+    price_txt = ("" if px is None else
+                 (f"{px:,.0f}원" if market == "kr" else f"${px:,.2f}"))
+    gap = ((px / row.ma20 - 1) * 100 if (px and row.ma20) else None)
+    return {"name": row.name, "ticker": row.ticker, "tags": tags, "facts": facts,
+            "price_txt": price_txt, "gap20": gap,
+            "price_state": state, "price_word": _PRICE_WORD.get(state, "") if frow else "",
+            "eps_c90": f.get("c90"), "cci": row.cci, "stoch_k": row.stoch_k,
+            "entered": entered, "vol_ratio": row.vol_ratio,
+            "cci_lo": chart_signals.CCI_OVERSOLD, "stoch_lo": chart_signals.STOCH_OVERSOLD}
 
 
 def _render_today_picks(market: str, use_demo: bool, held: set) -> int:
@@ -2611,8 +2622,8 @@ def _render_today_picks(market: str, use_demo: bool, held: set) -> int:
             "오늘은 해당 종목이 없습니다 — 그것도 답입니다."), unsafe_allow_html=True)
         return len(items)
     shown = picks[:TODAY_PICKS_MAX]
-    st.markdown(ui.render_pick_list([_pick_item(r, quality.get(r.ticker), semis, new)
-                                     for r in shown]), unsafe_allow_html=True)
+    st.markdown(ui.render_pick_cards([_pick_item(r, quality.get(r.ticker), semis, new, market)
+                                      for r in shown]), unsafe_allow_html=True)
     if len(picks) > len(shown):
         st.markdown(ui.render_notice(
             f"앞 {len(shown)}종목만 보입니다. 나머지 {len(picks) - len(shown)}종목은 아래 "
@@ -4062,40 +4073,55 @@ def render_briefing_section(use_demo: bool, *, readings=None,
         unsafe_allow_html=True,
     )
 
-    # 이 탭은 브리핑을 읽으러 오는 곳이라 아침 브리핑을 기다려 받습니다 (15분 저장,
-    # 묵은 값이 있으면 그것부터). 실패하면 폴더의 글만.
+    # 아침 브리핑(예약 작업이 쓴 글)은 2026-11-13 에 '오늘 › 아침 브리핑' 탭으로 옮겼습니다
+    # (사용자: "매크로 탭에 넣지 말고 오늘 탭에"). 여기에는 숫자로 쓴 브리핑만 남습니다.
+
+
+def render_briefing_tab(use_demo: bool) -> None:
+    """오늘 › 아침 브리핑 — 매일 아침 예약 작업이 쓴 미국장 브리핑을 읽는 화면.
+
+    2026-11-13 사용자: "폰에서 가독성이 너무 떨어지고 맨바탕에 글씨만 있어서 이상하다 —
+    브라우저 · 폰 둘 다에서 읽기 좋게, 매크로 탭 말고 오늘 탭에". 고정폭 글 덩어리를
+    구역 카드로 풀어 그립니다 (briefing_store.parse_block → ui.render_briefing_view).
+    모양이 예상과 다른 글은 예전처럼 마크다운 그대로 보여 줍니다.
+    """
     try:
         briefings = _merge_briefings(bfs.load_all(BRIEFING_PATH),
                                      load_remote_briefings(use_demo) or [])
     except Exception:  # noqa: BLE001
         briefings = load_briefings()
-    if briefings:
-        st.markdown(
-            ui.render_section_head(
-                "아침 브리핑", "매일 아침 예약 작업이 쓴 글 · 날짜별",
-                len(briefings)),
-            unsafe_allow_html=True,
-        )
     if not briefings:
+        st.markdown(ui.render_section_head("아침 브리핑", "매일 아침 예약 작업이 쓴 글", None),
+                    unsafe_allow_html=True)
         st.markdown(ui.render_notice(
-            "<b>아침 브리핑이 아직 없습니다.</b> 매일 07:18(화~토) 예약 작업이 쓴 글이 "
-            "올라오면 여기에 보입니다 (최근 8일 안의 글)."), unsafe_allow_html=True)
+            "<b>아침 브리핑이 아직 없습니다.</b> 화~토 07:18 에 예약 작업이 쓴 글이 올라오면 "
+            "여기에 보입니다 (최근 8일 안의 글)."), unsafe_allow_html=True)
         with st.expander("직접 쓴 브리핑을 넣는 방법", expanded=False):
             st.markdown(ui.render_briefing_empty(bfs.example_file()),
                         unsafe_allow_html=True)
         return
 
-    latest_bf = briefings[0]
-    st.markdown(ui.render_briefing_head(latest_bf), unsafe_allow_html=True)
-    _render_briefing_body(latest_bf)
-
-    # 지난 글은 접어 둡니다 — 펼치면 매크로 지표가 한참 아래로 밀립니다
-    rest = briefings[1:]
-    if rest:
-        with st.expander(f"지난 브리핑 {len(rest)}편", expanded=False):
-            for bf in rest:
-                st.markdown(ui.render_briefing_head(bf), unsafe_allow_html=True)
-                _render_briefing_body(bf)
+    by_date = {b.date: b for b in briefings}
+    dates = list(by_date)
+    pick = dates[0]
+    if len(dates) > 1:
+        pick = st.selectbox(
+            "날짜", dates, index=0, key="briefing_date",
+            format_func=lambda d: f"{d} · {by_date[d].short_title}" if d in by_date else d)
+        if pick not in by_date:
+            pick = dates[0]
+    bf = by_date[pick]
+    parsed, rest = None, bf.body
+    if not bf.is_html:
+        block, rest_md = bfs.split_block(bf.body)
+        parsed = bfs.parse_block(block)
+        if parsed is not None:
+            rest = rest_md
+    if parsed is None:
+        st.markdown(ui.render_briefing_head(bf), unsafe_allow_html=True)
+        _render_briefing_body(bf)
+        return
+    st.markdown(ui.render_briefing_view(bf, parsed, rest), unsafe_allow_html=True)
 
 
 def _macro_context(readings: list, data: dict, use_demo: bool) -> list:
@@ -5486,6 +5512,7 @@ def controls() -> dict:
 SECTION_LOADING = {
     "summary": "요약 — 시세·공포탐욕·VIX·FRED 를 불러옵니다 (처음 10~30초)",
     "holdings": "내 종목 — 시세와 공시를 불러옵니다 (처음 10~30초)",
+    "briefing": "아침 브리핑 — 오늘 아침 글을 받습니다",
     "discover": "종목 발굴 — 아침 수집기가 심사해 둔 결과를 읽습니다",
     "screener": "거래 스크리너 — 아침 수집기가 심사해 둔 결과를 읽습니다",
     "macro": "매크로 — FRED 13종·VIX·공포탐욕 (처음 10~20초)",
@@ -5613,6 +5640,8 @@ def _section_jobs(section: str, market: str, use_demo: bool) -> dict:
         jobs["실적 (야후)"] = lambda: load_us_earnings(
             tuple(i.symbol for i in config.SECTION_WATCHLIST.instruments
                   if i.source == "yahoo"), use_demo)
+    elif section == "briefing":
+        jobs["아침 브리핑"] = lambda: load_remote_briefings(use_demo)
     elif section == "holdings":
         jobs["일봉 (차트 조건)"] = lambda: load_chart_rows(market, use_demo)
     elif section == "chart":
@@ -5967,6 +5996,8 @@ def render_body(opts: dict) -> None:
             elif active == "holdings":
                 render_holdings_tab(data, fx, opts["demo"], opts["phone"],
                                     market=market)
+            elif active == "briefing":
+                render_briefing_tab(opts["demo"])
             elif active == "discover":
                 render_discover_tab(opts["demo"], market=market)
             elif active == "screener":

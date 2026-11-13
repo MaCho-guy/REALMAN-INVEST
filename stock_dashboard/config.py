@@ -1057,6 +1057,7 @@ TAB_ORDER: tuple[str, ...] = (
     # 10초". 휴대폰으로 간간히 보는 용도라면 탭 5개를 돌 게 아니라 한 화면에서
     # 끝나야 하므로 맨 앞에 둡니다.
     "summary",      # 요약 — 지금 알아야 할 것만
+    "briefing",     # 아침 브리핑 — 예약 작업이 매일 쓰는 미국장 글 (11/13, 매크로에서 옮김)
     "holdings",     # 내가 가진 종목 — 변화 감지 + 시세 + 공시 분석
     "discover",     # 품질 깔때기 — 재무 품질 → 가격 → 차트 (한·미)
     "screener",     # 거래 스크리너 — 한국 주가·거래 패턴 6개 (11/13 종목 발굴에서 나눔)
@@ -1128,14 +1129,14 @@ SECTIONS_MERGED_INTO: dict[str, str] = {
 #: 보든 같은 배경입니다.
 MARKET_TABS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
     "kr": (
-        ("오늘", ("summary", "holdings")),
+        ("오늘", ("summary", "briefing", "holdings")),
         ("찾기", ("discover", "screener", "valuation", "chart")),
         ("한국 시장", ("sector_heat", "supply", "research", "semi_research",
                    "kr_flows")),
         ("공통", ("calendar", "macro", "cycle")),
     ),
     "us": (
-        ("오늘", ("summary", "holdings")),
+        ("오늘", ("summary", "briefing", "holdings")),
         ("찾기", ("discover", "valuation", "chart")),
         ("미국 시장", ("macro", "us_flows")),
         ("공통", ("calendar", "cycle")),
@@ -1148,6 +1149,7 @@ DEFAULT_MARKET = "kr"
 
 SPECIAL_TAB_LABELS = {
     "summary": "요약",
+    "briefing": "아침 브리핑",
     "holdings": "내 종목",
     "discover": "품질 깔때기",
     "screener": "거래 스크리너",

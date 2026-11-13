@@ -1585,6 +1585,73 @@ def build_rules() -> str:
   .hg-bench {{ padding-bottom: 5px; margin-bottom: 6px;
               border-bottom: 1px dashed var(--dash-divider); }}
 
+  /* ── 아침 브리핑 — 읽기 화면 (2026-11-13) ─────────────────────────────
+     폰: 한 줄에 한 구역, 글자 16px 안팎, 줄 간격 넉넉히. 넓은 화면: 숫자 구역이
+     나란히, 글 구역은 한 줄 길이를 46em 안으로 (길면 눈이 줄을 놓칩니다). */
+  .dash-brf {{ max-width: 980px; margin: 0 0 var(--sp-4); font-family: {FONT_STACK};
+              color: var(--dash-ink); }}
+  .bf-hero {{ background: var(--grp-tint, var(--dash-raised));
+             border-left: 4px solid var(--grp-line, var(--dash-accent));
+             border-radius: var(--r-card); padding: 16px 18px 14px; margin-bottom: 10px; }}
+  .bf-meta {{ font-size: var(--fs-2); color: var(--dash-ink-2); margin-bottom: 4px; }}
+  .bf-hero h2 {{ font-size: var(--fs-7); font-weight: 780; letter-spacing: -0.02em;
+                line-height: 1.3; margin: 0 0 8px; padding: 0; color: var(--dash-ink); }}
+  .bf-lead {{ font-size: var(--fs-5); line-height: 1.65; margin: 0; max-width: 46em;
+             word-break: keep-all; overflow-wrap: anywhere; }}
+  .bf-stale {{ margin-top: 8px; font-size: var(--fs-3); font-weight: 650;
+              color: var(--dash-badge-error); }}
+  .bf-grid {{ display: grid; gap: 10px; margin-bottom: 10px;
+             grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }}
+  .bf-sec {{ background: var(--dash-surface); border: 1px solid var(--dash-divider);
+            border-radius: var(--r-card); padding: 14px 16px 12px; min-width: 0; }}
+  .bf-sec.bf-wide {{ grid-column: 1 / -1; }}
+  .bf-sec h3 {{ font-size: var(--fs-3); font-weight: 750; letter-spacing: .02em;
+               color: var(--dash-ink-2); margin: 0 0 8px; padding: 0 0 7px;
+               border-bottom: 2px solid var(--grp-mid, var(--dash-divider)); }}
+  .bf-kv {{ display: flex; flex-wrap: wrap; align-items: baseline;
+           justify-content: space-between; gap: 2px 12px; padding: 7px 0;
+           border-bottom: 1px solid var(--dash-divider); font-size: var(--fs-4); }}
+  .bf-kv:last-child {{ border-bottom: none; }}
+  .bf-kv > b {{ font-weight: 700; }}
+  .bf-vals {{ display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px 12px;
+             font-variant-numeric: tabular-nums; text-align: right; }}
+  .bf-note {{ flex-basis: 100%; font-size: var(--fs-3); color: var(--dash-ink-2);
+             line-height: 1.5; }}
+  .bf-kv-text {{ display: block; color: var(--dash-ink-2); font-size: var(--fs-3);
+                line-height: 1.55; }}
+  .bf-mv {{ font-weight: 700; white-space: nowrap; }}
+  .bf-mv.up {{ color: var(--dash-up); }}
+  .bf-mv.down {{ color: var(--dash-down); }}
+  .bf-list {{ list-style: none; margin: 0; padding: 0; }}
+  .bf-list li {{ position: relative; padding: 8px 0 8px 16px; font-size: var(--fs-4);
+                line-height: 1.65; max-width: 46em; word-break: keep-all;
+                overflow-wrap: anywhere; border-bottom: 1px solid var(--dash-divider); }}
+  .bf-list li:last-child {{ border-bottom: none; }}
+  .bf-list li::before {{ content: ""; position: absolute; left: 2px; top: 1.05em;
+                        width: 6px; height: 6px; border-radius: var(--r-pill);
+                        background: var(--grp-line, var(--dash-accent)); }}
+  .bf-when {{ display: inline-block; font-weight: 750; font-variant-numeric: tabular-nums;
+             background: var(--grp-tint, var(--dash-raised)); border-radius: var(--r-chip);
+             padding: 0 7px; margin-right: 8px; }}
+  .bf-more h4 {{ font-size: var(--fs-4); font-weight: 750; margin: 14px 0 6px; padding: 0;
+                color: var(--dash-ink); }}
+  .bf-more h4:first-child {{ margin-top: 0; }}
+  .bf-more p, .bf-more li {{ font-size: var(--fs-4); line-height: 1.65; max-width: 46em;
+                            word-break: keep-all; overflow-wrap: anywhere; }}
+  .bf-more p {{ margin: 0 0 8px; color: var(--dash-ink); }}
+  .bf-more ul, .bf-more ol {{ margin: 0 0 8px; padding-left: 1.3em; }}
+  .bf-more li {{ margin: 0 0 7px; }}
+  .bf-src {{ margin: 10px 0 0; font-size: var(--fs-3); color: var(--dash-ink-2); }}
+  .bf-src summary {{ cursor: pointer; font-weight: 650; padding: 6px 0; }}
+  .bf-src ol {{ margin: 4px 0 0; padding-left: 1.6em; columns: 2 220px; }}
+  .bf-src li {{ margin: 0 0 4px; break-inside: avoid; }}
+  .bf-foot {{ margin-top: 10px; font-size: var(--fs-2); color: var(--dash-ink-muted); }}
+  @media (max-width: 640px) {{
+    .bf-hero {{ padding: 14px 14px 12px; }}
+    .bf-sec {{ padding: 12px 13px 10px; }}
+    .bf-grid {{ grid-template-columns: 1fr; }}
+  }}
+
   /* ── 요약 상태판 ──────────────────────────────────────────────────── */
   .dash-sgrid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
                 gap: 8px; margin-bottom: var(--sp-3); }}
@@ -1692,15 +1759,58 @@ def build_rules() -> str:
   .dash-ctable td.ht-name span {{ display: inline; }}
   .dash-ctable td.ht-name span.ct-semi {{ font-weight: 600; color: var(--dash-ink); font-size: 0.85em; }}
   .dash-ctable td.ht-name span.ct-new {{ text-decoration: underline; }}
-  .dash-picks {{ list-style: none; margin: 4px 0 var(--sp-2); padding: 0; }}
-  .dash-picks li {{ padding: 8px 2px; border-bottom: 1px solid var(--dash-divider); }}
-  .dash-picks .pk-top {{ display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }}
-  .dash-picks .pk-n {{ color: var(--dash-ink-2); font-size: var(--fs-2); min-width: 1.2em; }}
-  .dash-picks .pk-code {{ color: var(--dash-ink-2); font-size: var(--fs-2); }}
-  .dash-picks .pk-tag {{ font-size: var(--fs-2); font-weight: 600; border: 1px solid var(--dash-divider);
-    border-radius: var(--r-chip); padding: 0 5px; }}
-  .dash-picks .pk-why {{ color: var(--dash-ink-2); font-size: var(--fs-2); margin: 2px 0 0 calc(1.2em + 6px);
-    line-height: 1.45; }}
+  /* 오늘 볼 종목 — 카드 (2026-11-13 12:05 "글자만 나오는데 개선") */
+  .dash-picks {{ display: grid; gap: 10px; margin: 6px 0 4px;
+                grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); }}
+  .pk-card {{ background: var(--dash-surface); border: 1px solid var(--dash-divider);
+             border-top: 3px solid var(--grp-line, var(--dash-accent));
+             border-radius: var(--r-card); padding: 12px 14px 12px; min-width: 0; }}
+  .pk-top {{ display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }}
+  .pk-top b {{ font-size: var(--fs-5); font-weight: 780; letter-spacing: -0.01em; }}
+  .pk-n {{ color: var(--dash-ink-muted); font-size: var(--fs-2); font-weight: 700; }}
+  .pk-code {{ color: var(--dash-ink-muted); font-size: var(--fs-2); }}
+  .pk-tag {{ font-size: var(--fs-1); font-weight: 700; color: var(--dash-ink);
+            background: var(--grp-mid, var(--dash-raised)); border-radius: var(--r-pill);
+            padding: 1px 8px; }}
+  .pk-price {{ display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px;
+              margin: 6px 0 8px; }}
+  .pk-px {{ font-size: var(--fs-6); font-weight: 750; font-variant-numeric: tabular-nums;
+           letter-spacing: -0.02em; }}
+  .pk-gap {{ font-size: var(--fs-3); font-weight: 650; font-variant-numeric: tabular-nums; }}
+  .pk-gap.up {{ color: var(--dash-up); }} .pk-gap.down {{ color: var(--dash-down); }}
+  .pk-gap.flat {{ color: var(--dash-ink-muted); }}
+  .pk-chips {{ display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }}
+  .pk-chip {{ font-size: var(--fs-2); font-weight: 650; border-radius: var(--r-pill);
+             padding: 3px 10px; white-space: nowrap; color: var(--dash-ink);
+             background: var(--dash-raised); }}
+  .pk-chip small {{ font-weight: 500; opacity: .8; font-size: inherit; }}
+  .pk-chip.good {{ background: var(--grp-mid, var(--dash-raised)); }}
+  .pk-chip.mid {{ background: var(--grp-tint, var(--dash-raised)); }}
+  .pk-chip.plain {{ background: transparent; border: 1px solid var(--dash-divider);
+                   color: var(--dash-ink-2); }}
+  .pk-chip.eps.up {{ color: var(--dash-up);
+                    background: color-mix(in srgb, var(--dash-up) 10%, var(--dash-surface)); }}
+  .pk-chip.eps.down {{ color: var(--dash-down);
+                      background: color-mix(in srgb, var(--dash-down) 10%, var(--dash-surface)); }}
+  .pk-g {{ display: grid; grid-template-columns: 6.6em minmax(0, 1fr) 2.6em;
+          align-items: center; gap: 8px; padding: 3px 0; }}
+  .pk-gl {{ font-size: var(--fs-2); color: var(--dash-ink-2); white-space: nowrap; }}
+  .pk-g.on .pk-gl {{ color: var(--dash-ink); font-weight: 700; }}
+  .pk-gl em, .pk-legend em {{ font-style: normal; font-size: var(--fs-1); font-weight: 700;
+            margin-left: 5px; padding: 0 5px; border-radius: var(--r-chip);
+            color: var(--dash-surface); background: var(--dash-down); }}
+  .pk-legend em {{ margin-left: 0; }}
+  .pk-gt {{ position: relative; height: 8px; border-radius: var(--r-pill);
+           background: var(--dash-raised); }}
+  .pk-gt .zone {{ position: absolute; left: 0; top: 0; bottom: 0;
+                 border-radius: var(--r-pill) 0 0 var(--r-pill);
+                 background: color-mix(in srgb, var(--dash-down) 26%, var(--dash-surface)); }}
+  .pk-gt .dot {{ position: absolute; top: 50%; width: 12px; height: 12px;
+                margin: -6px 0 0 -6px; border-radius: var(--r-pill);
+                background: var(--dash-ink); border: 2px solid var(--dash-surface); }}
+  .pk-gv {{ font-size: var(--fs-2); font-weight: 650; text-align: right;
+           font-variant-numeric: tabular-nums; }}
+  .pk-legend {{ font-size: var(--fs-2); color: var(--dash-ink-muted); margin: 2px 0 var(--sp-2); }}
   .dash-ctable .ct-mark {{ display: inline-block; width: 1.1em;
                           color: var(--dash-ink-muted); font-weight: 400; }}
   .dash-ctable td.ct-yes {{

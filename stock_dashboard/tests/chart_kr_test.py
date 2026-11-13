@@ -255,13 +255,14 @@ try:
     check("탭 그리기 에러 없음 · 1초 이내", sec < 1.0, f"{sec:.2f}초")
     tables = [h for h in shown if "dash-ctable" in h]
     picks_html = next((h for h in shown if "dash-picks" in h), "")
-    check("첫 화면엔 지표 표 없음 · 두 줄 목록 하나", not tables and bool(picks_html),
+    check("첫 화면엔 지표 표 없음 · 카드 묶음 하나", not tables and bool(picks_html),
           str(len(tables)))
-    n_rows = picks_html.count("<li>")
+    n_rows = picks_html.count('class="pk-card"')
     check("오늘 볼 종목 10개 이하", 0 < n_rows <= 10, str(n_rows))
-    first = picks_html.split("<li>")[1] if n_rows else ""
+    first = picks_html.split('class="pk-card"')[1] if n_rows else ""
     check("'새로' 가 맨 위", "pk-tag\">새로" in first, first[:200])
-    check("근거 줄 — 진입 지표 · 가격 판정", "과매도 진입" in first and "가격" in first, first[:300])
+    check("카드 — 진입 표시 · 가격 판정 · 눈금", "<em>진입</em>" in first and "가격" in first
+          and 'class="pk-gt"' in first and "20일선 대비" in first, first[:300])
     check("★ 표시 없음 (내 종목은 내 종목 탭)", "ct-star" not in html)
     check("수집 시각이 제목 바로 아래", any("dash-section-head" in h and "수집" in h for h in shown))
     check("안내 — 품질 통과 수", f"품질 통과 {len(set(quality))}종목" in html, "")

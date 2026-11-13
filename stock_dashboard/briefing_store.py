@@ -280,3 +280,86 @@ def example_file() -> str:
         "본문을 마크다운으로 쓰세요.\n"
         "앞머리(--- 사이)는 생략해도 되고, 그러면 첫 제목 줄이 제목이 됩니다.\n"
     )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 아침 브리핑 본문을 구조로 풀기 (2026-11-13)
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# 사용자(폰): "가독성이 너무 떨어지고 맨바탕에 글씨만 있어서 이상하다". 아침 브리핑은
+# 카톡에 붙이려고 만든 **고정폭 글 덩어리**(``` 블록)라, 폰에서는 줄이 넘치고 화면
+# 에서는 회색 상자 하나로만 보였습니다. 그 덩어리를 구역(■) · 줄 단위로 풀어 화면이
+# 카드로 그리게 합니다. 글의 내용은 바꾸지 않습니다 — 나누기만 합니다.
+# 모양이 예상과 다르면 None 을 돌려주고, 화면은 글을 그대로(줄바꿈만 살려) 보여 줍니다.
+
+_FENCE_RE = re.compile(r"```[^\n]*\n(.*?)\n```", re.S)
+_SECTION_MARK = "■"
+_CELL_SPLIT = re.compile(r"\s{2,}")
+
+
+def split_block(body: str) -> tuple[str | None, str]:
+    """(첫 ``` 블록 안의 글, 그 블록을 뺀 나머지 마크다운). 블록이 없으면 (None, 원문)."""
+    m = _FENCE_RE.search(body or "")
+    if not m:
+        return None, body or ""
+    rest = (body[:m.start()] + body[m.end():]).strip("\n")
+    return m.group(1), rest
+
+
+def parse_block(block: str | None) -> dict | None:
+    """고정폭 브리핑 글 → {"head": 첫 줄, "sections": [{title, lead, rows}]}.
+
+    rows 의 한 줄: {"kind": "kv", "label", "cells"[, "note"]} · {"kind": "bullet", "text"}
+    · {"kind": "text", "text"}. '한 줄' 구역은 lead(문단 하나)로 합칩니다.
+    들여 쓴 줄은 앞줄의 이어 쓰기입니다. ■ 구역이 하나도 없으면 None.
+    """
+    if not block or _SECTION_MARK not in block:
+        return None
+    head = ""
+    sections: list[dict] = []
+    cur: dict | None = None
+    for raw in block.splitlines():
+        line = raw.rstrip()
+        if not line.strip():
+            continue
+        if line.lstrip().startswith(_SECTION_MARK):
+            cur = {"title": line.lstrip()[len(_SECTION_MARK):].strip(), "lead": "", "rows": []}
+            sections.append(cur)
+            continue
+        if cur is None:
+            head = (head + " " + line.strip()).strip()
+            continue
+        text = line.strip()
+        if "한 줄" in cur["title"]:
+            cur["lead"] = (cur["lead"] + " " + text).strip()
+            continue
+        rows = cur["rows"]
+        if line[:1].isspace() and rows:                     # 이어 쓰기
+            last = rows[-1]
+            if last["kind"] == "kv":
+                last["note"] = (last.get("note", "") + " " + text).strip()
+            else:
+                last["text"] = (last["text"] + " " + text).strip()
+            continue
+        if text.startswith("→"):
+            rows.append({"kind": "bullet", "text": text[1:].strip()})
+            continue
+        cells = [c for c in _CELL_SPLIT.split(text) if c]
+        if len(cells) >= 2:
+            row = {"kind": "kv", "label": cells[0], "cells": []}
+            for c in cells[1:]:
+                # 긴 괄호 글은 값이 아니라 덧붙인 설명입니다 — 값 뒤에 붙어 있어도 뗍니다
+                cut = 0 if c.startswith("(") else c.find(" (")
+                tail = c[cut:].strip() if cut >= 0 else ""
+                if tail and len(tail) > 14:
+                    if c[:cut].strip():
+                        row["cells"].append(c[:cut].strip())
+                    row["note"] = (row.get("note", "") + " " + tail).strip()
+                else:
+                    row["cells"].append(c)
+            rows.append(row)
+        else:
+            rows.append({"kind": "text", "text": text})
+    if not sections:
+        return None
+    return {"head": head, "sections": sections}

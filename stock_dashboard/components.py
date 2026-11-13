@@ -2165,7 +2165,7 @@ def render_briefing_line(bf) -> str:
     tag = "오래됨" if bf.is_stale else bf.age_label
     return (
         '<div class="dash-bf-line">'
-        '<span class="dash-bf-line-tag">증시 브리핑</span>'
+        '<span class="dash-bf-line-tag">아침 브리핑</span>'
         f'<span class="dash-bf-line-title">{_esc(bf.short_title)}</span>'
         f'<span class="dash-bf-line-date">{_esc(tag)}</span>'
         "</div>"
@@ -4654,3 +4654,222 @@ def render_pick_list(items: list[dict]) -> str:
             f'<b>{_esc(it.get("name", ""))}</b><span class="pk-code">{_esc(it.get("ticker", ""))}'
             f'</span>{tags}</div><div class="pk-why">{facts}</div></li>')
     return f'<ol class="dash-picks">{"".join(out)}</ol>' if out else ""
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 아침 브리핑 — 읽기 화면 (2026-11-13)
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# 사용자(폰): "가독성이 너무 떨어지고 그냥 맨바탕에 글씨만 있어서 이상하다 — 브라우저나
+# 폰 둘 다에서 읽기 좋게". 고정폭 글 덩어리를 briefing_store.parse_block 이 구역 · 줄로
+# 풀고, 여기서 카드로 그립니다: 맨 위 제목과 '한 줄', 숫자 구역은 이름-값 줄,
+# 연결 · 일정 구역은 목록. 넓은 화면에서는 숫자 구역이 나란히 놓입니다.
+# 글은 전부 이스케이프하고, 링크는 http(s) 만 만듭니다.
+
+import re as _re_bf
+
+_BF_MOVE = _re_bf.compile(r"([▲▼])\s?([0-9][0-9.,]*\s?(?:%p|%|bp|p)?)")
+_BF_WHEN = _re_bf.compile(
+    r"^(\d{1,2}/\d{1,2}(?:~\d{1,2})?(?:\s\d{1,2}:\d{2})?|\d{1,2}:\d{2})\s+(.*)$")
+_BF_BOLD = _re_bf.compile(r"\*\*(.+?)\*\*")
+_BF_LINK = _re_bf.compile(r"\[([^\]]+)\]\((https?://[^\s)]+)\)")
+_BF_OL = _re_bf.compile(r"^(\d+)[.)]\s+(.*)$")
+
+
+def _bf_inline(text: str) -> str:
+    """한 줄 글 → HTML. 이스케이프 → ▲▼ 등락색 → **굵게** → [글](http 주소)."""
+    out = _esc(text)
+    out = _BF_MOVE.sub(
+        lambda m: f'<span class="bf-mv {"up" if m.group(1) == "▲" else "down"}">'
+                  f"{m.group(1)}{m.group(2).strip()}</span>", out)
+    out = _BF_BOLD.sub(r"<b>\1</b>", out)
+    out = _BF_LINK.sub(
+        r'<a class="dash-inline-link" href="\2" target="_blank" rel="noopener noreferrer">\1</a>',
+        out)
+    return out
+
+
+def _bf_markdown(md: str) -> str:
+    """브리핑 뒷부분(리스크 · 질문 등)의 간단한 마크다운 → HTML.
+
+    제목(#), 목록(- · 1.), 문단, 굵게, 링크만 압니다. 나머지는 글자 그대로 보입니다.
+    """
+    parts: list[str] = []
+    kind = ""               # "" | ul | ol | p
+    buf: list[str] = []
+
+    def flush() -> None:
+        nonlocal kind, buf
+        if kind in ("ul", "ol") and buf:
+            parts.append(f"<{kind}>" + "".join(f"<li>{x}</li>" for x in buf) + f"</{kind}>")
+        elif kind == "p" and buf:
+            parts.append("<p>" + " ".join(buf) + "</p>")
+        kind, buf = "", []
+
+    for raw in (md or "").splitlines():
+        line = raw.rstrip()
+        s = line.strip()
+        if not s:
+            flush()
+            continue
+        if s.startswith("```"):
+            flush()
+            continue
+        if s.startswith("#"):
+            flush()
+            parts.append(f'<h4>{_bf_inline(s.lstrip("#").strip())}</h4>')
+            continue
+        m_ol = _BF_OL.match(s)
+        if s[:2] in ("- ", "* ") or m_ol:
+            want = "ol" if m_ol else "ul"
+            if kind != want:
+                flush()
+                kind = want
+            buf.append(_bf_inline(m_ol.group(2) if m_ol else s[2:].strip()))
+            continue
+        if line[:1].isspace() and kind in ("ul", "ol") and buf:
+            buf[-1] += " " + _bf_inline(s)          # 목록의 이어 쓰기
+            continue
+        if kind != "p":
+            flush()
+            kind = "p"
+        buf.append(_bf_inline(s))
+    flush()
+    return "".join(parts)
+
+
+def _bf_section(sec: dict) -> str:
+    rows = sec.get("rows") or []
+    n_kv = sum(1 for r in rows if r["kind"] == "kv")
+    tabular = n_kv >= max(2, len(rows) // 2)
+    body: list[str] = []
+    listing: list[str] = []
+
+    def close_list() -> None:
+        if listing:
+            body.append('<ul class="bf-list">' + "".join(listing) + "</ul>")
+            listing.clear()
+
+    for r in rows:
+        if r["kind"] == "kv":
+            close_list()
+            cells = "".join(f"<span>{_bf_inline(c)}</span>" for c in r["cells"])
+            note = (f'<div class="bf-note">{_bf_inline(r["note"])}</div>'
+                    if r.get("note") else "")
+            body.append(f'<div class="bf-kv"><b>{_esc(r["label"])}</b>'
+                        f'<span class="bf-vals">{cells}</span>{note}</div>')
+            continue
+        text = r["text"]
+        when = _BF_WHEN.match(text) if r["kind"] == "text" else None
+        if when:
+            listing.append(f'<li><span class="bf-when">{_esc(when.group(1))}</span>'
+                           f"{_bf_inline(when.group(2))}</li>")
+        elif tabular and r["kind"] == "text":
+            close_list()
+            body.append(f'<div class="bf-kv bf-kv-text">{_bf_inline(text)}</div>')
+        else:
+            listing.append(f"<li>{_bf_inline(text)}</li>")
+    close_list()
+    return (f'<section class="bf-sec {"bf-num" if tabular else "bf-wide"}">'
+            f'<h3>{_esc(sec.get("title", ""))}</h3>{"".join(body)}</section>')
+
+
+def render_briefing_view(bf, parsed: dict | None, rest_md: str = "") -> str:
+    """아침 브리핑 한 편 — 제목 · 한 줄 · 구역 카드 · 덧붙인 글 · 출처."""
+    stale = (f'<div class="bf-stale">{_esc(bf.age_label)} 글입니다 — 지금 시장을 설명하지 '
+             "못할 수 있습니다</div>" if bf.is_stale else "")
+    warn = (f'<div class="bf-stale">{_esc(" · ".join(bf.warnings))}</div>'
+            if bf.warnings else "")
+    lead, secs = "", []
+    for sec in (parsed or {}).get("sections", []):
+        if sec.get("lead") and not sec.get("rows"):
+            lead += f'<p class="bf-lead">{_bf_inline(sec["lead"])}</p>'
+        else:
+            secs.append(_bf_section(sec))
+    hero = ('<header class="bf-hero">'
+            f'<div class="bf-meta">{_esc(bf.date)} · {_esc(bf.age_label)} · 아침 예약 작업이 쓴 글</div>'
+            f'<h2>{_esc(bf.title or "제목 없음")}</h2>{lead}{stale}{warn}</header>')
+    grid = f'<div class="bf-grid">{"".join(secs)}</div>' if secs else ""
+    more = (f'<section class="bf-sec bf-wide bf-more">{_bf_markdown(rest_md)}</section>'
+            if (rest_md or "").strip() else "")
+    src = ""
+    if bf.sources:
+        items = "".join(
+            f'<li><a class="dash-inline-link" href="{_esc(u)}" target="_blank" '
+            f'rel="noopener noreferrer">{_esc(u.split("//", 1)[-1].split("/", 1)[0])}</a></li>'
+            for u in bf.sources[:30])
+        src = (f'<details class="bf-src"><summary>출처 {len(bf.sources)}곳</summary>'
+               f"<ol>{items}</ol></details>")
+    foot = ('<div class="bf-foot">웹에서 모은 자료를 AI 가 정리한 글입니다. 숫자는 출처에서 '
+            "다시 확인하십시오. 매수 · 매도 의견이 아닙니다.</div>")
+    return f'<article class="dash-brf">{hero}{grid}{more}{src}{foot}</article>'
+
+
+# ── 차트 조건 — 오늘 볼 종목 카드 (2026-11-13 12:05 폰: "글자만 나오는데 개선") ──
+#
+# 종목당 카드 한 장: 이름 · 꼬리표 · 종가와 20일선 대비 / 펀더멘털 칩(가격 부담 · 선행 EPS)
+# / CCI · 스토캐스틱 눈금(과매도 구역에 색, 지금 값에 점). 넓은 화면에서는 나란히.
+
+_PK_PRICE_CLS = {"light": "good", "edge": "mid", "heavy": "plain", "na": "plain"}
+
+
+def _pk_gauge(label: str, value, lo: float, hi: float, zone_hi: float,
+              entered: bool, fmt: str = "{:+.0f}") -> str:
+    if value is None:
+        return ""
+    span = (hi - lo) or 1.0
+    pos = min(1.0, max(0.0, (value - lo) / span)) * 100
+    zone = min(1.0, max(0.0, (zone_hi - lo) / span)) * 100
+    badge = '<em>진입</em>' if entered else ""
+    return (f'<div class="pk-g{" on" if entered else ""}"><span class="pk-gl">{_esc(label)}{badge}'
+            f'</span><span class="pk-gt"><i class="zone" style="width:{zone:.1f}%"></i>'
+            f'<i class="dot" style="left:{pos:.1f}%"></i></span>'
+            f'<span class="pk-gv">{_esc(fmt.format(value))}</span></div>')
+
+
+def render_pick_cards(items: list[dict]) -> str:
+    """items: [{name, ticker, tags, price_txt, gap20, price_state, price_word, eps_c90,
+    cci, stoch_k, entered(set), vol_ratio, cci_lo, stoch_lo}] → 카드 묶음."""
+    cards = []
+    for i, it in enumerate(items, 1):
+        tags = "".join(f'<span class="pk-tag">{_esc(t)}</span>' for t in it.get("tags") or [])
+        gap = it.get("gap20")
+        gap_html = ""
+        if gap is not None:
+            cls = "up" if gap > 0 else ("down" if gap < 0 else "flat")
+            gap_html = (f'<span class="pk-gap {cls}">20일선 대비 '
+                        f"{direction_glyph(gap)}{abs(gap):.1f}%</span>")
+        chips = []
+        word = it.get("price_word") or ""
+        if word:
+            chips.append(f'<span class="pk-chip {_PK_PRICE_CLS.get(it.get("price_state"), "plain")}">'
+                         f"{_esc(word)}</span>")
+        c90 = it.get("eps_c90")
+        if c90 is not None:
+            cls = "up" if c90 > 0.005 else ("down" if c90 < -0.005 else "flat")
+            arrow = "▲" if cls == "up" else ("▼" if cls == "down" else "→")
+            chips.append(f'<span class="pk-chip eps {cls}">선행 EPS {arrow} {c90 * 100:+.1f}%'
+                         "<small> 90일</small></span>")
+        else:
+            chips.append('<span class="pk-chip plain">선행 EPS 추정 없음</span>')
+        vr = it.get("vol_ratio")
+        if vr is not None and vr >= 1.5:
+            chips.append(f'<span class="pk-chip plain">거래량 {vr:.1f}배</span>')
+        entered = it.get("entered") or set()
+        gauges = (_pk_gauge("CCI", it.get("cci"), -300.0, 300.0, it.get("cci_lo", -100.0),
+                            "cci" in entered)
+                  + _pk_gauge("스토캐스틱", it.get("stoch_k"), 0.0, 100.0,
+                              it.get("stoch_lo", 30.0), "stoch" in entered, "{:.0f}"))
+        cards.append(
+            f'<div class="pk-card"><div class="pk-top"><span class="pk-n">{i}</span>'
+            f'<b>{_esc(it.get("name", ""))}</b><span class="pk-code">{_esc(it.get("ticker", ""))}'
+            f"</span>{tags}</div>"
+            f'<div class="pk-price"><span class="pk-px">{_esc(it.get("price_txt", ""))}</span>'
+            f"{gap_html}</div>"
+            f'<div class="pk-chips">{"".join(chips)}</div>'
+            f'<div class="pk-gs">{gauges}</div></div>')
+    if not cards:
+        return ""
+    legend = ('<div class="pk-legend">눈금의 색칠한 구역 = 과매도 · 점 = 지금 값 · '
+              "<em>진입</em> = 최근 3거래일 안에 그 구역으로 들어감</div>")
+    return f'<div class="dash-picks">{"".join(cards)}</div>{legend}'

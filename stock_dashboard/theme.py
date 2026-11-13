@@ -189,12 +189,13 @@ def build_vars(convention: str, scope: str = ":root") -> str:
      표를 카드로 세워서 감당합니다 (아래 .dash-stk). */
   @media (max-width: 640px) {{
     {scope} {{
-      --fs-1: 0.82rem;   /* 13px */
-      --fs-2: 0.88rem;   /* 14px */
-      --fs-3: 0.95rem;   /* 15px */
-      --fs-4: 1.00rem;   /* 16px */
-      --fs-5: 1.07rem;   /* 17px */
-      --fs-6: 1.16rem;   /* 18.5px */
+      /* 11/13 16:46 "내용 글자 좀 더 줄여도 지장 없다" — 한 단계씩 내림 (전 13·14·15·16·17·18.5) */
+      --fs-1: 0.75rem;   /* 12px */
+      --fs-2: 0.82rem;   /* 13px */
+      --fs-3: 0.88rem;   /* 14px */
+      --fs-4: 0.94rem;   /* 15px */
+      --fs-5: 1.00rem;   /* 16px */
+      --fs-6: 1.10rem;   /* 17.5px */
     }}
   }}
 """
@@ -2950,6 +2951,7 @@ def build_type_rules() -> str:
     ③ 글꼴이 두 가지 — 스트림릿 글 상자 안은 Source Sans(한글 없음), 옛 카드는 system-ui.
     폰 기준 단계를 이렇게 맞춥니다: 13 태그 · 시각 / 14 설명 · 캡션 / 15 본문 /
     16 강조 라벨 / 17 카드 제목 / 18.5 섹션 제목 / 21↑ 수치.
+    → 16:46 사용자 "더 줄여도 된다" 로 폰 단계를 한 칸씩 내림: 12 / 13 / 14 / 15 / 16 / 17.5.
     """
     return """
   /* ⓪ 글꼴 하나로 — 스트림릿 글 상자(stMarkdownContainer)는 'Source Sans'(한글 없음)를
@@ -2991,13 +2993,13 @@ def build_type_rules() -> str:
     .dash-clock { margin-left: 0; flex-basis: 100%; font-size: var(--fs-1); }
     div[data-testid="stElementContainer"]:has(.dash-marketmark)
       + div[data-testid="stElementContainer"] button {
-      font-size: var(--fs-3) !important; padding: 3px 14px !important; min-height: 34px; }
+      font-size: var(--fs-3) !important; padding: 2px 12px !important; min-height: 30px; }
     div[data-testid="stElementContainer"]:has(.dash-marketmark)
       + div[data-testid="stElementContainer"] button p { font-size: var(--fs-3) !important; }
     .dash-mstrip { gap: 5px; margin: 0 0 10px; }
     .ms-cell { padding: 6px 8px; gap: 0; }
     .ms-label { font-size: var(--fs-1); }
-    .ms-val { font-size: var(--fs-4); line-height: 1.2; }
+    .ms-val { font-size: var(--fs-3); line-height: 1.2; }   /* 14px — 16:46 "숫자 조금 더 줄여도" */
     .ms-chg { font-size: var(--fs-1); }
     /* 내비 — 묶음 이름을 버튼 줄 맨 앞에 (줄을 따로 쓰지 않음), 버튼은 작게 */
     div[data-testid="stColumn"]:has(.dash-navmark) {
@@ -3017,7 +3019,7 @@ def build_type_rules() -> str:
     .dash-navhead { margin: 0 !important; padding: 0 2px 0 0; font-size: var(--fs-1);
       min-width: 4.2em; letter-spacing: 0; }
     div[data-testid="stColumn"]:has(.dash-navmark) button {
-      min-height: 32px !important; padding: 2px 10px !important; }
+      min-height: 28px !important; padding: 1px 9px !important; }
     div[data-testid="stColumn"]:has(.dash-navmark) button p {
       font-size: var(--fs-2) !important; }
     table.dash-rt.dash-stk tr { display: flex; flex-direction: column; }

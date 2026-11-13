@@ -5163,3 +5163,51 @@ def render_paper(pf: dict, market: str) -> str:
         out.append(f'<div class="pp-ev"><div class="pp-h"><b>논거 변경점 · 매도 기록</b> (최근 '
                    f'{len(ev)})</div><ul>{items}</ul></div>')
     return f'<div class="dash-paper">{"".join(out)}</div>' if out else ""
+
+
+def render_backtest(res: dict, market: str, recent: str = "A") -> str:
+    """차트 전략 백테스트 (11/13, techtest.py) — 변형마다 요약 카드 + 오늘 신호 + 최근 거래."""
+    import techtest  # noqa: PLC0415
+
+    var = res.get("variants") or {}
+    if not var:
+        return ""
+    cur = "원" if market == "kr" else "$"
+    fmt = (lambda v: f"{v:,.0f}{cur}") if market == "kr" else (lambda v: f"{cur}{v:,.2f}")
+    out, rows = [], []
+    for k in techtest.VARIANTS:
+        v = var.get(k)
+        if not v:
+            continue
+        if not v["trades"]:
+            rows.append(f'<div class="pp-row"><div class="pp-top"><b>{_esc(techtest.LABELS[k])}</b>'
+                        f'</div><div class="pp-sub">끝난 거래 없음 (보유 중 {v["open"]})</div></div>')
+            continue
+        r = v["avg"]
+        cls = "up" if r > 0.0005 else ("down" if r < -0.0005 else "flat")
+        why = " · ".join(f"{_esc(w)} {n}" for w, n in sorted(v["why"].items(), key=lambda x: -x[1]))
+        rows.append(
+            f'<div class="pp-row"><div class="pp-top"><b>{_esc(techtest.LABELS[k])}</b>'
+            f'<span class="pp-r {cls}">평균 {_pct(r)}</span></div>'
+            f'<div class="pp-sub">거래 {v["trades"]}번 (보유 중 {v["open"]}) · 이긴 비율 '
+            f'{v["win"] * 100:.0f}% · 가운데 {_pct(v["med"])} · 최고 {_pct(v["best"])} · 최저 '
+            f'{_pct(v["worst"])}</div>'
+            f'<div class="pp-sub">같은 기간 후보 전체 대비 <b>{_pct(v["excess"])}</b> · 평균 보유 '
+            f'{v["hold"]}일</div><div class="pp-st">끝난 이유 — {why}</div></div>')
+    out.append(f'<div class="pp-list">{"".join(rows)}</div>')
+    for k, label in (("A", "A 기본"), ("C", "C 펀더멘털 통과만")):
+        sig = (res.get("signals") or {}).get(k)
+        if sig is None:
+            continue
+        body = (" · ".join(f'<b>{_esc(s["n"])}</b> <span class="pk-code">{_esc(s["s"])}</span>'
+                           for s in sig[:12]) if sig else "없음")
+        out.append(f'<div class="pp-h">오늘 매수 신호 · {label} ({len(sig)}) — {body}</div>')
+    rec = list(reversed((var.get(recent) or {}).get("recent") or []))
+    if rec:
+        items = "".join(
+            f'<li><span>{_esc(str(x["d0"])[5:10])}→{_esc(str(x["d1"])[5:10])}</span> '
+            f'<b>{_esc(x["n"])}</b> {fmt(x["p0"])}→{fmt(x["p1"])} <b>{_pct(x["r"])}</b>'
+            f' · {_esc(x["why"])}</li>' for x in rec)
+        out.append(f'<div class="pp-ev"><div class="pp-h"><b>최근 거래 · '
+                   f'{_esc(techtest.LABELS[recent])}</b> ({len(rec)})</div><ul>{items}</ul></div>')
+    return f'<div class="dash-paper">{"".join(out)}</div>'

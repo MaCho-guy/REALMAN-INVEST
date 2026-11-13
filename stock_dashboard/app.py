@@ -2109,11 +2109,13 @@ def render_timing_tab(use_demo: bool, *, market: str = "kr") -> None:
             "차트 · 미국", "참고용 — 가격 패턴만 봅니다 (재무 판단은 후보 · 근거에서)"),
             unsafe_allow_html=True)
         render_chart_tab(use_demo, market=market, today=False)
+        with st.expander("차트 전략 실험 (과거 1년 백테스트)", expanded=False):
+            _render_backtest(market, use_demo)
         return
     st.markdown(ui.render_section_head(
         "차트·거래 · 한국", "참고용 — 가격 · 거래 패턴만 봅니다 (재무 판단은 후보 · 근거에서)"),
         unsafe_allow_html=True)
-    views = {"screener": "거래 스크리너", "chart": "차트 조건 (전체 목록)"}
+    views = {"screener": "거래 스크리너", "chart": "차트 조건 (전체 목록)", "test": "전략 실험"}
     pick = None
     picker = getattr(st, "segmented_control", None)
     if picker is not None:
@@ -2127,8 +2129,43 @@ def render_timing_tab(use_demo: bool, *, market: str = "kr") -> None:
                         format_func=lambda k: views[k], label_visibility="collapsed")
     if pick == "chart":
         render_chart_tab(use_demo, market=market, today=False)
+    elif pick == "test":
+        _render_backtest(market, use_demo)
     else:
         render_screener_tab(use_demo, market=market)
+
+
+def _render_backtest(market: str, use_demo: bool) -> None:
+    """차트 전략 실험 (techtest.py, 11/13) — CCI · −DMI · OBV 규칙을 과거 1년 일봉에 돌린 결과."""
+    import techtest  # noqa: PLC0415
+
+    bt = _universe_or_none("backtest_tech", use_demo) or {}
+    res = bt.get(market) or {}
+    win = res.get("window") or {}
+    st.markdown(ui.render_section_head(
+        "차트 전략 실험",
+        f"과거 일봉 백테스트 · 기간 {win.get('from', '—')} ~ {win.get('to', '—')} · 후보 "
+        f"{res.get('n_syms', 0)}종목 · 계산 {_when_kst(bt.get('made'))} · 출처 "
+        f"{'네이버 금융' if market == 'kr' else 'Yahoo Finance'} 일봉"), unsafe_allow_html=True)
+    html = ui.render_backtest(res, market) if res else ""
+    if not html:
+        st.markdown(ui.render_notice(
+            "아직 결과가 없습니다 — 다음 수집(15:43 · 06:43)에서 처음 계산됩니다."),
+            unsafe_allow_html=True)
+        return
+    st.markdown(html, unsafe_allow_html=True)
+    st.markdown(ui.render_legend(
+        "<b>규칙</b> — 매수: CCI(13) 과매도 탈출 시도 · 탈출 + −DI(14) 가 최근 3봉 안에 30 아래로 + "
+        "OBV 가 10일 평균 위 · 5일 전보다 높음 → 그날 종가. 대기: 보유 중 CCI ≥ +100 · −DI ≤ 10. "
+        "매도: 대기 뒤 CCI 가 +100 아래로 · −DI 가 전일보다 오름 → 그날 종가. 안전장치: 종가 손절 "
+        f"−{techtest.STOP * 100:.0f}% · {techtest.ARM_WAIT}봉 안에 대기 못 가면 정리 · 최대 "
+        f"{techtest.MAX_HOLD}봉. 비용 왕복 {techtest.COST * 100:.2f}% 차감. "
+        "<b>변형</b> — 거래량 배수(5일 ÷ 20일 ≥ 1.2배 · 증가 중) · 대기 −DI 15 · B: ADX 꺾임 추가 · "
+        "C: B + 오늘 기준 품질 통과·보류 · 선행 EPS 90일 −5% 초과 — <b>오늘의 재무로 과거 신호를 "
+        "거르므로 실제보다 좋게 나올 수 있음(미리 보기 편향)</b>. "
+        "<b>비교</b> — 같은 기간 후보 전체를 같은 비중으로 들고 있었을 때와의 차이. "
+        "<b>한계</b> — 1년치(앞 30봉은 지표 준비) · 한 장세에 쏠릴 수 있음 · 거래 수가 적으면 "
+        "우연일 수 있음. 공부용 기록이며 매수 권유가 아닙니다."), unsafe_allow_html=True)
 
 
 def render_discover_tab(use_demo: bool, *, market: str = "all") -> None:

@@ -424,6 +424,73 @@ check("수집기가 실험 단계를 부르고 워크플로가 이어받음",
       and "paper_portfolio.json" in real)
 check("후보 탭이 실험을 그림", "_render_paper(market, use_demo)" in app_src)
 
+print("\n== 차트 전략 백테스트 (techtest, 11/13)")
+import techtest  # noqa: E402
+
+check("OBV — 오르면 더하고 내리면 빼고 같으면 그대로",
+      techtest._obv([1, 2, 1, 1], [5, 10, 3, 7]) == [0.0, 10.0, 7.0, 7.0])
+ind0 = {"obv": [float(i) for i in range(20)]}
+check("OBV 조건 — 10일 평균 위 · 5일 전보다 높음", techtest._obv_up(ind0, 15)
+      and not techtest._obv_up({"obv": [float(-i) for i in range(20)]}, 15))
+check("−DI 30 하향 — 최근 3봉 안에서만", techtest._mdi_cross30([None, 35, 31, 29, 28], 4)
+      and not techtest._mdi_cross30([35, 29, 28, 27, 26, 25], 5))
+check("CCI 탈출 시도(−100 아래 · 반등) · 탈출(−100 위로 · 0 아래) · 계속 하락은 아님",
+      techtest._cci_escape([None, -150, -120], 2) and techtest._cci_escape([-150, -120, -80], 2)
+      and not techtest._cci_escape([-100, -120, -150], 2))
+n0 = 60
+
+
+def fake(cci, mdi, close):
+    pad = n0 - len(close)
+    return {"c": [100.0] * pad + close, "cci": [0.0] * pad + cci, "mdi": [20.0] * pad + mdi,
+            "n": n0, "date": [f"d{i:02d}" for i in range(n0)]}
+
+
+orig_entry = techtest.entry
+try:
+    techtest.entry = lambda ind, i, v: i == n0 - 10           # 50번째 봉에서 한 번만 매수
+    # 매수 50 → 54 대기(CCI 120 · −DI 8) → 56 CCI 90 · −DI 상승 → 매도
+    ind = fake([0, 0, 0, 0, 120, 110, 90, 0, 0, 0], [20, 20, 20, 20, 8, 7, 9, 9, 9, 9],
+               [100, 101, 102, 103, 110, 111, 112, 112, 112, 112])
+    tr = techtest.trades(ind, "A")
+    check("매도 신호 — 대기 뒤 CCI +100 아래 · −DI 상승", len(tr) == 1 and tr[0]["why"] == "매도 신호"
+          and tr[0]["p0"] == 100 and tr[0]["p1"] == 112 and tr[0]["i1"] == n0 - 4, str(tr))
+    ind = fake([0] * 10, [20] * 10, [100, 100, 100, 100, 95, 91, 90, 90, 90, 90])
+    tr = techtest.trades(ind, "A")
+    check("손절 −8% (종가)", tr and tr[0]["why"] == "손절 −8%" and tr[0]["p1"] == 91, str(tr))
+    techtest.entry = lambda ind, i, v: i == n0 - 30           # 30번째 봉 매수 · 내내 CCI 120 · −DI 13
+    ind = fake([120.0] * 30, [13.0] * 30, [100.0] * 30)
+    check("대기 −DI 15 변형은 13 에서 대기, 기본(10)은 20봉 뒤 정리",
+          techtest.trades(ind, "A")[0]["why"] == "대기 못 감 (20봉)"
+          and techtest.trades(ind, "A15")[0]["why"] == "보유 중")
+finally:
+    techtest.entry = orig_entry
+
+import random  # noqa: E402
+
+rnd = random.Random(3)
+
+
+def bars(n=200):
+    c = [100.0]
+    for _ in range(n - 1):
+        c.append(c[-1] * (1 + rnd.gauss(0, 0.02)))
+    return {"high": [x * 1.01 for x in c], "low": [x * 0.99 for x in c], "close": c,
+            "volume": [rnd.randint(1000, 5000) for _ in c], "date": [f"d{i:03d}" for i in range(n)]}
+
+
+res = techtest.run({f"S{i}": bars() for i in range(20)}, {}, {"S1"})
+check("묶음 — 변형 5개 · 오늘 신호 A/C · 기간", set(res["variants"]) == set(techtest.VARIANTS)
+      and set(res["signals"]) == {"A", "C"} and res["window"]["to"] == "d199")
+check("C 는 허용 종목만", all(x["s"] == "S1" for x in res["variants"]["C"]["recent"]))
+check("짧은 · 빈 일봉은 건너뜀", techtest.run({"X": {"close": [1, 2]}, "Y": {}})["n_syms"] == 0)
+bh = ui.render_backtest(res, "kr")
+check("화면 — 변형 카드 · 오늘 신호 · 최근 거래", "A · OBV (기본)" in bh and "오늘 매수 신호" in bh
+      and ("최근 거래" in bh or res["variants"]["A"]["trades"] == 0))
+check("빈 결과는 그리지 않음", ui.render_backtest({}, "kr") == "")
+check("수집기 · 화면 연결", "build_backtest(out_dir" in col and "_render_backtest(market, use_demo)"
+      in app_src and "backtest_tech" in config.UNIVERSE_URLS)
+
 print("\n" + "=" * 54)
 if FAILURES:
     print(f"실패 {len(FAILURES)}건: {FAILURES}")

@@ -20,8 +20,7 @@ import os
 import re
 
 #: 이 환경변수의 **값**은 어디에도 찍히면 안 됩니다.
-SECRET_ENVS = ("DART_API_KEY", "FRED_API_KEY", "GITHUB_TOKEN", "ANTHROPIC_API_KEY",
-               "DASH_PASSWORD", "PORTFOLIO")  # 11/13: 잠금 비밀번호 · 보유 원문도
+SECRET_ENVS = ("DART_API_KEY", "FRED_API_KEY", "GITHUB_TOKEN", "ANTHROPIC_API_KEY")
 
 _QUERY = re.compile(r"(?i)\b(crtfc_key|api_key|apikey|access_token|token)=([^&\s'\"<>)]+)")
 #: 어디에 섞여 있든 Anthropic 키 모양이면 지웁니다.

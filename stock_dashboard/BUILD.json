@@ -1,8 +1,7 @@
 {
  ".streamlit/config.toml": "828c4b602b76",
- "access.py": "dc8e4658c20c",
  "analysis_store.py": "7d31ffeea27a",
- "app.py": "6100ac589f85",
+ "app.py": "fb2dc5aa2dfd",
  "brief.py": "cb909160287c",
  "briefing_store.py": "3a29fc4cca93",
  "buffett.py": "9d5c74fc3009",
@@ -54,7 +53,7 @@
  "sources/naver_extra.py": "cc57528050b9",
  "sources/news.py": "ae0f939cb248",
  "sources/research.py": "88c0e09fc368",
- "sources/safe.py": "a9fdc936b79e",
+ "sources/safe.py": "2ca0f993903c",
  "sources/universe_src.py": "d5e3d7dac5ab",
  "sources/vix.py": "4b5bfdbcc76e",
  "sources/yahoo.py": "ae9d9aa85164",

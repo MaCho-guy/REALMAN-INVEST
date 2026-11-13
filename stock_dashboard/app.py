@@ -131,7 +131,6 @@ import integrate
 import daily_brief
 import calendar_events
 import portfolio
-import access
 import flows
 import dividends
 import earnings
@@ -1539,42 +1538,9 @@ def _portfolio_quote(p, data):
     return q, (name or p.symbol)
 
 
-def _load_portfolio(use_demo: bool):
-    """보유(PORTFOLIO) 읽기 — **잠금이 풀린 세션에서만** (11/13, access.py).
-
-    app.py 안에서 보유를 읽는 곳은 전부 이 함수를 거칩니다(테스트로 확인). 잠겨
-    있으면 빈 목록 → 수급 · 공시 · 섹터 등 다른 탭의 '보유' 표시도 함께 사라집니다.
-    """
-    if not access.unlocked(st.session_state):
-        return [], [], ""
-    return portfolio.load(use_demo)
-
-
-def _render_lock_gate() -> None:
-    """'내 종목' 잠금 화면 — 비밀번호 칸 하나."""
-    st.markdown(ui.render_notice(
-        "<b>잠긴 화면입니다.</b> 보유 · 관심 종목과 평가금액은 비밀번호를 넣어야 "
-        "보입니다. 풀림은 이 브라우저 창에서만 유지됩니다."), unsafe_allow_html=True)
-    if not access.configured():
-        st.markdown(ui.render_notice(
-            f"Streamlit Secrets 에 <code>{access.PASSWORD_ENV} = \"…\"</code> "
-            f"({access.MIN_LEN}자 이상)를 넣어야 풀 수 있습니다."), unsafe_allow_html=True)
-        return
-    with st.form("dash_unlock", clear_on_submit=True, border=False):
-        typed = st.text_input("비밀번호", type="password", key="dash_pw_input",
-                              autocomplete="current-password")
-        go = st.form_submit_button("열기")
-    if go:
-        ok, msg = access.try_unlock(st.session_state, typed)
-        if ok:
-            st.rerun()
-        else:
-            st.warning(msg)
-
-
 def _render_portfolio(data, fx, use_demo: bool, market: str) -> None:
     """보유 평가 — Secrets 의 PORTFOLIO 가 있을 때만. 없으면 넣는 법 한 줄."""
-    positions, bad, source = _load_portfolio(use_demo)
+    positions, bad, source = portfolio.load(use_demo)
     if not positions:
         st.markdown(ui.render_portfolio_setup(), unsafe_allow_html=True)
         return
@@ -1612,7 +1578,7 @@ def _render_holding_checks(shown, use_demo: bool, market: str) -> None:
     for inst in shown:
         names[inst.symbol] = inst.name
     try:
-        positions, _bad, _src = _load_portfolio(use_demo)
+        positions, _bad, _src = portfolio.load(use_demo)
         for p in positions:
             if p.market == market:
                 names.setdefault(p.symbol, p.symbol)
@@ -3661,7 +3627,7 @@ def _render_daily_briefs(use_demo: bool, market: str) -> None:
 def _kr_held_codes(use_demo: bool) -> set[str]:
     """실제 보유(PORTFOLIO) 국내 종목만."""
     try:
-        positions, _bad, _src = _load_portfolio(use_demo)
+        positions, _bad, _src = portfolio.load(use_demo)
     except Exception:  # noqa: BLE001
         return set()
     return {p.symbol for p in positions if p.market == "kr"}
@@ -3669,7 +3635,7 @@ def _kr_held_codes(use_demo: bool) -> set[str]:
 
 def _us_held_symbols(use_demo: bool) -> set[str]:
     try:
-        positions, _bad, _src = _load_portfolio(use_demo)
+        positions, _bad, _src = portfolio.load(use_demo)
     except Exception:  # noqa: BLE001
         return set()
     return {p.symbol for p in positions if p.market == "us"}
@@ -4164,7 +4130,7 @@ def _kr_my_codes(use_demo: bool) -> set[str]:
     codes = {i.symbol for i in config.SECTION_WATCHLIST.instruments
              if i.source == "naver" and i.symbol.isdigit()}
     try:
-        positions, _bad, _src = _load_portfolio(use_demo)
+        positions, _bad, _src = portfolio.load(use_demo)
         codes |= {p.symbol for p in positions if p.market == "kr"}
     except Exception:  # noqa: BLE001 — 보유 파싱 실패가 공시 화면을 막으면 안 됨
         pass
@@ -6190,11 +6156,7 @@ def controls() -> dict:
             # 비었습니다. 파일이 섞였을 때 **고칠 방법을 보여줄 화면**
             # 자체가 사라지는 게 제일 나쁩니다.
             try:
-                if access.unlocked(st.session_state):
-                    render_diag_panel()
-                else:
-                    # 진단 버튼은 내 DART · FRED 키로 호출하고 캐시를 비웁니다 — 잠금 뒤로 (11/13)
-                    st.caption("진단은 '내 종목' 잠금을 풀면 보입니다.")
+                render_diag_panel()
             except Exception as exc:  # noqa: BLE001
                 st.error(
                     f"**진단 패널을 그리지 못했습니다** ({type(exc).__name__}). "
@@ -6772,14 +6734,8 @@ def render_body(opts: dict) -> None:
             if active == "summary":
                 render_summary_tab(data, fx, opts["demo"], market=market)
             elif active == "holdings":
-                if access.unlocked(st.session_state):
-                    render_holdings_tab(data, fx, opts["demo"], opts["phone"],
-                                        market=market)
-                    if st.button("내 종목 다시 잠그기", key="dash_relock"):
-                        access.lock(st.session_state)
-                        st.rerun()
-                else:
-                    _render_lock_gate()
+                render_holdings_tab(data, fx, opts["demo"], opts["phone"],
+                                    market=market)
             elif active == "briefing":
                 render_briefing_tab(opts["demo"])
             elif active == "discover":

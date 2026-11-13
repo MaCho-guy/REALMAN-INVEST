@@ -701,3 +701,16 @@ def preliminary_radar(disclosures, *, limit: int = 8) -> list[PrelimFiling]:
         ))
     out.sort(key=lambda f: f.rcept_dt, reverse=True)
     return out[:limit]
+
+
+def radar_for_codes(disclosures_by_code, codes) -> list[PrelimFiling]:
+    """종목코드별 공시 목록에서 ``codes`` 에 든 종목의 잠정실적만 모읍니다.
+
+    공시 목록은 관심종목 한국 종목 전부를 받아 오므로(공시 분석 탭과 같이 씀)
+    메모리 사이클 탭에서는 메모리 종목만 남겨야 합니다 (11/13 삼성증권이 섞임)."""
+    keep = set(codes)
+    out: list[PrelimFiling] = []
+    for code, rows in (disclosures_by_code or {}).items():
+        if code in keep:
+            out.extend(preliminary_radar(rows))
+    return out

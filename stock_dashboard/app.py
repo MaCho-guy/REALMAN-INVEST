@@ -5738,9 +5738,12 @@ def render_cycle_tab(use_demo: bool, *, market: str = "all") -> None:
     # 사이클에 대한 가장 이른 확정 숫자라 재고 지표 **위에** 둡니다.
     # 이미 받아둔 공시 목록을 쓰므로 추가 네트워크 호출이 없습니다.
     _disc, _disc_err = load_dart_disclosures(use_demo, dart.key_fingerprint())
-    _prelim = []
-    for _rows in _disc.values():
-        _prelim.extend(cycle.preliminary_radar(_rows))
+    # 공시 목록은 관심종목 한국 종목 전부(공시 분석 탭과 같이 씀)라서 메모리
+    # 종목(config.CYCLE_STOCK_CODES)만 골라 씁니다 — 11/13 삼성증권 잠정실적이
+    # 섞여 나오던 것 고침.
+    _prelim = cycle.radar_for_codes(_disc, config.CYCLE_STOCK_CODES)
+    _disc_err = {k: v for k, v in _disc_err.items()
+                 if k in config.CYCLE_STOCK_CODES or not k.isdigit()}
 
     # 미국 쪽 — MU 는 8-K Item 2.02(Results of Operations)로 실적을 먼저
     # 냅니다. 한국의 영업(잠정)실적과 같은 성격이라 **같은 목록에** 둡니다 —

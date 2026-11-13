@@ -507,6 +507,20 @@ check("메모리 3사가 함께 보인다",
       str({f.corp_name for f in _mixed}))
 
 
+# 공시 목록은 관심종목 한국 종목 전부 — 메모리 종목만 레이더에 (11/13 삼성증권이 섞임)
+from types import SimpleNamespace as _NS
+_by_code = {
+    "005930": [_NS(report_nm="연결재무제표기준영업(잠정)실적(공정공시)", corp_name="삼성전자",
+                   rcept_dt="20261030", url="", stock_code="005930")],
+    "016360": [_NS(report_nm="연결재무제표기준영업(잠정)실적(공정공시)", corp_name="삼성증권",
+                   rcept_dt="20261112", url="", stock_code="016360")],
+}
+_r = cycle.radar_for_codes(_by_code, ("005930", "000660"))
+check("메모리 종목이 아닌 잠정실적은 레이더에서 뺀다",
+      [f.corp_name for f in _r] == ["삼성전자"], str([f.corp_name for f in _r]))
+check("빈 목록도 된다", cycle.radar_for_codes({}, ("005930",)) == [])
+
+
 print("\n" + "=" * 56)
 if FAILURES:
     print(f"실패 {len(FAILURES)}건: {', '.join(FAILURES)}")

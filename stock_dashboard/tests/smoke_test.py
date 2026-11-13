@@ -1182,7 +1182,8 @@ check_true("크레딧 데모 데이터가 있다",
 
 # 잠정실적 레이더 — 이미 받아둔 공시를 재사용 (추가 호출 0건)
 check_true("사이클 탭이 잠정실적을 그린다",
-           "cycle.preliminary_radar(_rows)" in _app_src)
+           "cycle.radar_for_codes(_disc, config.CYCLE_STOCK_CODES)" in _app_src,
+           "메모리 종목만 — 관심종목 전체를 넣으면 삼성증권 등이 섞입니다(11/13)")
 check_true("잠정실적이 재고 지표보다 먼저",
            _app_src.index("잠정실적 레이더")
            < _app_src.index("render_inventory_panel"),

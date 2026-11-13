@@ -1430,6 +1430,8 @@ def build_rules() -> str:
   }}
   .dash-crumb span {{ font-weight: 500; color: var(--dash-ink-2); }}
   .dash-navhead:first-child {{ margin-top: 0; }}
+  /* 묶음 줄바꿈 표식 (11/13) — 폰에서만 쓰고 PC 에서는 자리를 차지하지 않게 */
+  div[data-testid="stElementContainer"]:has(.dash-navbr) {{ display: none; }}
 
   /* 섹션 버튼 — 스트림릿 버튼을 그대로 쓰고 **모양만** 다듬습니다.
      전에는 라디오를 목록처럼 꾸몄는데 (1) 동그라미를 숨기니 선택 안 된
@@ -2980,6 +2982,41 @@ def build_type_rules() -> str:
     .dash-screen-tkr, .dash-screen-name { font-size: var(--fs-4); }
     .dash-screen-name { color: var(--dash-ink); font-weight: 650; }
     /* 산업 · 반도체 리포트 카드 — 제목이 카드 제목, 날짜는 아래 한 줄 */
+    /* ③ 늘 보이는 윗부분 줄이기 (11/13 "계속 보이는 창이 너무 커") — 폰에서 본문이
+       화면 첫 장 아래(약 800px)에서 시작했습니다. 제목줄 · 지수 칸 · 내비를 촘촘하게. */
+    .dash-topbar { gap: 2px 8px; padding: 0 0 6px; }
+    .dash-logo { font-size: var(--fs-6); }
+    .dash-market-badge { font-size: var(--fs-2); padding: 2px 9px; margin-left: 4px; }
+    .dash-logo-sub { display: none; }
+    .dash-clock { margin-left: 0; flex-basis: 100%; font-size: var(--fs-1); }
+    div[data-testid="stElementContainer"]:has(.dash-marketmark)
+      + div[data-testid="stElementContainer"] button {
+      font-size: var(--fs-3) !important; padding: 3px 14px !important; min-height: 34px; }
+    div[data-testid="stElementContainer"]:has(.dash-marketmark)
+      + div[data-testid="stElementContainer"] button p { font-size: var(--fs-3) !important; }
+    .dash-mstrip { gap: 5px; margin: 0 0 10px; }
+    .ms-cell { padding: 6px 8px; gap: 0; }
+    .ms-label { font-size: var(--fs-1); }
+    .ms-val { font-size: var(--fs-4); line-height: 1.2; }
+    .ms-chg { font-size: var(--fs-1); }
+    /* 내비 — 묶음 이름을 버튼 줄 맨 앞에 (줄을 따로 쓰지 않음), 버튼은 작게 */
+    div[data-testid="stColumn"]:has(.dash-navmark) {
+      padding: 8px 8px !important; }
+    div[data-testid="stColumn"]:has(.dash-navmark) div[data-testid="stVerticalBlock"] {
+      gap: 5px !important; }
+    div[data-testid="stColumn"]:has(.dash-navmark)
+      div[data-testid="stElementContainer"]:has(.dash-navhead) {
+      flex-basis: auto !important; width: auto !important; align-self: center; }
+    div[data-testid="stColumn"]:has(.dash-navmark)
+      div[data-testid="stElementContainer"]:has(.dash-navbr) {
+      display: block !important; flex-basis: 100% !important; width: 100% !important;
+      height: 0 !important; margin: 0 !important; }
+    .dash-navhead { margin: 0 !important; padding: 0 2px 0 0; font-size: var(--fs-1);
+      min-width: 4.2em; letter-spacing: 0; }
+    div[data-testid="stColumn"]:has(.dash-navmark) button {
+      min-height: 32px !important; padding: 2px 10px !important; }
+    div[data-testid="stColumn"]:has(.dash-navmark) button p {
+      font-size: var(--fs-2) !important; }
     table.dash-rt.dash-stk tr { display: flex; flex-direction: column; }
     table.dash-rt.dash-stk td.rt-title {
       order: -1; text-align: left !important; font-size: var(--fs-4); font-weight: 650;

@@ -6474,6 +6474,9 @@ def _section_nav(market: str, labels: dict) -> str:
     for gi, (gname, items) in enumerate(groups):
         if not items:
             continue
+        if gi:
+            # 폰에서 묶음마다 새 줄로 (11/13) — PC 에서는 CSS 로 숨김
+            st.markdown('<div class="dash-navbr"></div>', unsafe_allow_html=True)
         st.markdown(f'<div class="dash-navhead"><i style="--dot:{theme.group_tone(gi)[3]}">'
                     f"</i>{gname}</div>", unsafe_allow_html=True)
         for k, _lbl in items:
@@ -6582,7 +6585,7 @@ def render_body(opts: dict) -> None:
     now_kst = dt.datetime.now(KST)
     now_et = now_kst.astimezone(ET)
     clock = (
-        f"KST {now_kst:%Y-%m-%d %H:%M:%S}　·　ET {now_et:%H:%M}　·　"
+        f"KST {now_kst:%Y-%m-%d %H:%M:%S} · ET {now_et:%H:%M} · "
         f"USD/KRW {ui.fmt_num(fx.usdkrw, 2)}"
     )
 

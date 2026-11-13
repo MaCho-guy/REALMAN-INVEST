@@ -3106,6 +3106,14 @@ def build_type_rules() -> str:
       font-size: var(--fs-3); }
     table.dash-stk.dash-sctable td:nth-child(2)::before { content: none; }
     table.dash-stk.dash-sctable td .sub, table.dash-stk.dash-sctable td .sc-sub { display: none !important; }
+    /* 매크로 지표 표 — 한 지표 카드 175px → 두 칸 요약 (11/13 18:40) */
+    table.dash-mt.dash-stk td.mt-name span { display: inline; margin-left: 6px;
+      font-size: var(--fs-1); font-weight: 500; color: var(--dash-ink-muted); }
+    table.dash-mt.dash-stk td.mt-val, table.dash-mt.dash-stk td.mt-obs { grid-column: auto; }
+    table.dash-mt.dash-stk td.mt-val .mt-live { display: inline; margin-left: 4px; }
+    table.dash-mt.dash-stk td.mt-obs span { display: none; }
+    table.dash-mt.dash-stk td.mt-spark svg { display: inline-block; vertical-align: middle;
+      width: 84px; height: 20px; }
     table.dash-rt.dash-stk tr { display: flex; flex-direction: column; }
     table.dash-rt.dash-stk td.rt-title {
       order: -1; text-align: left !important; font-size: var(--fs-4); font-weight: 650;

@@ -17,6 +17,7 @@
   A      위 규칙 (OBV)
   A_vol  거래량을 OBV 대신 거래량 배수로 (비교용)
   A15    대기 조건 −DI ≤ 15 (10 은 드물 수 있어 비교)
+  A5     대기 조건을 '같은 날' 대신 '최근 5봉 안에 CCI ≥ +100 · −DI ≤ 10 이 각각 한 번씩'으로
   B      A + ADX 꺾임(최근 3봉 전보다 낮음 — 하락 추세의 힘이 빠지는 중)
   C      B + 펀더멘털 필터(품질 통과 · 보류, 선행 EPS 90일 −5% 초과) — **오늘의 재무로
          과거 신호를 거르므로 미리 보기 편향이 있음** (참고용)
@@ -33,8 +34,8 @@ STOP = 0.08
 ARM_WAIT = 20
 MAX_HOLD = 40
 WARMUP = 30
-VARIANTS = ("A", "A_vol", "A15", "B", "C")
-LABELS = {"A": "A · OBV (기본)", "A_vol": "A · 거래량 배수", "A15": "A · 대기 −DI 15",
+VARIANTS = ("A", "A_vol", "A15", "A5", "B", "C")
+LABELS = {"A": "A · OBV (기본)", "A_vol": "A · 거래량 배수", "A15": "A · 대기 −DI 15", "A5": "A · 대기 5봉 창",
           "B": "B · A + ADX 꺾임", "C": "C · B + 펀더멘털(참고)"}
 
 
@@ -113,6 +114,13 @@ def entry(ind: dict, i: int, variant: str) -> bool:
     return True
 
 
+def _armed(cci, mdi, k, lvl, win):
+    """대기 — 최근 win 봉 안에 CCI ≥ +100 한 번 · −DI ≤ lvl 한 번 (win=1 이면 같은 날)."""
+    lo = max(0, k - win + 1)
+    return (any(x is not None and x >= cs.CCI_OVERBOUGHT for x in cci[lo:k + 1])
+            and any(x is not None and x <= lvl for x in mdi[lo:k + 1]))
+
+
 def trades(ind: dict, variant: str) -> list[dict]:
     """한 종목의 거래 목록 — {i0, i1, p0, p1, why, open}."""
     arm_lvl = 15.0 if variant == "A15" else 10.0
@@ -127,7 +135,7 @@ def trades(ind: dict, variant: str) -> list[dict]:
             if c[k] <= p0 * (1 - STOP):
                 why = "손절 −8%"
                 break
-            if not armed and _ok(cci[k], mdi[k]) and cci[k] >= cs.CCI_OVERBOUGHT and mdi[k] <= arm_lvl:
+            if not armed and _armed(cci, mdi, k, arm_lvl, 5 if variant == "A5" else 1):
                 armed = True
             elif armed and _ok(cci[k], mdi[k], mdi[k - 1]) and cci[k] < cs.CCI_OVERBOUGHT \
                     and mdi[k] > mdi[k - 1]:

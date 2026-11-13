@@ -480,7 +480,10 @@ def bars(n=200):
 
 
 res = techtest.run({f"S{i}": bars() for i in range(20)}, {}, {"S1"})
-check("묶음 — 변형 5개 · 오늘 신호 A/C · 기간", set(res["variants"]) == set(techtest.VARIANTS)
+check("A5 — 5봉 창 안에서 따로 맞아도 대기, 같은 날 규칙은 아님",
+      techtest._armed([120, 50, 50], [20, 20, 8], 2, 10.0, 5)
+      and not techtest._armed([120, 50, 50], [20, 20, 8], 2, 10.0, 1))
+check("묶음 — 변형 6개 · 오늘 신호 A/C · 기간", set(res["variants"]) == set(techtest.VARIANTS)
       and set(res["signals"]) == {"A", "C"} and res["window"]["to"] == "d199")
 check("C 는 허용 종목만", all(x["s"] == "S1" for x in res["variants"]["C"]["recent"]))
 check("짧은 · 빈 일봉은 건너뜀", techtest.run({"X": {"close": [1, 2]}, "Y": {}})["n_syms"] == 0)

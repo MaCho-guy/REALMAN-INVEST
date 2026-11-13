@@ -897,7 +897,101 @@ def _build_universe(app, out_dir: str, markets=("us", "kr")) -> dict:
         h = {"skipped": f"{type(exc).__name__}: {str(exc)[:160]}"}
     out["picks_history"] = h
     print(f"  후보 기록: {h}")
+    try:
+        pp = build_paper(out_dir, markets)
+    except Exception as exc:  # noqa: BLE001 - 실험이 실패해도 수집은 그대로
+        pp = {"skipped": f"{type(exc).__name__}: {str(exc)[:160]}"}
+    out["paper"] = pp
+    print(f"  모의 매수 실험: {pp}")
     return out
+
+
+def _market_inputs(out_dir: str, m: str):
+    """후보 계산 재료 (screens, frows, rows, semis, new) — 방금 만든 파일에서. 없으면 None."""
+    import chart_signals  # noqa: PLC0415
+
+    fun = _read_prev(out_dir, f"funnel_{m}.json")
+    ch = _read_prev(out_dir, f"chart_{m}.json")
+    screens = (_read_prev(out_dir, "universe_us.json").get("screens") if m == "us"
+               else fun.get("screens")) or []
+    if not screens or not fun.get("rows"):
+        return None
+    fix = (lambda t: t) if m == "kr" else (lambda t: str(t).replace("-", "."))
+    items = [d for d in (ch.get("rows") or []) if isinstance(d, dict)]
+    rows = {fix(r.ticker): r for r in (chart_signals.row_from_dict(d) for d in items) if r}
+    frows = {r.get("t"): r for r in fun.get("rows") or [] if isinstance(r, dict)}
+    semis = {fix(d.get("ticker")) for d in items if d.get("s")}
+    new = {fix(d.get("ticker")) for d in items if d.get("new")}
+    return screens, frows, rows, semis, new
+
+
+def build_paper(out_dir: str, markets=("us", "kr"), *, now: float | None = None,
+                bench_fn=None) -> dict:
+    """모의 매수 실험 (paper.py, 11/13) — 첫 회차에 후보 상위를 '사고', 이후 회차마다 근거를
+    다시 판정해 깨지면 '판다'. 지난 paper_portfolio.json 을 이어받습니다."""
+    import integrate  # noqa: PLC0415
+    import paper  # noqa: PLC0415
+    import universe  # noqa: PLC0415
+
+    now = time.time() if now is None else now
+    day = time.strftime("%Y-%m-%d %H:%M", time.localtime(now))
+    inputs = {m: _market_inputs(out_dir, m) for m in markets}
+    inputs = {m: v for m, v in inputs.items() if v}
+    if not inputs:
+        return {"skipped": "깔때기 파일이 없습니다"}
+
+    def bench_default(syms):
+        from sources import yahoo  # noqa: PLC0415
+        got, _e = yahoo.fetch_ohlc(list(syms))
+        return {s_: (d.get("close") or [None])[-1] for s_, d in got.items()}
+
+    try:
+        braw = (bench_fn or bench_default)([paper.BENCH[m] for m in inputs])
+    except Exception:  # noqa: BLE001
+        braw = {}
+    bench = {m: braw.get(paper.BENCH[m]) for m in inputs}
+    prices = {(m, t): paper._px(r) for m, v in inputs.items() for t, r in v[2].items()
+              if paper._px(r) is not None}
+    pf = _read_prev(out_dir, "paper_portfolio.json")
+    if True:   # 묶음마다 — 아직 없는 묶음은 이 회차에 시작
+        picks = {}
+        for m, (screens, frows, rows, semis, new) in inputs.items():
+            st_ = integrate.split(integrate.build(screens, frows, rows, {}, semis, new,
+                                                  market=m))[0]
+            gr_ = integrate.split(integrate.build_growth(screens, frows, rows, semis, new, m,
+                                                         {c.ticker for c in st_}))[0]
+            by_t = {s_.get("t"): s_ for s_ in screens if isinstance(s_, dict)}
+            for track, lst, n in (("stable", st_, paper.STABLE_N), ("growth", gr_, paper.GROWTH_N)):
+                chosen = []
+                for c in lst[:n]:
+                    lamps, _b = paper.judge(track, by_t.get(c.ticker), frows.get(c.ticker),
+                                            rows.get(c.ticker), m)
+                    chosen.append((c.ticker, c.name, lamps or {}))
+                picks[(m, track)] = chosen
+    started = []
+    if not pf.get("pos"):
+        pf = {"version": 1, "start": day, "bench": {}, "pos": [], "events": []}
+    else:
+        judged = {}
+        for ps in pf["pos"]:
+            v = inputs.get(ps["m"])
+            if not v or ps.get("state") != "hold":
+                continue
+            screens, frows, rows, _s, _n = v
+            summ = next((s_ for s_ in screens if isinstance(s_, dict) and s_.get("t") == ps["t"]),
+                        None)
+            judged[(ps["m"], ps["track"], ps["t"])] = paper.judge(
+                ps["track"], summ, frows.get(ps["t"]), rows.get(ps["t"]), ps["m"])
+        pf = paper.step(pf, day, judged, prices, bench)
+    for (m, track), chosen in picks.items():
+        if chosen and not paper.has_sleeve(pf, m, track):
+            if paper.add_sleeve(pf, day, m, track, chosen, prices, bench):
+                started.append(f"{m}/{track}")
+    pf["last"] = day
+    action = "start " + ",".join(started) if started else "step"
+    size_b = _write_out(out_dir, "paper_portfolio.json", universe.dump(pf))
+    return {"action": action, "pos": len(pf["pos"]),
+            "hold": sum(1 for p in pf["pos"] if p["state"] == "hold"), "bytes": size_b}
 
 
 def build_picks_history(out_dir: str, markets=("us", "kr"), *, now: float | None = None) -> dict:
@@ -911,18 +1005,10 @@ def build_picks_history(out_dir: str, markets=("us", "kr"), *, now: float | None
     day = time.strftime("%Y-%m-%d", time.localtime(now))     # 워크플로 TZ=Asia/Seoul
     snaps, counts = {}, {}
     for m in markets:
-        fun = _read_prev(out_dir, f"funnel_{m}.json")
-        ch = _read_prev(out_dir, f"chart_{m}.json")
-        screens = (_read_prev(out_dir, "universe_us.json").get("screens") if m == "us"
-                   else fun.get("screens")) or []
-        if not screens or not fun.get("rows"):
+        v = _market_inputs(out_dir, m)
+        if not v:
             continue
-        fix = (lambda t: t) if m == "kr" else (lambda t: str(t).replace("-", "."))
-        items = [d for d in (ch.get("rows") or []) if isinstance(d, dict)]
-        rows = {fix(r.ticker): r for r in (chart_signals.row_from_dict(d) for d in items) if r}
-        frows = {r.get("t"): r for r in fun.get("rows") or [] if isinstance(r, dict)}
-        semis = {fix(d.get("ticker")) for d in items if d.get("s")}
-        new = {fix(d.get("ticker")) for d in items if d.get("new")}
+        screens, frows, rows, semis, new = v
         snaps[m] = picks_log.snapshot(screens, frows, rows, m, semis, new)
         counts[m] = {k: len(v) for k, v in snaps[m].items()}
     if not snaps:

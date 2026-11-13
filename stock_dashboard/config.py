@@ -211,6 +211,9 @@ UNIVERSE_URLS["chart_us"] = os.environ.get("CHART_US_URL", _DATA_RAW + "chart_us
 #: 후보 기록 — 수집할 때마다 그날 안정형 · 성장형 후보와 종가를 하루 한 줄씩 (picks_log.py, 11/13)
 UNIVERSE_URLS["picks_history"] = os.environ.get("PICKS_HISTORY_URL",
                                                 _DATA_RAW + "picks_history.json")
+#: 모의 매수 실험 — 후보 상위를 '샀다고 치고' 근거가 깨지면 '판다' (paper.py, 11/13)
+UNIVERSE_URLS["paper_portfolio"] = os.environ.get("PAPER_PORTFOLIO_URL",
+                                                  _DATA_RAW + "paper_portfolio.json")
 #: 국내 품질 심사(DART 사업보고서)를 다시 하는 주기(시간) — **일주일에 한 번**.
 #: 350종목 × 사업보고서 4건 = 약 1,400건 (DART 한도는 하루 20,000건)이고,
 #: 2026-11-12 첫 실행에서 **1,143초(19분)** 걸렸습니다. 매일 하면 아침 수집 전체가

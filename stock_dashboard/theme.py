@@ -1863,6 +1863,20 @@ def build_rules() -> str:
   .ic-note {{ color: var(--dash-ink-2); min-width: 0; overflow-wrap: anywhere; }}
   .ic-out {{ margin: 4px 0 0; padding-left: 1.1em; font-size: var(--fs-2); color: var(--dash-ink-2); }}
   .ic-out li {{ margin: 2px 0; }} .ic-out span {{ color: var(--dash-ink-muted); }}
+  /* 모의 매수 실험 (11/13) */
+  .dash-paper .pp-h {{ margin: 10px 0 4px; font-size: var(--fs-2); }}
+  .dash-paper .pp-list {{ display: grid; gap: 6px; }}
+  .dash-paper .pp-row {{ background: var(--dash-surface); border: 1px solid var(--dash-divider);
+                        border-radius: var(--r-card); padding: 8px 12px; }}
+  .dash-paper .pp-row.sold {{ opacity: .75; }}
+  .dash-paper .pp-top {{ display: flex; gap: 6px; align-items: baseline; }}
+  .dash-paper .pp-r {{ margin-left: auto; font-weight: 750; font-variant-numeric: tabular-nums; }}
+  .dash-paper .pp-r.up {{ color: var(--dash-up); }} .dash-paper .pp-r.down {{ color: var(--dash-down); }}
+  .dash-paper .pp-sub {{ font-size: var(--fs-2); color: var(--dash-ink-2); margin-top: 2px;
+                        font-variant-numeric: tabular-nums; }}
+  .dash-paper .pp-st {{ font-size: var(--fs-1); color: var(--dash-ink-2); margin-top: 2px; }}
+  .dash-paper .pp-ev ul {{ margin: 0; padding-left: 1.1em; font-size: var(--fs-2); }}
+  .dash-paper .pp-ev li {{ margin: 3px 0; }} .dash-paper .pp-ev li span {{ color: var(--dash-ink-muted); }}
   /* 내 종목 기준 점검 (11/13) */
   .dash-hchecks {{ display: grid; gap: 6px; margin: 4px 0 12px; }}
   .hc-row {{ background: var(--dash-surface); border: 1px solid var(--dash-divider);

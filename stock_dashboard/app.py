@@ -1916,6 +1916,34 @@ def _picks_history_line(market: str, use_demo: bool) -> None:
         f"<b>후보 기록</b> {n}일치" + (f" ({first}부터)" if first else "")
         + " — 날마다 안정형 · 성장형 후보와 종가를 남깁니다. 4주 넘게 쌓이면 '후보에 오른 종목이 "
         "이후 시장 대비 어땠나' 를 비교해 규칙을 고칩니다."), unsafe_allow_html=True)
+    _render_paper(market, use_demo)
+
+
+def _render_paper(market: str, use_demo: bool) -> None:
+    """모의 매수 실험 (paper.py, 11/13) — 후보 상위를 샀다고 치고 근거가 깨지면 판 기록."""
+    import paper  # noqa: PLC0415
+
+    pf = _universe_or_none("paper_portfolio", use_demo)
+    st.markdown(ui.render_section_head(
+        "모의 매수 실험", f"시작 {str(pf.get('start') or '—')[:16]} · 마지막 판정 "
+        f"{str(pf.get('last') or '—')[:16]} · 수집 회차마다 다시 판정"), unsafe_allow_html=True)
+    if not pf.get("pos"):
+        st.markdown(ui.render_notice(
+            "아직 시작 전입니다 — 다음 수집(15:43 · 06:43)에서 시장마다 안정형 상위 "
+            f"{paper.STABLE_N} · 성장형 상위 {paper.GROWTH_N}종목을 그 회차 종가로 '산' 것으로 "
+            "시작합니다."), unsafe_allow_html=True)
+        return
+    html = ui.render_paper(pf, market)
+    st.markdown(html or ui.render_notice("이 시장에는 아직 묶음이 없습니다."),
+                unsafe_allow_html=True)
+    st.markdown(ui.render_legend(
+        f"<b>규칙</b> — 첫 회차에 시장마다 안정형 상위 {paper.STABLE_N} · 성장형 상위 "
+        f"{paper.GROWTH_N}종목을 같은 비중으로 그 회차 종가에 매수(이후 추가 매수 없음). "
+        "매수 근거(후보 관문)가 깨진 회차의 종가로 매도 — 안정형: 품질 통과 상실 · 가격 부담 높음 · "
+        "선행 EPS 90일 −5% 이하 · 실적 추세 악화 / 성장형: 성장 품질 미통과 · PEG "
+        f"{__import__('growth').PEG_OK} 초과 · 선행 EPS 90일 −5% 이하. 등이 바뀌면 '변경' 으로 "
+        f"적음. 시장 = 같은 기간 {paper.BENCH[market]}. 수수료 · 세금 · 환율 없음 · 실제 체결가 아님 "
+        "— 규칙을 점검하려는 기록이지 투자 성과가 아닙니다."), unsafe_allow_html=True)
 
 
 def _render_growth_picks(stable_cands: list, meta: dict, market: str) -> None:

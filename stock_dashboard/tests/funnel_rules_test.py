@@ -378,6 +378,52 @@ check("수집기가 기록 단계를 부르고 실패해도 수집은 계속",
       "h = build_picks_history(out_dir, markets)" in
       pathlib.Path("tools/collect.py").read_text(encoding="utf-8"))
 
+print("\n=== 모의 매수 실험 (11/13) ===")
+import paper  # noqa: E402
+
+S = dict(summ("A", [P] * 7 + [U, U]))
+good_fr = {"p": light_p, "f": {"c90": 0.03, "c30": 0.01}}
+l0, b0 = paper.judge("stable", S, good_fr, None, "kr")
+check("판정 — 근거 멀쩡하면 깨진 것 없음", b0 == [] and l0["quality"] == "g" and l0["price"] == "g")
+pf0 = paper.start("2026-11-13 15:45", {("kr", "stable"): [("A", "가", l0)]},
+                  {("kr", "A"): 100.0}, {"kr": 50000.0})
+check("매수 — 종가 · 시장 지수 · 등 저장", pf0["pos"][0]["p0"] == 100.0 and pf0["pos"][0]["b0"] == 50000.0
+      and pf0["events"][0][4] == "buy")
+l1, b1 = paper.judge("stable", S, {"p": light_p, "f": {"c90": 0.001, "c30": 0.0}}, None, "kr")
+pf1 = paper.step(pf0, "2026-11-14 15:45", {("kr", "stable", "A"): (l1, b1)},
+                 {("kr", "A"): 103.0}, {"kr": 49000.0})
+check("변경점 — 선행 EPS 충족→보통 은 기록만, 매도 아님",
+      pf1["pos"][0]["state"] == "hold" and pf1["events"][-1][4] == "change"
+      and "선행 EPS 충족→보통" in pf1["events"][-1][5])
+l2, b2 = paper.judge("stable", S, {"p": heavy_p, "f": {"c90": -0.07}}, None, "kr")
+pf2 = paper.step(pf1, "2026-11-15 15:45", {("kr", "stable", "A"): (l2, b2)},
+                 {("kr", "A"): 95.0}, {"kr": 48000.0})
+pz = pf2["pos"][0]
+check("매도 — 근거 깨진 회차 종가 · 이유 · 수익률", pz["state"] == "sold" and pz["p1"] == 95.0
+      and "가격 부담 높음" in pz["why"] and "선행 EPS 90일" in pz["why"] and abs(paper.ret(pz) + 0.05) < 1e-9)
+check("시장 수익률은 매도 회차에서 멈춤", abs(paper.bench_ret(pz) - (48000 / 50000 - 1)) < 1e-9)
+pf3 = paper.step(pf2, "2026-11-16 15:45", {}, {("kr", "A"): 80.0}, {"kr": 40000.0})
+check("팔린 종목은 이후 가격 · 지수에 안 움직임", paper.ret(pf3["pos"][0]) == paper.ret(pz)
+      and paper.bench_ret(pf3["pos"][0]) == paper.bench_ret(pz))
+pfn = paper.start("d", {("kr", "stable"): [("B", "나", l0)]}, {("kr", "B"): 10.0}, {})
+pfn = paper.step(pfn, "d2", {("kr", "stable", "B"): (None, [])}, {}, {})
+check("데이터 없으면 팔지 않고 '판정 불가'", pfn["pos"][0]["state"] == "hold" and pfn["pos"][0].get("na")
+      and pfn["events"][-1][4] == "na")
+check("늦게 시작하는 묶음 (성장 지표가 다음 수집부터)",
+      paper.add_sleeve(pfn, "d3", "kr", "growth", [("C", "다", {})], {("kr", "C"): 5.0}, {}) == 1
+      and paper.has_sleeve(pfn, "kr", "growth"))
+sm = paper.summary(pf2, "kr", "stable")
+check("요약 — 보유 · 매도 · 평균 · 시장", sm["sold"] == 1 and abs(sm["avg"] + 0.05) < 1e-9
+      and abs(sm["bench"] + 0.04) < 1e-9)
+ph = ui.render_paper(pf2, "kr")
+check("화면 — 카드 · 매도 이유 · 변경점", "pp-row sold" in ph and "근거 깨짐" in ph and "논거 변경점" in ph)
+check("빈 실험은 그리지 않음", ui.render_paper({"pos": []}, "kr") == "")
+col = pathlib.Path("tools/collect.py").read_text(encoding="utf-8")
+check("수집기가 실험 단계를 부르고 워크플로가 이어받음",
+      "pp = build_paper(out_dir, markets)" in col and "paper_portfolio.json" in wf
+      and "paper_portfolio.json" in real)
+check("후보 탭이 실험을 그림", "_render_paper(market, use_demo)" in app_src)
+
 print("\n" + "=" * 54)
 if FAILURES:
     print(f"실패 {len(FAILURES)}건: {FAILURES}")

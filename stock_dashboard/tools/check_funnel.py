@@ -173,6 +173,20 @@ def main() -> int:
     d = {n: load(n, a.dir) for n in FILES}
     bad = (check_market("us", d) + check_market("kr", d) + check_kr_extra(d)
            + check_growth(d))
+    try:
+        import paper  # noqa: PLC0415
+        pf = load("paper_portfolio", a.dir)
+        print(f"\n[모의 매수 실험] 시작 {pf.get('start')} · 마지막 {pf.get('last')}")
+        for m in ("us", "kr"):
+            for tr in ("stable", "growth"):
+                smy = paper.summary(pf, m, tr)
+                if smy["n"]:
+                    print(f"  {m}/{tr}: {smy}")
+                    for p_ in [x for x in pf["pos"] if x["m"] == m and x["track"] == tr]:
+                        print(f"    {p_['t']:8} {p_['n'][:14]:14} {p_['p0']} → {p_.get('p1') or p_.get('p')}"
+                              f" {paper.ret(p_) * 100:+.1f}% · {p_['state']} {p_.get('why', '')}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"\n[모의 매수 실험] 파일 없음 ({type(exc).__name__})")
     print()
     for b in bad:
         print("틀림:", b)

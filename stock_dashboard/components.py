@@ -5115,3 +5115,51 @@ def render_holding_checks(items: list) -> str:
             + (f'<div class="hc-f">점검 필요 — {_esc(flag)}</div>' if flag else "")
             + "</div>")
     return f'<div class="dash-hchecks">{"".join(rows)}</div>' if rows else ""
+
+
+def _pct(v) -> str:
+    return "—" if v is None else f"{v * 100:+.1f}%"
+
+
+def render_paper(pf: dict, market: str) -> str:
+    """모의 매수 실험 (11/13, paper.py) — 묶음(안정형 · 성장형)마다 요약 줄 + 종목 표 + 최근 변경점."""
+    import paper  # noqa: PLC0415
+
+    out = []
+    cur = "원" if market == "kr" else "$"
+    for track, label in (("stable", "안정형"), ("growth", "성장형")):
+        ps = [p for p in pf.get("pos", []) if p["m"] == market and p["track"] == track]
+        if not ps:
+            continue
+        sm = paper.summary(pf, market, track)
+        exc = (sm["avg"] - sm["bench"]) if sm["avg"] is not None and sm["bench"] is not None else None
+        head = (f'<div class="pp-h"><b>{label}</b> · {sm["n"]}종목 (보유 {sm["hold"]} · 매도 '
+                f'{sm["sold"]}) · 평균 <b>{_pct(sm["avg"])}</b> · 같은 기간 시장 {_pct(sm["bench"])}'
+                + (f' · 차이 <b>{_pct(exc)}</b>' if exc is not None else "") + "</div>")
+        rows = []
+        fmt = (lambda v: f"{v:,.0f}{cur}") if market == "kr" else (lambda v: f"{cur}{v:,.2f}")
+        for p in ps:
+            sold = p["state"] == "sold"
+            end = p.get("p1") if sold else p.get("p")
+            r = paper.ret(p)
+            cls = "up" if r > 0.0005 else ("down" if r < -0.0005 else "flat")
+            state = (f'매도 {_esc(str(p.get("d1", ""))[5:10])} — {_esc(p.get("why", ""))}' if sold
+                     else ("보유 · 판정 불가" if p.get("na") else "보유"))
+            rows.append(
+                f'<div class="pp-row{" sold" if sold else ""}"><div class="pp-top"><b>{_esc(p["n"])}</b>'
+                f'<span class="pk-code">{_esc(p["t"])}</span><span class="pp-r {cls}">{_pct(r)}</span></div>'
+                f'<div class="pp-sub">{_esc(str(p["d0"])[5:10])} {fmt(p["p0"])} → '
+                f'{fmt(end) if end else "—"} · 시장 {_pct(paper.bench_ret(p))}</div>'
+                f'<div class="pp-st">{state}</div></div>')
+        out.append(head + f'<div class="pp-list">{"".join(rows)}</div>')
+    ev = [e for e in pf.get("events", []) if e[1] == market and e[4] != "buy"][-10:]
+    if ev:
+        names = {p["t"]: p["n"] for p in pf.get("pos", [])}
+        kind = {"change": "변경", "sell": "매도", "na": "판정 불가"}
+        items = "".join(
+            f'<li><span>{_esc(str(e[0])[5:16])}</span> <b>{_esc(names.get(e[3], e[3]))}</b> '
+            f'({"안정형" if e[2] == "stable" else "성장형"}) · {kind.get(e[4], e[4])} — {_esc(e[5])}</li>'
+            for e in reversed(ev))
+        out.append(f'<div class="pp-ev"><div class="pp-h"><b>논거 변경점 · 매도 기록</b> (최근 '
+                   f'{len(ev)})</div><ul>{items}</ul></div>')
+    return f'<div class="dash-paper">{"".join(out)}</div>' if out else ""

@@ -502,6 +502,7 @@ check("근거 — 묶음(후보 · 빠짐 · 보류 · 품질 미달) 고르기 
       "def _pick_one(" in app_src and 'grp = _pick_one("묶음"' in app_src
       and 'st.expander(f"추가 확인 — 좋음' in app_src and 'st.expander(f"품질 9개 기준' in app_src)
 check("요약에 아침 브리핑 한 줄 없음", "render_briefing_line(briefings[0])" not in app_src)
+check("안쪽 스크롤 칸은 30줄 넘는 목록만 (18:34)", ui.STACK_LONG == 30)
 
 print("\n== 차트 전략 백테스트 (techtest, 11/13)")
 import techtest  # noqa: E402

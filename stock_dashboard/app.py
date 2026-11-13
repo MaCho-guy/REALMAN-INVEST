@@ -3835,7 +3835,11 @@ def render_earnings_tab(use_demo: bool, *, market: str = "kr") -> None:
 
     held = _kr_held_codes(use_demo)
     names = _kr_name_map()
-    codes = _kr_watch_codes(use_demo)
+    # 내 종목(보유 + 관심)만, 순서는 보유 먼저. 국내 본주(SECTION_LOCAL —
+    # 현대차 · 삼성전자우)는 괴리율 계산용 기준 가격이라 뺍니다 (11/14 사용자:
+    # "나 현대차 없는데 왜 들어가 있지" — _kr_watch_codes 를 쓰던 탓).
+    _mine = _kr_my_codes(use_demo)
+    codes = [c for c in _kr_watch_codes(use_demo) if c in _mine]
     raw = load_kr_quarters(tuple(codes), use_demo)
     store = earnings.ConsensusStore(os.path.join(swr.DISK_DIR, "consensus.json"))
     filings = _latest_kr_earnings_filings(use_demo)
@@ -6400,7 +6404,8 @@ def _section_jobs(section: str, market: str, use_demo: bool) -> dict:
             tuple(_kr_watch_codes(use_demo)), use_demo)
     elif section == "earnings" and market == "kr":
         jobs["분기 실적"] = lambda: load_kr_quarters(
-            tuple(_kr_watch_codes(use_demo)), use_demo)
+            tuple(c for c in _kr_watch_codes(use_demo)
+                  if c in _kr_my_codes(use_demo)), use_demo)
         jobs["주요 공시"] = lambda: load_market_filings(use_demo, dfp)
     elif section == "earnings":
         jobs["실적 (야후)"] = lambda: load_us_earnings(

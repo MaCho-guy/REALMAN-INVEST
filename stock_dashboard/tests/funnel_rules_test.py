@@ -575,6 +575,16 @@ check("값이 있거나 채울 값이 없으면 안 붙음", "bf-fill" not in ui
 check("화면이 브리핑 날짜 전날까지의 마지막 거래일로 채움", "def _briefing_fills(bf, use_demo" in app_src
       and "fills=_briefing_fills(bf, use_demo)" in app_src)
 
+print("\n== 폰 접는 메뉴 (11/13 19:43)")
+import theme  # noqa: E402
+_cssm = theme.build_css("kr")
+check("폰: 접는 메뉴 줄이 있을 때만 세로 메뉴 숨김 · PC 에서는 줄 숨김",
+      'body:has(.st-key-mnav_bar button) div[data-testid="stColumn"]:has(.dash-navmark)' in _cssm
+      and ".st-key-mnav_bar {{ display: none; }}".replace("{{", "{").replace("}}", "}") in _cssm
+      and "def _mobile_nav(market" in app_src and "_section_nav(market, labels, mobile=True)" in app_src)
+check("접는 메뉴 버튼은 key 를 따로(_m) · 색 규칙도 popover 범위", "navbtn_kr_picks_m" in
+      theme.nav_group_css("kr", config.tab_groups("kr"), mobile=True))
+
 print("\n== 차트 전략 백테스트 (techtest, 11/13)")
 import techtest  # noqa: E402
 

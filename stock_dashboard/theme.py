@@ -85,18 +85,20 @@ def group_tone(index: int) -> tuple[str, str, str, str]:
     return GROUP_TONES[index % len(GROUP_TONES)]
 
 
-def nav_group_css(market: str, groups) -> str:
+def nav_group_css(market: str, groups, *, mobile: bool = False) -> str:
     """내비 버튼에 묶음 색을 입히는 규칙. groups = config.tab_groups(market).
 
     스트림릿은 key 가 있는 위젯에 `st-key-<key>` 클래스를 붙입니다 (1.39+). 그
     클래스가 없는 버전이면 이 규칙만 안 먹고 내비는 예전 모양으로 돕니다.
     """
-    col = 'div[data-testid="stColumn"]:has(.dash-navmark)'
+    col = ('[data-testid="stPopoverBody"]' if mobile
+           else 'div[data-testid="stColumn"]:has(.dash-navmark)')
+    sfx = "_m" if mobile else ""
     out = []
     for gi, (_name, items) in enumerate(groups):
         _k, tint, mid, line = group_tone(gi)
         for key, _label in items:
-            b = f"{col} .st-key-navbtn_{market}_{key} button"
+            b = f"{col} .st-key-navbtn_{market}_{key}{sfx} button"
             out.append(
                 f'{b}[kind="secondary"]{{background:{tint} !important;'
                 f"border:1px solid transparent !important;}}"
@@ -1445,6 +1447,8 @@ def build_rules() -> str:
   @keyframes dash-run {{ from {{ background-position: -40% 0; }} to {{ background-position: 140% 0; }} }}
   div[data-testid="stColumn"]:has(.dash-navmark) button:active {{
     background: var(--grp-mid, var(--dash-raised)) !important; }}
+  /* 폰 접는 메뉴 줄(11/13 19:43) — PC 에서는 숨김 */
+  .st-key-mnav_bar {{ display: none; }}
   /* 묶음 줄바꿈 표식 (11/13) — 폰에서만 쓰고 PC 에서는 자리를 차지하지 않게 */
   div[data-testid="stElementContainer"]:has(.dash-navbr) {{ display: none; }}
 
@@ -3142,6 +3146,38 @@ def build_type_rules() -> str:
       font-weight: 700; color: var(--dash-ink); background: var(--grp-mid, var(--dash-raised));
       border-radius: var(--r-pill); padding: 0 8px; margin: 0 0 3px; }
     .dash-brief-text { display: block; line-height: 1.5; }
+    /* ⑦ 메뉴를 한 줄로 접기 (11/13 19:43 사용자 승인) — 세로 메뉴(약 250px)를 숨기고
+       '묶음 › 지금 탭 · 다른 화면' 한 줄 버튼(st.popover)으로. 본문 위 '묶음 › 탭' 알약도 겹쳐서 숨김 */
+    .st-key-mnav_bar { display: block; }
+    /* 접는 메뉴가 실제로 그려졌을 때만 세로 메뉴를 숨김 (popover 없는 스트림릿이면 그대로) */
+    body:has(.st-key-mnav_bar button) div[data-testid="stColumn"]:has(.dash-navmark) {
+      display: none !important; }
+    body:has(.st-key-mnav_bar button) .dash-crumb { display: none; }
+    .st-key-mnav_bar button { justify-content: space-between !important; min-height: 38px;
+      padding: 4px 12px !important; border-radius: var(--r-inner) !important;
+      background: var(--grp-tint, var(--dash-surface)) !important;
+      border: 1px solid var(--grp-line, var(--dash-border)) !important; }
+    .st-key-mnav_bar button p { font-size: var(--fs-num) !important; font-weight: 700; }
+    [data-testid="stPopoverBody"]:has(.dash-navmark-m) [data-testid="stVerticalBlock"] {
+      flex-direction: row !important; flex-wrap: wrap !important; gap: 5px !important; }
+    [data-testid="stPopoverBody"]:has(.dash-navmark-m) div[data-testid="stElementContainer"] {
+      width: auto !important; flex: 0 0 auto !important; }
+    [data-testid="stPopoverBody"]:has(.dash-navmark-m)
+      div[data-testid="stElementContainer"]:has(.dash-navmark-m) { display: none !important; }
+    [data-testid="stPopoverBody"]:has(.dash-navmark-m)
+      div[data-testid="stElementContainer"]:has(.dash-navbr) {
+      display: block !important; flex-basis: 100% !important; width: 100% !important;
+      height: 0 !important; margin: 0 !important; }
+    [data-testid="stPopoverBody"]:has(.dash-navmark-m)
+      div[data-testid="stElementContainer"]:has(.dash-navhead) { align-self: center; }
+    [data-testid="stPopoverBody"]:has(.dash-navmark-m)
+      div[data-testid="stElementContainer"]:has(.dash-navhead) [data-testid="stMarkdownContainer"] {
+      margin-bottom: 0 !important; }
+    [data-testid="stPopoverBody"] .dash-navhead { margin: 0 !important; font-size: var(--fs-1);
+      min-width: 4.2em; }
+    [data-testid="stPopoverBody"]:has(.dash-navmark-m) button { min-height: 30px !important;
+      padding: 1px 9px !important; border-radius: var(--r-inner) !important; width: auto !important; }
+    [data-testid="stPopoverBody"]:has(.dash-navmark-m) button p { font-size: var(--fs-nav) !important; }
     table.dash-rt.dash-stk tr { display: flex; flex-direction: column; }
     table.dash-rt.dash-stk td.rt-title {
       order: -1; text-align: left !important; font-size: var(--fs-4); font-weight: 650;

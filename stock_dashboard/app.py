@@ -6544,6 +6544,29 @@ def _peek_section(market: str) -> str:
     return cand if cand in ordered else ordered[0]
 
 
+def _mobile_nav(market: str, labels: dict) -> None:
+    """폰 접는 메뉴 — 지금 탭 이름이 적힌 한 줄 버튼 → 누르면 묶음별 버튼 (st.popover).
+    popover 가 없는 스트림릿이면 아무것도 안 그림(세로 메뉴가 그대로 보임 — CSS 가 :has 로 판단)."""
+    pop = getattr(st, "popover", None)
+    if pop is None:
+        return
+    cur = _peek_section(market)
+    groups = config.tab_groups(market)
+    gname = next((g for g, items in groups if any(k == cur for k, _l in items)), "")
+    label = f"{gname} › {labels.get(cur, cur)}   ·   다른 화면"
+    try:
+        box = st.container(key="mnav_bar")
+    except TypeError:                      # key 를 못 받는 예전 스트림릿
+        return
+    with box:
+        try:
+            ctx = pop(label, use_container_width=True)
+        except TypeError:
+            ctx = pop(label)
+        with ctx:
+            _section_nav(market, labels, mobile=True)
+
+
 def _nav_button(label: str, key: str, active: bool, on_click, args) -> None:
     kw = dict(key=key, type="primary" if active else "secondary",
               on_click=on_click, args=args)
@@ -6553,7 +6576,7 @@ def _nav_button(label: str, key: str, active: bool, on_click, args) -> None:
         st.button(label, use_container_width=True, **kw)
 
 
-def _section_nav(market: str, labels: dict) -> str:
+def _section_nav(market: str, labels: dict, *, mobile: bool = False) -> str:
     """왼쪽 섹션 목록 — **진짜 버튼**으로 그립니다. 고른 섹션 키를 돌려줍니다.
 
     2026-11-11: 라디오를 CSS 로 목록처럼 꾸몄는데 실제 앱에서는 버튼
@@ -6574,8 +6597,9 @@ def _section_nav(market: str, labels: dict) -> str:
     # 묶음마다 옅은 색 (11/13) — 표식과 같은 칸에 규칙을 실어 요소를 늘리지 않습니다
     import theme  # noqa: PLC0415
 
-    st.markdown('<div class="dash-navmark"></div>'
-                f"<style>{theme.nav_group_css(market, groups)}</style>",
+    sfx = "_m" if mobile else ""          # 폰 접는 메뉴(11/13 19:43)는 버튼 key 를 따로
+    st.markdown(f'<div class="{"dash-navmark-m" if mobile else "dash-navmark"}"></div>'
+                f"<style>{theme.nav_group_css(market, groups, mobile=mobile)}</style>",
                 unsafe_allow_html=True)
     for gi, (gname, items) in enumerate(groups):
         if not items:
@@ -6586,7 +6610,7 @@ def _section_nav(market: str, labels: dict) -> str:
         st.markdown(f'<div class="dash-navhead"><i style="--dot:{theme.group_tone(gi)[3]}">'
                     f"</i>{gname}</div>", unsafe_allow_html=True)
         for k, _lbl in items:
-            _nav_button(labels.get(k, k), f"navbtn_{market}_{k}",
+            _nav_button(labels.get(k, k), f"navbtn_{market}_{k}{sfx}",
                         k == cur, pick, (k,))
     try:
         if st.query_params.get("s") != cur:
@@ -6742,6 +6766,9 @@ def render_body(opts: dict) -> None:
 
     # st.tabs 는 보이지 않는 탭의 본문까지 전부 실행합니다 — 그래서
     # 선택한 섹션 하나만 실행하는 세로 내비를 씁니다.
+    # 폰(11/13 19:43 사용자 승인 "메뉴를 한 줄로 접기"): '묶음 › 지금 탭 ▾' 한 줄을 누르면 메뉴가
+    # 펼쳐짐. PC 에서는 이 줄을 숨기고 왼쪽 세로 메뉴를, 폰에서는 세로 메뉴를 숨김 (theme ⑦)
+    _mobile_nav(market, labels)
     nav_col, body_col = st.columns([1, 5], gap="medium")
 
     with nav_col:

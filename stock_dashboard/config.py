@@ -1069,6 +1069,7 @@ TAB_ORDER: tuple[str, ...] = (
     "holdings",     # 내가 가진 종목 — 변화 감지 + 시세 + 공시 분석
     "discover",     # 품질 깔때기 — 재무 품질 → 가격 → 차트 (한·미)
     "screener",     # 거래 스크리너 — 한국 주가·거래 패턴 6개 (11/13 종목 발굴에서 나눔)
+    "picks",        # 통합 후보 — 한국, 품질 · 가격 · 차트 · 거래 네 모델의 등 (11/13)
     "valuation",    # 걸러낸 종목 밸류에이션 — 역DCF + 사분면
     "chart",        # 차트 조건 — 일목 양운 · CCI · MACD · DMI (일봉)
     "sector_heat",  # 한국 — 섹터 온도 (KODEX 업종 ETF)
@@ -1138,7 +1139,7 @@ SECTIONS_MERGED_INTO: dict[str, str] = {
 MARKET_TABS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
     "kr": (
         ("오늘", ("summary", "briefing", "holdings")),
-        ("찾기", ("discover", "screener", "valuation", "chart")),
+        ("찾기", ("picks", "discover", "screener", "valuation", "chart")),
         ("한국 시장", ("sector_heat", "supply", "research", "semi_research",
                    "kr_flows")),
         ("공통", ("calendar", "macro", "cycle")),
@@ -1161,6 +1162,7 @@ SPECIAL_TAB_LABELS = {
     "holdings": "내 종목",
     "discover": "품질 깔때기",
     "screener": "거래 스크리너",
+    "picks": "통합 후보",
     "macro": "매크로",
     "sector_heat": "섹터 온도",
     "kr_flows": "뉴스 · 공시 · 지표",

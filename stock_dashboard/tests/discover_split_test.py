@@ -27,8 +27,8 @@ def check(label, cond, detail=""):
 
 kr = dict(config.tab_groups("kr"))["찾기"]
 us = dict(config.tab_groups("us"))["찾기"]
-check("한국 찾기 = 품질 깔때기 · 거래 스크리너 · 밸류에이션 · 차트 조건",
-      [k for k, _l in kr] == ["discover", "screener", "valuation", "chart"], str(kr))
+check("한국 찾기 = 통합 후보(11/13) · 품질 깔때기 · 거래 스크리너 · 밸류에이션 · 차트 조건",
+      [k for k, _l in kr] == ["picks", "discover", "screener", "valuation", "chart"], str(kr))
 check("미국은 스크리너 없음 (원래 없던 화면)", "screener" not in [k for k, _l in us], str(us))
 check("탭 이름", dict(kr)["discover"] == "품질 깔때기" and dict(kr)["screener"] == "거래 스크리너")
 

@@ -1839,6 +1839,27 @@ def build_rules() -> str:
   .pk-chip.mid {{ background: var(--grp-tint, var(--dash-raised)); }}
   .pk-chip.plain {{ background: transparent; border: 1px solid var(--dash-divider);
                    color: var(--dash-ink-2); }}
+  /* 통합 후보 — 등 네 개 (2026-11-13). 초록 = 충족 · 노랑 = 보통 · 빨강 = 주의 · 빈칸 = 없음.
+     색만으로 뜻을 싣지 않게 등 옆에 낱말(충족 · 보통 · 주의)을 같이 적습니다. */
+  .ic-score {{ margin-left: auto; font-size: var(--fs-2); font-weight: 750; white-space: nowrap;
+              padding: 2px 10px; border-radius: var(--r-pill);
+              background: var(--grp-mid, var(--dash-raised)); color: var(--dash-ink); }}
+  .ic-lamps {{ display: grid; gap: 4px; margin: 6px 0 10px; }}
+  .ic-lamps.compact {{ grid-template-columns: repeat(4, minmax(0, 1fr)); }}
+  .ic-lamp {{ display: grid; grid-template-columns: 12px 2.6em 2.6em minmax(0, 1fr);
+             align-items: center; gap: 6px; font-size: var(--fs-2); }}
+  .ic-lamps.compact .ic-lamp {{ grid-template-columns: 12px auto; }}
+  .ic-lamps.compact .ic-w {{ display: none; }}
+  .ic-lamp i {{ width: 11px; height: 11px; border-radius: 50%; display: inline-block;
+               border: 1.5px solid var(--dash-ink-muted); background: transparent; }}
+  .ic-lamp.g i {{ background: #5b8c6a; border-color: #5b8c6a; }}
+  .ic-lamp.y i {{ background: #c9a650; border-color: #c9a650; }}
+  .ic-lamp.r i {{ background: transparent; border: 2.5px solid #9a5a4a; }}
+  .ic-l {{ font-weight: 700; color: var(--dash-ink); }}
+  .ic-w {{ color: var(--dash-ink-2); font-size: var(--fs-1); }}
+  .ic-note {{ color: var(--dash-ink-2); min-width: 0; overflow-wrap: anywhere; }}
+  .ic-out {{ margin: 4px 0 0; padding-left: 1.1em; font-size: var(--fs-2); color: var(--dash-ink-2); }}
+  .ic-out li {{ margin: 2px 0; }} .ic-out span {{ color: var(--dash-ink-muted); }}
   /* 가격 부담 높음 · 선행 EPS −5% 이하 — 빼지 않고 눈에 띄게 (2026-11-13) */
   .pk-chip.warn {{ border: 1.5px solid var(--dash-ink-2);
                   background: transparent; color: var(--dash-ink); }}

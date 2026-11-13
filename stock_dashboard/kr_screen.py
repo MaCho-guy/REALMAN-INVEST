@@ -772,3 +772,154 @@ KR_SCREENS = (
      "똑같이 올라옵니다 — 1주 수익률을 같이 적었습니다. 무슨 일이 있었는지 "
      "(공시·실적·수급) 확인할 종목의 목록입니다."),
 )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 후보 안에서의 순위로 정하는 기준 (2026-11-13)
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# 위의 고정 기준(52주 고가 90% · 수축비 0.80 · PBR 1.0 …)은 후보가 50종목이던
+# 시절 값입니다. 후보가 350종목이 되고 시장이 크게 빠진 날(2026-11-13: 52주 고가
+# 대비 중앙값 53%)에는 ① 2종목 · ⑤ 103종목 · ③ 101종목처럼 결과가 0 이나 100+ 로
+# 튀었습니다. '얼마나' 가 아니라 '후보 안에서 몇 등' 으로 정하면 장세가 바뀌어도
+# 목록 길이가 일정합니다 (목표: 스크리너마다 5~25종목).
+# ② 신고가 근처 · ⑥ 거래대금 급증은 절대값 자체가 뜻이라 그대로 둡니다.
+# 기준값은 실제 숫자로 바꿔 화면 · 이유 줄에 적습니다 (screen_rules).
+
+#: ① 52주 고가 대비가 상위 몇 % 이고(소수) · 수축비가 하위 몇 % 인가
+ADAPT_HIGH_TOP = 0.20
+ADAPT_CONTRACTION_Q = 0.40
+#: ④ 상대강도 상위 몇 % (%)
+ADAPT_RS_TOP_PCT = 7.0
+#: ⑤ 52주 고가 대비가 하위 몇 % (깊이 빠짐) · 20일 저점 대비 반등이 상위 몇 %
+ADAPT_DEEP_Q = 0.40
+ADAPT_OFF_LOW_TOP = 0.20
+#: ③ PBR · PER(흑자) 하위 몇 % · 배당수익률 상위 몇 % — 셋 다 (0.30 이면 35종목이라 0.25)
+ADAPT_VALUE_Q = 0.25
+
+
+def _quantile(values, q: float) -> float | None:
+    vals = sorted(v for v in values if v is not None)
+    if not vals:
+        return None
+    return vals[min(len(vals) - 1, max(0, int(len(vals) * q)))]
+
+
+def adaptive_thresholds(profiles: list[VolProfile], values: list[ValueRow] = ()) -> dict:
+    """후보 분포에서 이번 기준값을 뽑습니다 (유동성 바닥을 넘는 종목 기준)."""
+    live = [p for p in profiles if p.ok and p.liquid]
+    vals = [r for r in values if not r.error]
+    return {
+        "high": _quantile([p.pct_of_high for p in live], 1.0 - ADAPT_HIGH_TOP),
+        "contraction": _quantile([p.contraction for p in live], ADAPT_CONTRACTION_Q),
+        "rs_top": ADAPT_RS_TOP_PCT,
+        "deep": _quantile([p.pct_of_high for p in live], ADAPT_DEEP_Q),
+        "off_low": _quantile([p.off_low_pct for p in live], 1.0 - ADAPT_OFF_LOW_TOP),
+        "pbr": _quantile([r.pbr for r in vals if r.pbr is not None and r.pbr > 0],
+                         ADAPT_VALUE_Q),
+        "per": _quantile([r.per for r in vals if r.per is not None and r.per > 0],
+                         ADAPT_VALUE_Q),
+        "div": _quantile([r.div_yield for r in vals if r.div_yield is not None],
+                         1.0 - ADAPT_VALUE_Q),
+        "n_live": len(live), "n_values": len(vals),
+    }
+
+
+def adaptive_value_hits(rows: list[ValueRow], th: dict) -> list[Hit]:
+    """③ 순위판 — PBR · PER(흑자) 하위 30% **그리고** 배당 상위 30%."""
+    pb, pe, dv = th.get("pbr"), th.get("per"), th.get("div")
+    if pb is None or pe is None or dv is None:
+        return []
+    out: list[Hit] = []
+    for r in rows:
+        if r.error or r.pbr is None or r.per is None or r.div_yield is None:
+            continue
+        if not (0 < r.pbr <= pb and 0 < r.per <= pe and r.div_yield >= dv):
+            continue
+        out.append(Hit(
+            ticker=r.ticker, name=r.name,
+            reasons=[f"PBR {r.pbr:.2f} (후보 하위 {ADAPT_VALUE_Q * 100:.0f}% 선 {pb:.2f} 이하)",
+                     f"PER {r.per:.1f} (흑자 후보 하위 {ADAPT_VALUE_Q * 100:.0f}% 선 {pe:.1f} 이하)",
+                     f"배당수익률 {r.div_yield:.2f}% (상위 {ADAPT_VALUE_Q * 100:.0f}% 선 "
+                     f"{dv:.2f}% 이상)"],
+            metrics=[("PBR", f"{r.pbr:.2f}"), ("PER", f"{r.per:.1f}"),
+                     ("배당수익률", f"{r.div_yield:.2f}%")],
+            sort_key=r.per * r.pbr / max(r.div_yield, 0.1)))
+    out.sort(key=lambda h: h.sort_key)
+    return out
+
+
+def adaptive_hits(profiles: list[VolProfile], values: list[ValueRow],
+                  th: dict | None = None) -> dict[str, list[Hit]]:
+    """여섯 스크리너 — 순위 기준판. 기준을 못 뽑으면(후보가 비면) 빈 목록."""
+    th = th or adaptive_thresholds(profiles, values)
+    empty: list[Hit] = []
+    return {
+        "contraction": (contraction_hits(profiles, contraction_max=th["contraction"],
+                                         near_high_pct=th["high"])
+                        if th["contraction"] is not None and th["high"] is not None else empty),
+        "near_high": near_high_hits(profiles),
+        "value_trad": adaptive_value_hits(values, th),
+        "rs": relative_strength_hits(profiles, top_pct=th["rs_top"]),
+        "rebound": (rebound_hits(profiles, max_of_high=th["deep"], off_low_pct=th["off_low"])
+                    if th["deep"] is not None and th["off_low"] is not None else empty),
+        "surge": turnover_surge_hits(profiles),
+    }
+
+
+def adaptive_funnel(key: str, n_candidates: int, profiles: list[VolProfile],
+                    values: list[ValueRow], th: dict) -> list[FunnelStep]:
+    """순위 기준판의 단계표 — 기준값은 이번 숫자로 적습니다."""
+    if key == "value_trad":
+        ok = [r for r in values if not r.error]
+        have = [r for r in ok if None not in (r.pbr, r.per, r.div_yield)]
+        return [FunnelStep("후보", len(values)),
+                FunnelStep("세 지표 다 있음", len(have)),
+                FunnelStep(f"셋 다 싼 쪽 {ADAPT_VALUE_Q * 100:.0f}%", len(adaptive_value_hits(values, th)))]
+    head = vol_funnel(n_candidates, profiles)[:4]
+    live = [p for p in profiles if p.ok and p.liquid]
+    if key == "contraction" and th["high"] is not None and th["contraction"] is not None:
+        high = [p for p in live if (p.pct_of_high or 0) >= th["high"]]
+        return head + [
+            FunnelStep(f"52주 고가 대비 상위 {ADAPT_HIGH_TOP * 100:.0f}% ({th['high']:.0f}%↑)",
+                       len(high)),
+            FunnelStep(f"수축비 하위 {ADAPT_CONTRACTION_Q * 100:.0f}% ({th['contraction']:.2f}↓)",
+                       len(adaptive_hits(profiles, values, th)["contraction"]))]
+    if key == "rebound" and th["deep"] is not None and th["off_low"] is not None:
+        deep = [p for p in live if (p.pct_of_high or 100.0) <= th["deep"]]
+        off = [p for p in deep if (p.off_low_pct or 0.0) >= th["off_low"]]
+        return head + [
+            FunnelStep(f"52주 고가 대비 하위 {ADAPT_DEEP_Q * 100:.0f}% ({th['deep']:.0f}%↓)",
+                       len(deep)),
+            FunnelStep(f"20일 저점 반등 상위 {ADAPT_OFF_LOW_TOP * 100:.0f}% "
+                       f"(+{th['off_low']:.0f}%↑)", len(off)),
+            FunnelStep("20일선 위", len(adaptive_hits(profiles, values, th)["rebound"]))]
+    if key == "rs":
+        uni = _rs_universe(profiles, True)
+        return head + [FunnelStep("6개월 수익률 있음", len(uni)),
+                       FunnelStep(f"상위 {th['rs_top']:.0f}%",
+                                  len(relative_strength_hits(profiles, top_pct=th["rs_top"])))]
+    return funnel(key, n_candidates, profiles)
+
+
+def screen_rules(th: dict) -> tuple:
+    """KR_SCREENS 와 같은 모양 — 순위 기준판의 기준 글 (이번 숫자 포함)."""
+    def f(v, fmt):
+        return "?" if v is None else format(v, fmt)
+    base = {k: (t, r, c) for k, t, r, c in KR_SCREENS}
+    rules = {
+        "contraction": (f"52주 고가 대비가 후보 상위 {ADAPT_HIGH_TOP * 100:.0f}% (이번 {f(th['high'], '.0f')}% 이상) "
+                        f"<b>그리고</b> 수축비가 하위 {ADAPT_CONTRACTION_Q * 100:.0f}% "
+                        f"(이번 {f(th['contraction'], '.2f')} 이하) · 거래대금 ≥ "
+                        f"{MIN_TURNOVER / 1e8:.0f}억"),
+        "value_trad": (f"PBR · PER(흑자) 후보 하위 {ADAPT_VALUE_Q * 100:.0f}% <b>그리고</b> 배당수익률 상위 "
+                       f"{ADAPT_VALUE_Q * 100:.0f}% (이번 PBR ≤ {f(th['pbr'], '.2f')} · PER ≤ "
+                       f"{f(th['per'], '.1f')} · 배당 ≥ {f(th['div'], '.2f')}%)"),
+        "rs": (f"3개월·6개월 수익률 순위가 후보 상위 {th['rs_top']:.0f}% · 거래대금 ≥ "
+               f"{MIN_TURNOVER / 1e8:.0f}억"),
+        "rebound": (f"52주 고가 대비가 후보 하위 {ADAPT_DEEP_Q * 100:.0f}% (이번 {f(th['deep'], '.0f')}% 이하) "
+                    f"<b>그리고</b> 20일 저점 반등이 상위 {ADAPT_OFF_LOW_TOP * 100:.0f}% "
+                    f"(이번 +{f(th['off_low'], '.0f')}% 이상) <b>그리고</b> 20일선 위"),
+    }
+    return tuple((k, base[k][0], rules.get(k, base[k][1]), base[k][2])
+                 for k, _t, _r, _c in KR_SCREENS)

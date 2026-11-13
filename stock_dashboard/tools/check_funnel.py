@@ -24,8 +24,11 @@ sys.path.insert(0, HERE)
 import buffett  # noqa: E402
 import chart_signals  # noqa: E402
 import funnel  # noqa: E402
+import integrate  # noqa: E402
+import kr_screen  # noqa: E402
+import universe  # noqa: E402
 
-FILES = ("universe_us", "funnel_us", "funnel_kr", "chart_us", "chart_kr")
+FILES = ("universe_us", "funnel_us", "funnel_kr", "chart_us", "chart_kr", "universe_kr")
 
 
 def load(name: str, folder: str | None) -> dict:
@@ -87,12 +90,56 @@ def check_market(market: str, d: dict) -> list[str]:
     return bad
 
 
+def check_kr_extra(d: dict) -> list[str]:
+    """거래 스크리너(순위 기준) 종목 수 · 통합 후보."""
+    bad: list[str] = []
+    u = d["universe_kr"]
+    profiles = universe.restore(kr_screen.VolProfile, u.get("profiles"))
+    values = universe.restore(kr_screen.ValueRow, u.get("values"))
+    th = kr_screen.adaptive_thresholds(profiles, values)
+    hits = kr_screen.adaptive_hits(profiles, values, th)
+    fk = d["funnel_kr"]
+    scr = {s["t"]: buffett.from_summary(s) for s in fk.get("screens") or []}
+    print("\n[KR 거래 스크리너 — 순위 기준]")
+    for k, lst in hits.items():
+        qn = sum(1 for h in lst if scr.get(h.ticker) is not None
+                 and (buffett.passes_kr(scr[h.ticker]) or buffett.held_back_kr(scr[h.ticker])))
+        print(f"  {k:12} {len(lst):3}종목 · 품질 통과·보류 {qn}")
+        if not 5 <= len(lst) <= 25:
+            print(f"    (참고) 목표 5~25 밖")
+    frows = {r["t"]: r for r in fk.get("rows") or []}
+    items = d["chart_kr"].get("rows") or []
+    rows = {r.ticker: r for r in (chart_signals.row_from_dict(x) for x in items) if r}
+    cands = integrate.build(fk.get("screens") or [], frows, rows, hits,
+                            {x["ticker"] for x in items if x.get("s")},
+                            {x["ticker"] for x in items if x.get("new")})
+    picks, out = integrate.split(cands)
+    print(f"\n[KR 통합 후보] 품질 통과 {len(cands)} → 후보 {len(picks)} · 빠짐 {len(out)}")
+    lamp = {"g": "●", "y": "◐", "r": "✕", "-": "○"}
+    for i, c in enumerate(picks[:integrate.MAX_PICKS], 1):
+        ls = " ".join(f"{n}{lamp[c.lamps[k]]}" for k, n in
+                      (("quality", "품질"), ("price", "가격"), ("chart", "차트"), ("trade", "거래")))
+        print(f"  {i:2}. {c.name[:12]:12} {c.ticker} 근거 {c.greens}/4 · {ls} · "
+              f"{integrate.eps_text(c.eps_c90)}")
+        print(f"      가격: {c.notes['price']} | 차트: {c.notes['chart']} | 거래: {c.notes['trade']}")
+        if c.excluded or c.lamps["quality"] != "g":
+            bad.append(f"통합 후보 {c.ticker} 가 관문을 통과하지 않았는데 후보에 있음")
+    for c in out:
+        print(f"  빠짐: {c.name[:12]:12} {c.ticker} — {c.excluded}")
+        if c.lamps["price"] != "r" and not funnel.eps_down(frows.get(c.ticker, {}).get("f")):
+            bad.append(f"{c.ticker} 가 이유 없이 빠짐")
+    keys = [c.sort_key() for c in picks]
+    if keys != sorted(keys):
+        bad.append("통합 후보 순서가 규칙과 다름")
+    return bad
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dir", default=None)
     a = ap.parse_args()
     d = {n: load(n, a.dir) for n in FILES}
-    bad = check_market("us", d) + check_market("kr", d)
+    bad = check_market("us", d) + check_market("kr", d) + check_kr_extra(d)
     print()
     for b in bad:
         print("틀림:", b)

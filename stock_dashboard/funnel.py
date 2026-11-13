@@ -160,13 +160,13 @@ def price_gap(p: dict | None, cap: float | None = None) -> float | None:
 
 
 def gap_text(p: dict | None) -> str:
-    """'요구가 과거보다 +6.2%p' / '과거보다 −3.1%p 여유' — 판정 안 하면 ''."""
+    """'요구가 과거보다 +6.2%p' / '과거보다 3.1%p 여유' — 판정 안 하면 ''."""
     gp = price_gap(p)
     if gp is None:
         return ""
     if gp > 0:
         return f"요구가 과거보다 +{gp * 100:,.1f}%p"
-    return f"과거보다 {gp * 100:,.1f}%p 여유"
+    return f"과거보다 {abs(gp) * 100:,.1f}%p 여유"
 
 
 def quality_tickers(screens, market: str) -> set:

@@ -423,7 +423,8 @@ check("워크플로 — 시간 한도를 늘림 (주 1회 한국 심사 33분)",
 
 print("\n=== 화면 — 전수 심사 결과로 그린다 ===")
 _names = ("_discover_us", "_discover_kr", "_universe_or_none", "_universe_line",
-          "_fallback_note", "_criteria_block", "_kr_quality_block", "_stage_now")
+          "_fallback_note", "_criteria_block", "_kr_quality_block", "_stage_now",
+          "_kr_trade_hits", "_when_kst")   # 2026-11-13 거래 스크리너 순위 기준 · 품질 연결
 _fns = [n for n in ast.parse(app_src).body
         if isinstance(n, ast.FunctionDef) and n.name in _names]
 
@@ -460,7 +461,7 @@ class FakeSt:
         self.sector_opts = [format_func(o) for o in opts]
         return self._sector
 
-    def toggle(self, label, value=False, key=None):
+    def toggle(self, label, value=False, key=None, **_kw):
         return value
 
     def expander(self, label, expanded=False):

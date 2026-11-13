@@ -140,6 +140,73 @@ check("가격 높음 근거에 격차 %p", v_h.price_state == "heavy" and "+4.0%
 check("quality_threshold 를 주면 예전처럼 통과 수", vd.build(u_scr, _dcf(0.03),
                                                      quality_threshold=6).quadrant == 1)
 
+print("\n=== 거래 스크리너 — 후보 안에서의 순위 기준 ===")
+import kr_screen as ks  # noqa: E402
+
+
+def _prof(i, hp, contr, off, above=True):
+    price = 100.0
+    return ks.VolProfile(ticker=f"{i:06d}", name=f"종목{i}", bars=250, price=price,
+                         high_52w=price / (hp / 100.0), low_52w=price * 0.5,
+                         vol_long=30.0, vol_short=30.0 * contr, turnover=1e10,
+                         ret_3m=float(i % 37), ret_6m=float(i % 41),
+                         low_20d=price / (1 + off / 100.0),
+                         ma20=price * (0.97 if above else 1.03), ma60=price,
+                         turnover_5d=1e10, turnover_60d=1e10)
+
+
+profs = [_prof(i, 30 + (i * 7) % 70, 0.5 + (i * 3 % 50) / 50, (i * 11) % 40) for i in range(200)]
+vals = [ks.ValueRow(ticker=f"{i:06d}", name=f"종목{i}", pbr=0.3 + (i * 13 % 30) / 10,
+                    per=3 + (i * 7 % 40), div_yield=(i * 5 % 60) / 10) for i in range(200)]
+th = ks.adaptive_thresholds(profs, vals)
+hits = ks.adaptive_hits(profs, vals, th)
+check("기준값이 분포에서 나온다 (모두 숫자)",
+      all(th[k] is not None for k in ("high", "contraction", "deep", "off_low", "pbr", "per", "div")))
+check("순위판 ③은 셋 다 만족", all(
+    r.pbr <= th["pbr"] and r.per <= th["per"] and r.div_yield >= th["div"]
+    for r in vals if r.ticker in {h.ticker for h in hits["value_trad"]}))
+check("순위판 결과가 후보 전부가 되지 않음",
+      all(len(v) < len(profs) // 2 for v in hits.values()), str({k: len(v) for k, v in hits.items()}))
+check("기준 글에 이번 숫자가 들어감", f"{th['contraction']:.2f}" in ks.screen_rules(th)[0][2])
+check("빈 후보에도 깨지지 않음", all(v == [] for v in ks.adaptive_hits([], []).values()))
+check("고정 기준 함수는 남아 있음", callable(ks.contraction_hits) and ks.CONTRACTION_MAX == 0.80)
+
+print("\n=== 통합 후보 — 네 모델 등 · 관문 · 순서 ===")
+import integrate  # noqa: E402
+
+scr = [summ("A", [P] * 7 + [U, U]),             # 통과
+       summ("B", [P] * 7 + [U, U]),
+       summ("C", [P] * 7 + [U, U]),
+       summ("D", [P] * 7 + [U, U]),
+       summ("E", [P] * 4 + [F] * 3 + [U, U])]   # 품질 미달 — 아예 안 나옴
+light_p = {"g": 0.02, "h": 0.08, "hi": 0.04, "sp": 7}
+heavy_p = {"g": 0.20, "h": 0.05, "hi": 0.22, "sp": 7}
+fr = {"A": {"p": light_p, "f": {"c90": 0.03}}, "B": {"p": light_p, "f": {"c90": 0.10}},
+      "C": {"p": heavy_p, "f": {"c90": 0.10}}, "D": {"p": light_p, "f": {"c90": -0.08}}}
+hit = {"rs": [ks.Hit("A", "A")], "surge": [ks.Hit("B", "B")]}
+cands = integrate.build(scr, fr, {}, hit)
+picks, out = integrate.split(cands)
+check("품질 미달은 후보 · 빠짐 어디에도 없음", "E" not in {c.ticker for c in cands})
+check("가격 높음 · EPS −5% 이하는 빠짐(이유 포함)",
+      {c.ticker: c.excluded[:6] for c in out} == {"C": "가격 부담 높음"[:6], "D": "선행 EPS"[:6]},
+      str({c.ticker: c.excluded for c in out}))
+check("초록 수가 많은 쪽이 먼저 (A: 품질·가격·거래 3 > B: 2)",
+      [c.ticker for c in picks] == ["A", "B"] and picks[0].greens == 3 and picks[1].greens == 2)
+check("거래대금 급증만은 노랑", picks[1].lamps["trade"] == "y")
+check("일봉이 없으면 차트 등은 없음", picks[0].lamps["chart"] == "-")
+html = ui.render_candidate_cards(picks)
+check("카드 — 근거 n/4 · 등 낱말 · EPS", "근거 3/4" in html and "충족" in html and "선행 EPS" in html)
+check("요약용 compact 카드는 근거 줄 없음",
+      "ic-note" not in ui.render_candidate_cards(picks, 3, compact=True))
+check("빠진 종목 목록", "가격 부담 높음" in ui.render_candidate_excluded(out))
+check("빈 입력에도 깨지지 않음", integrate.build([], {}, {}, {}) == []
+      and ui.render_candidate_cards([]) == "")
+check("통합 후보 탭이 한국 찾기 첫 칸",
+      config.MARKET_TABS["kr"][1][1][0] == "picks" and "picks" in config.TAB_ORDER
+      and config.SPECIAL_TAB_LABELS["picks"] == "통합 후보")
+check("화면이 거래 스크리너 품질 스위치를 기본 켬",
+      '"품질 통과 · 보류 종목만", value=True' in app_src)
+
 print("\n" + "=" * 54)
 if FAILURES:
     print(f"실패 {len(FAILURES)}건: {FAILURES}")

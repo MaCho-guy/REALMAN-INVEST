@@ -127,6 +127,7 @@ import report_summary
 import universe
 import funnel
 import chart_signals
+import integrate
 import daily_brief
 import calendar_events
 import portfolio
@@ -1474,6 +1475,20 @@ def render_summary_tab(data: dict[str, dict[str, Quote]], fx,
     if sector_rows:
         st.markdown(ui.render_sector_bars(sector_rows), unsafe_allow_html=True)
 
+    # 통합 후보 앞 3종목 — 등만 (2026-11-13 "가시성 돋보이게"). 파일만 읽습니다.
+    if market == "kr" and not use_demo:
+        try:
+            cands, meta = _kr_integrated(use_demo)
+            picks, _out = integrate.split(cands)
+        except Exception:  # noqa: BLE001 - 요약은 이것 때문에 깨지면 안 됩니다
+            picks, meta = [], {}
+        if picks:
+            st.markdown(ui.render_section_head(
+                "통합 후보 · 한국", f"네 모델 등 · {_when_kst(meta.get('p'))} 수집 · "
+                "자세히는 찾기 › 통합 후보", len(picks)), unsafe_allow_html=True)
+            st.markdown(ui.render_candidate_cards(picks, 3, compact=True),
+                        unsafe_allow_html=True)
+
     _render_upcoming(data, use_demo, market)
     _render_daily_briefs(use_demo, market)
 
@@ -1698,6 +1713,97 @@ def _analysis_summary() -> str:
 def render_screener_tab(use_demo: bool, *, market: str = "kr") -> None:
     """거래 스크리너 (한국) — 종목 발굴에서 나눈 탭 (2026-11-13)."""
     _discover_kr(use_demo, part="screener")
+
+
+def _kr_trade_hits(use_demo: bool) -> tuple[dict, dict, dict]:
+    """거래 스크리너 여섯 개(순위 기준판) — (hits, 기준값, universe_kr 묶음). 못 읽으면 빈 것."""
+    payload = _universe_or_none("kr", use_demo)
+    if not payload.get("profiles"):
+        return {}, {}, payload
+    profiles = universe.restore(kr_screen.VolProfile, payload.get("profiles"))
+    values = universe.restore(kr_screen.ValueRow, payload.get("values"))
+    th = kr_screen.adaptive_thresholds(profiles, values)
+    return kr_screen.adaptive_hits(profiles, values, th), th, payload
+
+
+def _kr_integrated(use_demo: bool) -> tuple[list, dict]:
+    """통합 후보 (integrate.build) + 기준 시각들. 파일만 읽습니다 (통신 없음)."""
+    fpay = _universe_or_none("funnel_kr", use_demo)
+    cpay = _universe_or_none("chart_kr", use_demo)
+    hits, _th, upay = _kr_trade_hits(use_demo)
+    frows = {r.get("t"): r for r in (fpay.get("rows") or []) if isinstance(r, dict)}
+    items = [d for d in (cpay.get("rows") or []) if isinstance(d, dict)]
+    rows = {}
+    for d in items:
+        r = chart_signals.row_from_dict(d)
+        if r is not None:
+            rows[r.ticker] = r
+    semis = {str(d.get("ticker")) for d in items if d.get("s")}
+    new = {str(d.get("ticker")) for d in items if d.get("new")}
+    cands = integrate.build(fpay.get("screens") or [], frows, rows, hits, semis, new)
+    meta = {"q": fpay.get("q_made"), "p": fpay.get("made"), "c": cpay.get("made"),
+            "t": upay.get("made"), "have": bool(fpay.get("screens")),
+            "chart": bool(items), "trade": bool(hits)}
+    return cands, meta
+
+
+def _when_kst(ts) -> str:
+    return dt.datetime.fromtimestamp(float(ts), KST).strftime("%m/%d %H:%M") if ts else "?"
+
+
+def render_picks_tab(use_demo: bool, *, market: str = "kr") -> None:
+    """찾기 › 통합 후보 (한국) — 네 모델의 등을 종목마다 나란히 (integrate.py)."""
+    st.markdown(ui.render_section_head(
+        "통합 후보 · 한국",
+        "품질 · 가격 · 차트 · 거래 — 네 모델이 같이 가리키는 종목"), unsafe_allow_html=True)
+    if market != "kr":
+        st.markdown(ui.render_notice("통합 후보는 지금 한국만 있습니다."),
+                    unsafe_allow_html=True)
+        return
+    if use_demo:
+        st.markdown(ui.render_notice("데모에는 수집기 파일이 없습니다."), unsafe_allow_html=True)
+        return
+    cands, meta = _kr_integrated(use_demo)
+    st.markdown(ui.render_legend(
+        f"<b>품질 심사 {_when_kst(meta['q'])}</b> (DART) · <b>가격 {_when_kst(meta['p'])}</b> "
+        f"(역DCF · 시가총액 네이버) · <b>차트 {_when_kst(meta['c'])}</b> (네이버 일봉) · "
+        f"<b>거래 {_when_kst(meta['t'])}</b> (네이버 일봉 · 야후 지표) — 전부 수집기 파일 기준"),
+        unsafe_allow_html=True)
+    if not meta["have"]:
+        st.markdown(ui.render_notice(
+            "품질 심사 파일(funnel_kr.json)을 읽지 못해 후보를 고르지 못했습니다."),
+            unsafe_allow_html=True)
+        return
+    missing = [n for k, n in (("chart", "차트"), ("trade", "거래")) if not meta[k]]
+    if missing:
+        st.markdown(ui.render_notice(
+            f"{' · '.join(missing)} 파일을 읽지 못해 그 등은 '없음' 으로 둡니다."),
+            unsafe_allow_html=True)
+    picks, out = integrate.split(cands)
+    st.markdown(ui.render_notice(
+        f"<b>{len(picks)}종목</b> — 품질 통과 {len(cands)}종목 가운데 가격 부담이 높지 않고 "
+        f"선행 EPS 90일이 −{abs(config.EPS_DOWN_WARN) * 100:g}% 아래로 깎이지 않은 종목. "
+        "순서: 충족한 등의 수 → 선행 EPS 상향 → 가격 여유. "
+        "<b>규칙으로 고른 '먼저 공시를 읽어볼 종목' 이지 매수 권유가 아닙니다.</b>"),
+        unsafe_allow_html=True)
+    if picks:
+        st.markdown(ui.render_candidate_cards(picks, integrate.MAX_PICKS),
+                    unsafe_allow_html=True)
+        if len(picks) > integrate.MAX_PICKS:
+            st.markdown(ui.render_legend(
+                f"앞 {integrate.MAX_PICKS}종목만 보입니다 (후보 {len(picks)})."),
+                unsafe_allow_html=True)
+    else:
+        st.markdown(ui.render_notice("오늘은 관문을 통과한 종목이 없습니다 — 그것도 답입니다."),
+                    unsafe_allow_html=True)
+    st.markdown(ui.render_legend(
+        "<b>등</b> — 품질: 품질 깔때기 통과 · 가격: 역DCF 요구 성장률 ≤ 과거(낮음=충족, "
+        "경계·판정 안 함=보통) · 차트: 과매도 진입=충족, 과매도 쪽=보통, 과매수 쪽=주의 · "
+        "거래: 변동성 수축 · 신고가 근처 · 시장 대비 강함 · 낙폭 과대 반등 중 하나=충족, "
+        "거래대금 급증 · 전통 밸류만=보통"), unsafe_allow_html=True)
+    if out:
+        with st.expander(f"관문에서 빠진 품질 통과 종목 {len(out)}개 — 이유", expanded=False):
+            st.markdown(ui.render_candidate_excluded(out), unsafe_allow_html=True)
 
 
 def render_discover_tab(use_demo: bool, *, market: str = "all") -> None:
@@ -2255,13 +2361,23 @@ def _discover_kr(use_demo: bool, part: str = "funnel") -> None:
         unsafe_allow_html=True,
     )
 
+    # 2026-11-13: 고정 기준(50종목 시절) → 후보 안에서의 순위 기준 (kr_screen.adaptive_*).
+    # 장세가 바뀌어도 스크리너마다 5~25종목 안팎. 파일이 없으면 예전 고정 기준.
+    if from_file:
+        hits, th, _up = _kr_trade_hits(use_demo)
+        screens_def = kr_screen.screen_rules(th)
+    else:
+        th, screens_def = {}, kr_screen.KR_SCREENS
+
     with st.expander("여섯 스크리너의 기준 — 숫자와 말뜻", expanded=False):
         st.markdown(
             ui.render_criteria_table(
-                [{"short": t, "rule": r} for _k, t, r, _c in kr_screen.KR_SCREENS],
+                [{"short": t, "rule": r} for _k, t, r, _c in screens_def],
                 intro="스크리너마다 <b>다른 질문</b>을 합니다. 한 점수로 합치지 않고, "
-                      "한 번에 하나씩 골라 봅니다. 기준선은 전부 제가 정한 값입니다 "
-                      "(<code>kr_screen.py</code> 맨 위)."),
+                      "한 번에 하나씩 골라 봅니다. ①③④⑤는 <b>후보 안에서의 순위</b>로 "
+                      "기준을 정합니다 — 시장 전체가 빠지거나 올라도 목록 길이가 크게 "
+                      "튀지 않습니다. 괄호 안이 이번 수집의 실제 기준값입니다 "
+                      "(<code>kr_screen.py</code> ADAPT_*)."),
             unsafe_allow_html=True)
         st.markdown(ui.render_terms(kr_screen.KR_TERMS), unsafe_allow_html=True)
 
@@ -2273,18 +2389,56 @@ def _discover_kr(use_demo: bool, part: str = "funnel") -> None:
         profiles, vol_errors = load_kr_vol_profiles(use_demo)
         value_rows = load_kr_value_rows(use_demo)
 
-    hits = {
-        "contraction": kr_screen.contraction_hits(profiles),
-        "near_high": kr_screen.near_high_hits(profiles),
-        "value_trad": kr_screen.value_hits(value_rows),
-        "rs": kr_screen.relative_strength_hits(profiles),
-        "rebound": kr_screen.rebound_hits(profiles),
-        "surge": kr_screen.turnover_surge_hits(profiles),
-    }
+    if not from_file:
+        hits = {
+            "contraction": kr_screen.contraction_hits(profiles),
+            "near_high": kr_screen.near_high_hits(profiles),
+            "value_trad": kr_screen.value_hits(value_rows),
+            "rs": kr_screen.relative_strength_hits(profiles),
+            "rebound": kr_screen.rebound_hits(profiles),
+            "surge": kr_screen.turnover_surge_hits(profiles),
+        }
+
+    # 품질 연결 (2026-11-13) — 결과마다 품질 상태 · 선행 EPS 를 붙이고, 기본은
+    # '품질 통과 · 보류만'. 전에는 반등 · 밸류 결과의 절반 이상이 품질 기준 4개 이상 미달이었습니다.
+    fpay = _universe_or_none("funnel_kr", use_demo)
+    q_map = {sc.ticker: sc for sc in (buffett.from_summary(r) for r in (fpay.get("screens") or []))
+             if sc is not None}
+    f_map = {r.get("t"): r for r in (fpay.get("rows") or []) if isinstance(r, dict)}
+    only_q = bool(q_map) and st.toggle(
+        "품질 통과 · 보류 종목만", value=True, key="kr_scr_q",
+        help="품질 깔때기 기준(미달 2개 이하)을 넘었거나, 판정이 모자라 보류인 종목만 봅니다. "
+             "끄면 여섯 스크리너의 원래 결과가 전부 나옵니다.")
+
+    def _qstate(t):
+        sc = q_map.get(t)
+        if sc is None or not sc.ok:
+            return "?", "품질 판정 없음"
+        if buffett.passes_kr(sc):
+            return "pass", f"통과 · 미달 {sc.failed_count}"
+        if buffett.held_back_kr(sc):
+            return "held", f"보류 · 판정 {sc.known_count}"
+        return "fail", f"미달 {sc.failed_count}개"
+
+    def _decorate(lst):
+        out = []
+        for h in lst:
+            state, label = _qstate(h.ticker)
+            if only_q and state not in ("pass", "held"):
+                continue
+            eps_v, _note = funnel.eps_cells((f_map.get(h.ticker) or {}).get("f"))
+            out.append(kr_screen.Hit(
+                ticker=h.ticker, name=h.name, reasons=list(h.reasons),
+                metrics=[("품질", label), ("선행 EPS 90일", eps_v)] + list(h.metrics),
+                sort_key=h.sort_key))
+        return out
+
+    raw_n = {k: len(v) for k, v in hits.items()}
+    hits = {k: _decorate(v) for k, v in hits.items()}
 
     picker = getattr(st, "segmented_control", None)
-    labels = {k: t for k, t, _r, _c in kr_screen.KR_SCREENS}
-    keys = [k for k, _t, _r, _c in kr_screen.KR_SCREENS]
+    labels = {k: t for k, t, _r, _c in screens_def}
+    keys = [k for k, _t, _r, _c in screens_def]
     choice = None
     if picker is not None:
         try:
@@ -2303,14 +2457,25 @@ def _discover_kr(use_demo: bool, part: str = "funnel") -> None:
         choice = keys[0]
 
     _key, title, rule, caveat = next(
-        x for x in kr_screen.KR_SCREENS if x[0] == choice)
+        x for x in screens_def if x[0] == choice)
     picked = hits[choice]
     st.markdown(ui.render_screener_head(title, rule, len(picked), caveat),
                 unsafe_allow_html=True)
+    if only_q:
+        st.markdown(ui.render_legend(
+            f"원래 결과 {raw_n.get(choice, 0)}종목 가운데 품질 통과 · 보류 <b>{len(picked)}종목</b> "
+            f"(품질 심사 {_when_kst(fpay.get('q_made'))} · DART). 스위치를 끄면 전부 보입니다."),
+            unsafe_allow_html=True)
 
     # 단계별로 몇 종목이 남는지 — 0 건이 '데이터 실패' 인지 '기준 탈락'
     # 인지 바로 보이게 합니다.
-    if choice in kr_screen.VOL_SCREENS:
+    if from_file and th:
+        v_err = {r.ticker: r.error for r in value_rows if r.error}
+        steps = kr_screen.adaptive_funnel(choice, n_cands, profiles, value_rows, th)
+        st.markdown(ui.render_funnel(steps, v_err if choice == "value_trad" else vol_errors,
+                                     title="단계별로 남은 종목"),
+                    unsafe_allow_html=True)
+    elif choice in kr_screen.VOL_SCREENS:
         steps = kr_screen.funnel(choice, n_cands, profiles)
         st.markdown(ui.render_funnel(steps, vol_errors,
                                      title="단계별로 남은 종목"),
@@ -2321,6 +2486,11 @@ def _discover_kr(use_demo: bool, part: str = "funnel") -> None:
                                      title="단계별로 남은 종목"),
                     unsafe_allow_html=True)
 
+    if not picked and only_q and raw_n.get(choice):
+        st.markdown(ui.render_notice(
+            f"<b>원래 결과 {raw_n[choice]}종목 가운데 품질 통과 · 보류 종목이 없습니다.</b> "
+            "위 '품질 통과 · 보류 종목만' 스위치를 끄면 전부 보입니다."), unsafe_allow_html=True)
+        return
     if not picked:
         st.markdown(
             ui.render_notice(
@@ -2660,6 +2830,12 @@ def _render_today_picks(market: str, use_demo: bool, held: set) -> int:
     semis = {str(d.get("ticker")) for d in items if isinstance(d, dict) and d.get("s")}
     new = {str(d.get("ticker")) for d in items if isinstance(d, dict) and d.get("new")}
     every = chart_signals.today_picks(rows, set(quality), set(), semis, new)
+    # 가격 부담 높음 · 선행 EPS −5% 이하는 빼지 않고 **뒤로** (2026-11-13) — 통합 후보의
+    # 관문과 같은 두 조건입니다. 그 안의 순서는 원래대로.
+    def _warn(r):
+        fr = quality.get(r.ticker) or {}
+        return funnel.price_state(fr.get("p")) == "heavy" or funnel.eps_down(fr.get("f"))
+    every = [r for r in every if not _warn(r)] + [r for r in every if _warn(r)]
     picks = [r for r in every if r.ticker not in held]
     mine = len(every) - len(picks)
     src = "네이버 일봉" if market == "kr" else "야후 일봉"
@@ -2667,6 +2843,7 @@ def _render_today_picks(market: str, use_demo: bool, held: set) -> int:
         f"<b>{len(picks)}종목</b> — 재무 품질 통과 {len(quality)}종목 가운데 최근 3거래일 안에 "
         f"CCI 나 스토캐스틱이 과매도 기준선 아래로 내려간 종목 ({src})."
         + (f" 내 종목 {mine}개는 '내 종목' 탭에." if mine else "")
+        + " 가격 부담 높음 · 선행 EPS 하향(−5% 이하)은 빼지 않고 뒤에 둡니다."
         + " 공시를 읽어볼 순서이지 매수 신호가 아닙니다."), unsafe_allow_html=True)
     # 수집 시각에 그 시장이 열려 있었으면 마지막 봉은 장중 값입니다 (수집은 예약보다
     # 늦게 돌거나 손으로 돌릴 수 있습니다) — 그렇다고 적습니다.
@@ -5624,6 +5801,7 @@ SECTION_LOADING = {
     "briefing": "아침 브리핑 — 오늘 아침 글을 받습니다",
     "discover": "종목 발굴 — 아침 수집기가 심사해 둔 결과를 읽습니다",
     "screener": "거래 스크리너 — 아침 수집기가 심사해 둔 결과를 읽습니다",
+    "picks": "통합 후보 — 수집기 파일 네 개를 읽습니다",
     "macro": "매크로 — FRED 13종·VIX·공포탐욕 (처음 10~20초)",
     "chart": "차트 조건 — 후보 종목의 1년 일봉 (처음 10~30초)",
     "research": "산업 리포트 — 증권사 리포트 목록 (처음 5~10초)",
@@ -6111,6 +6289,8 @@ def render_body(opts: dict) -> None:
                 render_discover_tab(opts["demo"], market=market)
             elif active == "screener":
                 render_screener_tab(opts["demo"], market=market)
+            elif active == "picks":
+                render_picks_tab(opts["demo"], market=market)
             elif active == "valuation":
                 render_valuation_tab(data, fx, opts["demo"], opts["phone"],
                                      market=market)

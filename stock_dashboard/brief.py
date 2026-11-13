@@ -184,8 +184,24 @@ def _from_stale(readings) -> list[Line]:
 # 조립
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _from_sessions(sessions) -> list[Line]:
+    """전일 장 — 시장마다 지수 한 줄 (daily_brief.SessionBrief 의 '지수' 줄).
+
+    2026-11-13 사용자: "매크로 탭 증시 브리핑 알아서 연동되게". 요약 탭의 전일 장
+    브리핑과 **같은 값**을 한 줄로 가져옵니다 — 다시 계산하지 않습니다.
+    """
+    out: list[Line] = []
+    for b in sessions or ():
+        if b is None or not getattr(b, "ok", False):
+            continue
+        text = next((t for h, t in getattr(b, "lines", ()) if h == "지수"), "")
+        if text:
+            out.append(Line("전일 장", f"{b.title} {b.session_label} — {text}", COOL))
+    return out
+
+
 def compose(*, readings=None, triggers=None, fg=None, vix_state=None,
-            exports=None, trends=None) -> list[Line]:
+            exports=None, trends=None, sessions=None) -> list[Line]:
     """재료를 받아 브리핑 줄을 만듭니다.
 
     전부 선택 인자입니다. 한 소스가 실패해도 나머지로 브리핑이 나와야
@@ -196,6 +212,7 @@ def compose(*, readings=None, triggers=None, fg=None, vix_state=None,
     lines += _from_trends(trends)
     lines += _from_exports(exports)
     lines += _from_sentiment(fg, vix_state)
+    lines += _from_sessions(sessions)
     lines += _from_stale(readings)
 
     # 안정 정렬 — 같은 무게면 넣은 순서를 지킵니다.

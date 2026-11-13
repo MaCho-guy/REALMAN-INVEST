@@ -3945,7 +3945,8 @@ def _render_briefing_body(bf) -> None:
 
 
 def render_briefing_section(use_demo: bool, *, readings=None,
-                            triggers=None, fg=None, vix_state=None) -> None:
+                            triggers=None, fg=None, vix_state=None,
+                            sessions=None) -> None:
     """매크로 탭 맨 위.
 
     **대시보드가 가진 숫자로 직접 씁니다.** 전에는 외부 대시보드로 보내는
@@ -3957,7 +3958,7 @@ def render_briefing_section(use_demo: bool, *, readings=None,
 
     lines = brief.compose(
         readings=readings, triggers=triggers, fg=fg, vix_state=vix_state,
-        exports=exports, trends=trends,
+        exports=exports, trends=trends, sessions=sessions,
     )
     st.markdown(
         ui.render_section_head(
@@ -4047,15 +4048,36 @@ def render_macro_tab(data: dict[str, dict[str, Quote]], fx, use_demo: bool,
     """
     section = config.SECTION_BY_KEY.get("macro")
 
-    # 1) 증시 브리핑 — 사람이 쓴 글이 숫자보다 먼저 옵니다.
-    render_briefing_section(use_demo)
-
-    # 통계는 2)와 5)가 같이 쓰므로 먼저 한 번 읽습니다 (캐시됨).
+    # 통계는 1) 2) 5)가 같이 쓰므로 먼저 한 번 읽습니다 (캐시됨).
     series_map, errors = load_macro(use_demo, fred.key_fingerprint())
     readings = macro_mod.build_readings(config.macro_series(), series_map, errors)
     readings = _macro_context(readings, data, use_demo)
     triggers = macro_mod.evaluate_all(readings)
     hit_keys = {t.reading.spec.key for t in triggers}
+
+    # 1) 증시 브리핑 — **이 탭의 숫자와 연동** (2026-11-13 "알아서 연동되게").
+    #    전에는 인자 없이 불러서 수출 · 재고 줄만 나왔고, 바로 아래의 임계값 · 심리 ·
+    #    전일 장과는 따로 놀았습니다. 이제 임계값(2) · 공포탐욕 · VIX(4) · 전일 장
+    #    (요약 탭과 같은 값)을 넘깁니다. 전일 장은 기다리지 않습니다 — 받아 둔 값이
+    #    있으면 쓰고, 없으면 그 줄만 빠지고 뒤에서 받습니다.
+    def _have(fn, *a):
+        try:
+            return fn.peek(*a)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _try(fn, *a):      # 4)에서 어차피 받는 값 — 저장돼 있으면 바로 옵니다
+        try:
+            return fn(*a)
+        except Exception:  # noqa: BLE001
+            return None
+
+    render_briefing_section(
+        use_demo, readings=readings, triggers=triggers,
+        fg=_try(load_feargreed, use_demo), vix_state=_try(load_vix, use_demo),
+        sessions=[_have(load_daily_brief, m, use_demo)
+                  for m in ([market] if market in config.DAILY_BRIEF else [])
+                  + [m for m in config.DAILY_BRIEF if m != market]])
 
     # 2) 임계값을 건드린 것 — 이 화면에서 가장 먼저 봐야 하는 것
     if triggers:

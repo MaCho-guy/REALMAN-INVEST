@@ -3101,7 +3101,7 @@ def render_market_strip(items) -> str:
         chg = ("" if pct is None else
                f'<span class="ms-chg {cls}">{direction_glyph(pct)}{fmt_pct(pct)}</span>')
         cells.append(
-            f'<div class="ms-cell"><div class="ms-label">{_esc(label)}</div>'
+            f'<div class="ms-cell {cls}"><div class="ms-label">{_esc(label)}</div>'
             f'<div class="ms-val">{_esc(val)}</div>{chg}</div>')
     return '<div class="dash-mstrip">' + "".join(cells) + "</div>"
 

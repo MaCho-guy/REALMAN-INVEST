@@ -1041,7 +1041,7 @@ _comp_src = (_pl.Path(__file__).resolve().parent.parent
 # 파일 전체에서 index() 를 비교하면 다른 함수의 같은 이름에 걸립니다.
 _macro_body = _app_src.split("def render_macro_tab(")[1].split("\ndef ")[0]
 check_true("매크로 탭이 브리핑을 그린다",
-           "render_briefing_section(use_demo)" in _macro_body,
+           "render_briefing_section(" in _macro_body,
            "매크로 탭 상단 호출이 보이지 않습니다")
 check_true("브리핑이 시세 섹션보다 먼저",
            _macro_body.index("render_briefing_section(use_demo)")

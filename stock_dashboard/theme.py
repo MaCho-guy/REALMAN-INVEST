@@ -68,13 +68,14 @@ PALETTE: dict[Mode, dict[str, str]] = {
 #: 사용자: "섹션 별로 구분 잘 가게 · 옅은 파스텔 · 섹션 별로 다른 색깔").
 #: 묶음 순서대로 씁니다. (키, 옅은 바탕, 고른 항목 바탕, 선). 글자는 늘 --dash-ink
 #: (세 바탕 모두 명암비 9 이상). 등락색(적 · 청 · 녹)과 헷갈리지 않게 채도를 낮춘
-#: 연보라파랑 · 민트 · 살구 · 라일락입니다 — 색은 '어느 묶음인가' 만 뜻합니다.
+#: 하늘 · 민트 · 복숭아 · 버터입니다 — 색은 '어느 묶음인가' 만 뜻합니다.
 GROUP_TONES: tuple[tuple[str, str, str, str], ...] = (
-    ("today", "#eaeefb", "#cdd7f6", "#7f90d8"),
-    ("find", "#e2f4ef", "#bfe6dc", "#57a896"),
-    ("market", "#fdf0e1", "#f8dcb8", "#d79a55"),
-    ("common", "#f4e9f6", "#e3cbe8", "#ad7fb6"),
+    ("today", "#e3f1fb", "#c3e0f5", "#5a9fd0"),     # 하늘
+    ("find", "#e2f4ef", "#bfe6dc", "#57a896"),      # 민트
+    ("market", "#fdeae2", "#f9d0c0", "#dc8a6c"),    # 복숭아
+    ("common", "#f8f2d8", "#efe2a9", "#b8a243"),    # 버터
 )
+# 09:40 사용자: "보라색은 맘에 안 듦" — 연보라파랑 · 라일락을 하늘 · 버터로 바꿨습니다.
 
 
 def group_tone(index: int) -> tuple[str, str, str, str]:
@@ -1499,30 +1500,41 @@ def build_rules() -> str:
 
   /* ── 시장 띠 ──────────────────────────────────────────────────────── */
   /* 카드가 아니라 한 장의 띠. 칸 사이 세로선, 큰 숫자, 작은 이름. */
+  /* 2026-11-13 폰: "지수 수치 맨 위 표시가 너무 밋밋". 한 장의 띠(세로선) →
+     떠 있는 칸 여섯. 칸 위쪽에 등락색 선, 등락률은 옅은 등락색 알약. 색의 뜻은
+     그대로(상승 적 · 하락 청)이고 ▲▼ 와 부호를 같이 적습니다. */
   .dash-mstrip {{
     display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
-    background: var(--dash-surface); border: 1px solid var(--dash-border);
-    border-radius: var(--r-card); margin: 0 0 var(--sp-4);
-    overflow: hidden;
+    gap: 8px; margin: 0 0 var(--sp-4);
   }}
-  .ms-cell {{ padding: 10px 14px 11px; border-left: 1px solid var(--dash-divider);
-             min-width: 0; }}
-  .ms-cell:first-child {{ border-left: none; }}
-  .ms-label {{ font-size: var(--fs-2); color: var(--dash-ink-muted);
+  .ms-cell {{
+    padding: 9px 12px 10px; min-width: 0;
+    background: var(--dash-surface); border-radius: var(--r-card);
+    border-top: 3px solid var(--dash-divider);
+    box-shadow: 0 1px 2px rgba(21,24,28,.06), 0 2px 8px rgba(21,24,28,.04);
+    display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  }}
+  .ms-cell.up {{ border-top-color: var(--dash-up); }}
+  .ms-cell.down {{ border-top-color: var(--dash-down); }}
+  .ms-label {{ font-size: var(--fs-2); font-weight: 600; color: var(--dash-ink-2);
+              letter-spacing: .01em; max-width: 100%;
               white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
-  .ms-val {{ font-size: var(--fs-7); font-weight: 750; color: var(--dash-ink);
-            font-variant-numeric: tabular-nums; letter-spacing: -0.01em;
-            line-height: 1.25; white-space: nowrap; }}
-  .ms-chg {{ font-size: var(--fs-3); font-weight: 650;
-            font-variant-numeric: tabular-nums; }}
-  .ms-chg.up {{ color: var(--dash-up); }}
-  .ms-chg.down {{ color: var(--dash-down); }}
-  .ms-chg.flat {{ color: var(--dash-ink-muted); }}
+  .ms-val {{ font-size: var(--fs-7); font-weight: 780; color: var(--dash-ink);
+            font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+            line-height: 1.2; white-space: nowrap; }}
+  .ms-chg {{ font-size: var(--fs-2); font-weight: 700;
+            font-variant-numeric: tabular-nums; white-space: nowrap;
+            border-radius: var(--r-pill); padding: 1px 8px; margin-top: 1px; }}
+  .ms-chg.up {{ color: var(--dash-up);
+               background: color-mix(in srgb, var(--dash-up) 11%, var(--dash-surface)); }}
+  .ms-chg.down {{ color: var(--dash-down);
+                 background: color-mix(in srgb, var(--dash-down) 11%, var(--dash-surface)); }}
+  .ms-chg.flat {{ color: var(--dash-ink-muted); background: var(--dash-raised); }}
   @media (max-width: 760px) {{
-    .dash-mstrip {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
-    .ms-cell:nth-child(4) {{ border-left: none; }}
-    .ms-cell:nth-child(n+4) {{ border-top: 1px solid var(--dash-divider); }}
-    .ms-val {{ font-size: var(--fs-6); }}
+    .dash-mstrip {{ grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }}
+    .ms-cell {{ padding: 7px 8px 8px; }}
+    .ms-val {{ font-size: var(--fs-5); }}
+    .ms-chg {{ padding: 1px 6px; }}
   }}
 
   /* ── 요약 상태판 ──────────────────────────────────────────────────── */
@@ -2793,7 +2805,12 @@ def build_native_rules() -> str:
   div[data-testid="stHorizontalBlock"]:has(.dash-ctrlmark) > div[data-testid="stColumn"] {{
     min-width: 0 !important; width: auto !important; flex: 0 0 auto !important;
   }}
-  div[data-testid="stHorizontalBlock"]:has(.dash-ctrlmark) > div[data-testid="stColumn"] * {{
+  /* 버튼과 그 감싸는 칸만 글자 폭으로 (패널 안쪽 위젯의 폭은 건드리지 않습니다) */
+  div[data-testid="stHorizontalBlock"]:has(.dash-ctrlmark) div[data-testid="stPopover"],
+  div[data-testid="stHorizontalBlock"]:has(.dash-ctrlmark) div[data-testid="stButton"],
+  div[data-testid="stHorizontalBlock"]:has(.dash-ctrlmark) div[data-testid="stElementContainer"],
+  div[data-testid="stHorizontalBlock"]:has(.dash-ctrlmark) div[data-testid="stVerticalBlock"],
+  div[data-testid="stHorizontalBlock"]:has(.dash-ctrlmark) button {{
     width: auto !important;
   }}
   div[data-testid="stHorizontalBlock"]:has(.dash-ctrlmark) button {{

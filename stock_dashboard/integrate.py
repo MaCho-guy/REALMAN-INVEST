@@ -341,3 +341,46 @@ def median_fpe(frows: dict, chart_rows: dict, tickers) -> float | None:
         return None
     vals.sort()
     return vals[len(vals) // 2]
+
+
+# ── 내 종목 기준 점검 (11/13) — 찾기와 같은 기준을 보유 · 관심 종목에 ─────────────
+
+def assess(summary: dict | None, frow: dict | None, row, market: str,
+           name: str = "", ticker: str = "") -> Candidate:
+    """한 종목의 등(품질 · 가격 · 선행 EPS)과 '점검 필요' 이유 (flags → notes['flags']).
+
+    점검 필요 = **나빠지는 신호만** — 선행 EPS 90일 −5% 이하(추정이 깎이는 중) · 실적
+    추세 악화(매출 · 영업이익 3년 연속 감소). 품질 미달 · 가격 부담 높음은 원래 그런
+    상태(사이클 업종 · 대형 성장주)라 등 색으로만 보입니다 — 11/13 실측: 관심종목 12개
+    중 11개가 '점검 필요' 로 떠서 경고가 뜻을 잃었음. 매도 신호가 아니라 공시를 다시
+    읽어 볼 이유입니다.
+    품질 심사 대상이 아니면(지수 밖 · ETF) 등은 '없음' 이고 점검 항목도 없습니다.
+    """
+    sc = buffett.from_summary(summary) if summary else None
+    t = ticker or (sc.ticker if sc else "")
+    c = Candidate(ticker=t, name=name or (sc.name if sc else t))
+    if sc is None or not sc.ok:
+        for k in ("quality", "price", "eps"):
+            c.lamps[k], c.notes[k] = GRAY, "심사 대상 아님 (지수 밖 · ETF · 재무 없음)"
+        c.notes["flags"] = ""
+        return c
+    fr = frow or {}
+    c.lamps["quality"], c.notes["quality"] = _quality(sc, market)
+    if fr:
+        c.lamps["price"], c.notes["price"] = _price(fr)
+        c.lamps["eps"], c.notes["eps"] = _eps(fr.get("f"))
+    else:
+        c.lamps["price"], c.notes["price"] = GRAY, "가격 계산 대상 아님 (품질 6개 기준 미만)"
+        c.lamps["eps"], c.notes["eps"] = GRAY, "추정 없음 (계산 대상 아님)"
+    chart_col, c.notes["chart"] = _chart(row)
+    c.timing = chart_col == GREEN
+    gr = (summary or {}).get("gr") or {}
+    flags = []
+    if funnel.eps_down(fr.get("f")):
+        flags.append(f"선행 EPS 90일 {fr['f']['c90'] * 100:+.1f}%")
+    if gr.get("td"):
+        flags.append("실적 추세 악화 (매출 · 영업이익 3년 연속 감소)")
+    c.notes["flags"] = " · ".join(flags)
+    c.also = growth.passes(gr, market)            # 성장형 기준 통과 (꼬리표용)
+    c.excluded = c.notes["flags"]
+    return c

@@ -1863,6 +1863,22 @@ def build_rules() -> str:
   .ic-note {{ color: var(--dash-ink-2); min-width: 0; overflow-wrap: anywhere; }}
   .ic-out {{ margin: 4px 0 0; padding-left: 1.1em; font-size: var(--fs-2); color: var(--dash-ink-2); }}
   .ic-out li {{ margin: 2px 0; }} .ic-out span {{ color: var(--dash-ink-muted); }}
+  /* 내 종목 기준 점검 (11/13) */
+  .dash-hchecks {{ display: grid; gap: 6px; margin: 4px 0 12px; }}
+  .hc-row {{ background: var(--dash-surface); border: 1px solid var(--dash-divider);
+            border-radius: var(--r-card); padding: 8px 12px; }}
+  .hc-row.warn {{ border: 1.5px solid var(--dash-ink-2); }}
+  .hc-n {{ display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }}
+  .hc-dots {{ display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px;
+             font-size: var(--fs-2); }}
+  .hc-d {{ display: inline-flex; align-items: center; gap: 5px; font-weight: 650; }}
+  .hc-d em {{ font-style: normal; font-weight: 500; color: var(--dash-ink-2); font-size: var(--fs-1); }}
+  .hc-d i {{ width: 10px; height: 10px; border-radius: 50%; display: inline-block;
+            border: 1.5px solid var(--dash-ink-muted); }}
+  .hc-d.g i {{ background: #5b8c6a; border-color: #5b8c6a; }}
+  .hc-d.y i {{ background: #c9a650; border-color: #c9a650; }}
+  .hc-d.r i {{ border: 2.5px solid #9a5a4a; }}
+  .hc-f {{ margin-top: 4px; font-size: var(--fs-2); font-weight: 650; color: var(--dash-ink); }}
   /* 근거 탭 체크리스트 (11/13) */
   .dash-check {{ background: var(--dash-surface); border: 1px solid var(--dash-divider);
                 border-radius: var(--r-card); padding: 10px 14px; margin: 6px 0 12px; }}

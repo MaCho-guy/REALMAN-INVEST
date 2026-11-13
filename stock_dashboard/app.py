@@ -1569,6 +1569,59 @@ def _render_portfolio(data, fx, use_demo: bool, market: str) -> None:
                 unsafe_allow_html=True)
 
 
+def _render_holding_checks(shown, use_demo: bool, market: str) -> None:
+    """내 종목 기준 점검 (11/13) — 찾기 › 후보와 같은 기준(integrate.assess).
+
+    보유(Secrets 의 PORTFOLIO) + 관심 종목 가운데 품질 심사 대상인 것만. 점검 필요(후보
+    관문에 걸림)가 위, 나머지는 접는 칸. 수집기 파일만 읽습니다.
+    """
+    _cands, meta = _integrated(use_demo, market)
+    screens = {r.get("t"): r for r in (meta.get("screens") or []) if isinstance(r, dict)}
+    frows, rows = meta.get("frows") or {}, meta.get("rows") or {}
+    names: dict = {}
+    for inst in shown:
+        names[inst.symbol] = inst.name
+    try:
+        positions, _bad, _src = portfolio.load(use_demo)
+        for p in positions:
+            if p.market == market:
+                names.setdefault(p.symbol, p.symbol)
+    except Exception:  # noqa: BLE001
+        pass
+    fix = (lambda t: t) if market == "kr" else (lambda t: str(t).upper().replace("-", "."))
+    items, skipped = [], 0
+    for sym, nm in names.items():
+        t = fix(sym)
+        if t not in screens:
+            skipped += 1
+            continue
+        items.append(integrate.assess(screens[t], frows.get(t), rows.get(t), market,
+                                      name=nm if nm != sym else "", ticker=t))
+    if not items:
+        return
+    warn = [c for c in items if c.notes.get("flags")]
+    ok = [c for c in items if not c.notes.get("flags")]
+    st.markdown(ui.render_section_head(
+        "기준 점검 — 내 종목", f"찾기 › 후보와 같은 기준 · 점검 필요 {len(warn)} · "
+        f"가격 {_when_kst(meta.get('p'))} 수집", len(items)), unsafe_allow_html=True)
+    if warn:
+        st.markdown(ui.render_holding_checks(warn), unsafe_allow_html=True)
+    else:
+        st.markdown(ui.render_notice("점검 필요 종목이 없습니다 — 추정이 깎이거나 실적이 계속 "
+                                     "꺾이는 종목은 없습니다."), unsafe_allow_html=True)
+    st.markdown(ui.render_legend(
+        "<b>점검 필요</b> = 나빠지는 신호 — 선행 EPS 90일 −5% 이하(추정이 깎이는 중) · 실적 추세 "
+        "악화(매출 · 영업이익 3년 연속 감소). 품질 미달 · 가격 부담 높음은 업종 · 성장 단계에 따라 "
+        "원래 그럴 수 있어 등 색(주의)으로만 보입니다. <b>매도 신호가 아니라 공시를 다시 읽어 볼 "
+        "이유</b>입니다. 등은 찾기 › 후보와 같음"
+        + (f" · 품질 심사 대상이 아닌 {skipped}종목(ETF · 지수 밖)은 뺐습니다" if skipped else "")),
+        unsafe_allow_html=True)
+    if ok:
+        with st.expander(f"나머지 {len(ok)}종목 — 나빠지는 신호 없음 (등 보기)",
+                         expanded=bool(not warn)):
+            st.markdown(ui.render_holding_checks(ok), unsafe_allow_html=True)
+
+
 def render_holdings_tab(data: dict[str, dict[str, Quote]], fx,
                         use_demo: bool, phone: bool = False,
                         *, market: str = "all") -> None:
@@ -1623,6 +1676,12 @@ def render_holdings_tab(data: dict[str, dict[str, Quote]], fx,
         [(inst, pick_quote(inst, data),
           [s for s in found if getattr(s.inst, "symbol", None) == inst.symbol])
          for inst in shown], chart_rows=chart_rows), unsafe_allow_html=True)
+    if market in ("kr", "us") and not use_demo:
+        try:
+            _render_holding_checks(shown, use_demo, market)
+        except Exception as exc:  # noqa: BLE001 - 점검 칸이 내 종목 화면을 무너뜨리지 않게
+            st.markdown(ui.render_notice(
+                f"기준 점검을 그리지 못했습니다 ({type(exc).__name__})."), unsafe_allow_html=True)
     if chart_rows is None:
         st.markdown(ui.render_notice(
             "차트 상태는 일봉을 받는 중이라 이번 화면에서는 뺐습니다 — 다시 "
@@ -1842,6 +1901,21 @@ def render_picks_tab(use_demo: bool, *, market: str = "kr") -> None:
     if out:
         with st.expander(f"관문에서 빠진 품질 통과 종목 {len(out)}개 — 이유", expanded=False):
             st.markdown(ui.render_candidate_excluded(out), unsafe_allow_html=True)
+    _picks_history_line(market, use_demo)
+
+
+def _picks_history_line(market: str, use_demo: bool) -> None:
+    """후보 기록 몇 일치가 쌓였는지 (picks_log, 11/13) — 성과 비교는 4주 뒤부터."""
+    import picks_log  # noqa: PLC0415
+
+    try:
+        n, first = picks_log.summary(_universe_or_none("picks_history", use_demo), market)
+    except Exception:  # noqa: BLE001
+        n, first = 0, ""
+    st.markdown(ui.render_legend(
+        f"<b>후보 기록</b> {n}일치" + (f" ({first}부터)" if first else "")
+        + " — 날마다 안정형 · 성장형 후보와 종가를 남깁니다. 4주 넘게 쌓이면 '후보에 오른 종목이 "
+        "이후 시장 대비 어땠나' 를 비교해 규칙을 고칩니다."), unsafe_allow_html=True)
 
 
 def _render_growth_picks(stable_cands: list, meta: dict, market: str) -> None:

@@ -73,7 +73,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/seed"
           if git fetch -q --depth=1 origin data 2>/dev/null; then
-            for f in summaries.json universe_us.json universe_kr.json funnel_kr.json chart_kr.json chart_us.json; do
+            for f in summaries.json universe_us.json universe_kr.json funnel_kr.json chart_kr.json chart_us.json picks_history.json; do
               if git show "FETCH_HEAD:$f" > "$RUNNER_TEMP/seed/$f" 2>/dev/null; then
                 echo "꺼냄: $f"
               else

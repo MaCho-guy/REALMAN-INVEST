@@ -891,7 +891,45 @@ def _build_universe(app, out_dir: str, markets=("us", "kr")) -> dict:
                   f"차트 과매도 쪽 {k['os']} · 선행 EPS {k['eps']} ({k['sec_eps']:.0f}초) · "
                   f"{k['sec']:.0f}초 (품질 {k['sec_q']:.0f}초) · "
                   f"{k['bytes'] / 1024:.0f} KB")
+    try:
+        h = build_picks_history(out_dir, markets)
+    except Exception as exc:  # noqa: BLE001 - 기록이 실패해도 수집은 그대로
+        h = {"skipped": f"{type(exc).__name__}: {str(exc)[:160]}"}
+    out["picks_history"] = h
+    print(f"  후보 기록: {h}")
     return out
+
+
+def build_picks_history(out_dir: str, markets=("us", "kr"), *, now: float | None = None) -> dict:
+    """후보 기록 (picks_log.py, 11/13) — 방금 만든 깔때기 · 차트 파일로 그날 후보를 계산해
+    지난 picks_history.json 에 붙입니다. 화면(integrate)과 같은 규칙."""
+    import chart_signals  # noqa: PLC0415
+    import picks_log  # noqa: PLC0415
+    import universe  # noqa: PLC0415
+
+    now = time.time() if now is None else now
+    day = time.strftime("%Y-%m-%d", time.localtime(now))     # 워크플로 TZ=Asia/Seoul
+    snaps, counts = {}, {}
+    for m in markets:
+        fun = _read_prev(out_dir, f"funnel_{m}.json")
+        ch = _read_prev(out_dir, f"chart_{m}.json")
+        screens = (_read_prev(out_dir, "universe_us.json").get("screens") if m == "us"
+                   else fun.get("screens")) or []
+        if not screens or not fun.get("rows"):
+            continue
+        fix = (lambda t: t) if m == "kr" else (lambda t: str(t).replace("-", "."))
+        items = [d for d in (ch.get("rows") or []) if isinstance(d, dict)]
+        rows = {fix(r.ticker): r for r in (chart_signals.row_from_dict(d) for d in items) if r}
+        frows = {r.get("t"): r for r in fun.get("rows") or [] if isinstance(r, dict)}
+        semis = {fix(d.get("ticker")) for d in items if d.get("s")}
+        new = {fix(d.get("ticker")) for d in items if d.get("new")}
+        snaps[m] = picks_log.snapshot(screens, frows, rows, m, semis, new)
+        counts[m] = {k: len(v) for k, v in snaps[m].items()}
+    if not snaps:
+        return {"skipped": "깔때기 파일이 없습니다"}
+    hist = picks_log.append(_read_prev(out_dir, "picks_history.json"), day, now, snaps)
+    size_b = _write_out(out_dir, "picks_history.json", universe.dump(hist))
+    return {"day": day, "days": len(hist["days"]), "n": counts, "bytes": size_b}
 
 
 def main(argv=None) -> int:

@@ -5095,3 +5095,23 @@ def render_checklist(items: list, title: str = "체크리스트") -> str:
         return ""
     return (f'<div class="dash-check"><div class="ck-h">{_esc(title)}</div>'
             f'<ul>{"".join(rows)}</ul></div>')
+
+
+def render_holding_checks(items: list) -> str:
+    """내 종목 기준 점검 (11/13) — integrate.assess 결과 목록. 한 줄에 종목 · 등 3개 · 점검."""
+    rows = []
+    for c in items or []:
+        dots = "".join(
+            f'<span class="hc-d {(c.lamps or {}).get(k, "-")}" title="{_esc((c.notes or {}).get(k, ""))}">'
+            f'<i aria-hidden="true"></i>{lab}<em>{_LAMP_WORD.get((c.lamps or {}).get(k, "-"), "")}</em></span>'
+            for k, lab in _LAMP_ORDER)
+        flag = (c.notes or {}).get("flags") or ""
+        tags = ('<span class="pk-tag">성장형 통과</span>' if getattr(c, "also", False) else "") + (
+            '<span class="pk-tag ic-timing">타이밍</span>' if getattr(c, "timing", False) else "")
+        rows.append(
+            f'<div class="hc-row{" warn" if flag else ""}"><div class="hc-n"><b>{_esc(c.name)}</b>'
+            f'<span class="pk-code">{_esc(c.ticker)}</span>{tags}</div>'
+            f'<div class="hc-dots">{dots}</div>'
+            + (f'<div class="hc-f">점검 필요 — {_esc(flag)}</div>' if flag else "")
+            + "</div>")
+    return f'<div class="dash-hchecks">{"".join(rows)}</div>' if rows else ""

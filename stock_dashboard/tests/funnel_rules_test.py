@@ -340,6 +340,44 @@ import buffett_kr as _bk2  # noqa: E402
 check("한국도 다시 심사(KR_REV)", _bk2.KR_REV >= 5)
 check("화면 — 후보 탭에 안정형 | 성장형", '"stable": "안정형", "growth": "성장형"' in app_src)
 
+print("\n=== 내 종목 기준 점검 · 후보 기록 (11/13) ===")
+hv = integrate.assess(dict(summ("H", [P] * 3 + [F] * 6), gr={"td": 0}),
+                      {"p": heavy_p, "f": {"c90": 0.02}}, None, "us", name="사이클주")
+check("품질 미달 · 가격 높음은 등 색(주의)만 — 점검 필요 아님",
+      hv.lamps["quality"] == "r" and hv.lamps["price"] == "r" and hv.notes["flags"] == "")
+hw = integrate.assess(dict(summ("W", [P] * 9), gr={"td": 1}), {"p": light_p, "f": {"c90": -0.07}},
+                      None, "us", name="꺾이는주")
+check("점검 필요 = 나빠지는 신호 (EPS −5% 이하 · 실적 추세 악화)",
+      "선행 EPS 90일 -7.0%" in hw.notes["flags"] and "실적 추세 악화" in hw.notes["flags"])
+hn = integrate.assess(None, None, None, "kr", name="ETF", ticker="069500")
+check("심사 대상 아니면 등 없음 · 점검 없음", hn.lamps["quality"] == "-" and hn.notes["flags"] == "")
+hh = ui.render_holding_checks([hv, hw])
+check("점검 화면 — 점검 필요 줄에만 테두리 · 문구", hh.count("hc-row warn") == 1
+      and "점검 필요 — 선행 EPS" in hh)
+check("내 종목 탭이 점검 칸을 부름", "_render_holding_checks(shown, use_demo, market)" in app_src)
+
+import picks_log  # noqa: E402
+snap = {"s": [["A", 3, 0, 10.0]], "g": []}
+h1 = picks_log.append(None, "2026-11-12", 1.0, {"us": snap})
+h2 = picks_log.append(h1, "2026-11-13", 2.0, {"us": snap, "kr": snap})
+h3 = picks_log.append(h2, "2026-11-13", 3.0, {"kr": {"s": [], "g": []}})
+check("후보 기록 — 날마다 한 줄 · 같은 날은 바꿈 · 빠진 시장은 같은 날 줄에서 이어받음",
+      [d["d"] for d in h3["days"]] == ["2026-11-12", "2026-11-13"]
+      and h3["days"][-1]["us"] == snap and h3["days"][-1]["kr"]["s"] == [])
+check("오래된 날은 잘림", len(picks_log.append(
+    {"days": [{"d": f"2025-01-{i:02d}"} for i in range(1, 29)]}, "2026-01-01", 0, {"us": snap},
+    keep=10)["days"]) == 10)
+check("요약 — (날 수, 첫 날)", picks_log.summary(h3, "us") == (2, "2026-11-12"))
+ps = picks_log.snapshot(scr, fr, {}, "kr")
+check("스냅숏 = 화면과 같은 안정형 후보 순서",
+      [r[0] for r in ps["s"]] == [c.ticker for c in integrate.split(integrate.build(scr, fr, {}, {}))[0]])
+wf = pathlib.Path("tools/collect_workflow.yml").read_text(encoding="utf-8")
+real = pathlib.Path("../.github/workflows/collect.yml").read_text(encoding="utf-8")
+check("워크플로가 지난 기록을 꺼내 이어 붙임", "picks_history.json" in wf and "picks_history.json" in real)
+check("수집기가 기록 단계를 부르고 실패해도 수집은 계속",
+      "h = build_picks_history(out_dir, markets)" in
+      pathlib.Path("tools/collect.py").read_text(encoding="utf-8"))
+
 print("\n" + "=" * 54)
 if FAILURES:
     print(f"실패 {len(FAILURES)}건: {FAILURES}")

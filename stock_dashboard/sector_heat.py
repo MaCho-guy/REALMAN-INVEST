@@ -181,3 +181,256 @@ def as_of(rows: list[SectorRow]) -> str:
         if r.as_of:
             seen[r.as_of] = seen.get(r.as_of, 0) + 1
     return max(seen, key=seen.get) if seen else ""
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 흐름 — 업종이 지금 어느 단계에 있고, 1주 전과 비교해 어디로 옮겨갔나
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# 2026-11-13 사용자: "섹터 온도의 변화 흐름이 무엇을 이야기하는지" 가 안 보임.
+# 위의 판정은 전부 '시장 대비 1개월' 한 숫자라서 방향이 바뀌는 순간을 못
+# 잡았습니다 — 같은 날 반도체는 1개월 −7.5%p(약세 쪽)였지만 1주는 +11.2%p 로
+# 시장을 가장 크게 앞섰습니다.
+#
+# **상대 순환 그래프(RRG)를 단순화한 4칸.** 두 축으로 업종을 나눕니다.
+#   가로 = 중기 위치 — 3개월 시장 대비 (+ 면 강, − 면 약)
+#   세로 = 최근 방향 — 1주 시장 대비 (+ 면 강해짐, − 면 약해짐)
+#   주도 = 강 · 강해짐 / 둔화 = 강 · 약해짐 / 침체 = 약 · 약해짐 / 회복 = 약 · 강해짐
+# 원래 RRG 는 상대강도를 정규화·평활해서 쓰지만, 여기서는 화면의 기간별 격자
+# (1주 · 3개월 칸에서 KODEX 200 칸을 뺀 값)로 **손으로 검산할 수 있게** 단순
+# 수익률 차를 씁니다. 1주는 사용자가 고른 기간입니다(2026-11-13) — 전환을 빨리
+# 잡는 대신 칸이 자주 바뀝니다.
+
+#: 중기 위치 · 최근 방향에 쓰는 기간 (PERIODS 의 키, 거래일)
+FLOW_LEVEL: tuple[str, int] = ("m3", 63)
+FLOW_DIR: tuple[str, int] = ("w1", 5)
+#: 최근 방향이 이 안(%p)이면 '방향 없음' — 0.3%p 차이로 칸이 갈리지 않게
+FLOW_FLAT = 1.0
+#: 몇 거래일 전 판정과 비교하나 (1주)
+FLOW_LAG = 5
+#: 시장 숫자를 크게 흔드는 업종 — KODEX 200 은 시가총액 비중대로 담아서
+#: 이 업종이 크게 움직이면 다른 업종의 '시장 대비' 가 반대로 기웁니다.
+FLOW_HEAVY_CODE = "091160"      # 반도체
+#: 그 업종의 1주 시장 대비가 이만큼(%p) 넘을 때만 시소를 의심합니다
+FLOW_HEAVY_MIN = 3.0
+
+#: 단계 — (키, 이름, 뜻). 화면에 이 순서로 놓습니다.
+PHASES: tuple[tuple[str, str, str], ...] = (
+    ("lead", "주도", "3개월 시장보다 강하고, 이번 주도 강함"),
+    ("recover", "회복", "3개월은 약했지만, 이번 주 시장을 앞섬"),
+    ("fade", "둔화", "3개월은 강했지만, 이번 주 뒤처짐"),
+    ("lag", "침체", "3개월도 약하고, 이번 주도 뒤처짐"),
+)
+PHASE_NAME: dict[str, str] = {k: n for k, n, _d in PHASES}
+_UP_PHASES = ("lead", "recover")      # 이번 주 시장을 앞선 쪽
+_DOWN_PHASES = ("fade", "lag")        # 이번 주 시장에 뒤처진 쪽
+
+
+def phase_of(level: float | None, direction: float | None) -> str | None:
+    """두 값 → 단계 키. 방향이 ±FLOW_FLAT 안이면 'flat', 값이 없으면 None."""
+    if level is None or direction is None:
+        return None
+    if abs(direction) < FLOW_FLAT:
+        return "flat"
+    if level >= 0:
+        return "lead" if direction > 0 else "fade"
+    return "recover" if direction > 0 else "lag"
+
+
+def rel_return(closes: list[float], bench: list[float], bars: int,
+               lag: int = 0) -> float | None:
+    """lag 거래일 전 시점에서 본 bars 거래일 시장 대비 수익률 (%p)."""
+    if lag:
+        closes, bench = closes[:-lag], bench[:-lag]
+    a = period_return(closes, bars)
+    b = period_return(bench, bars)
+    if a is None or b is None:
+        return None
+    return a - b
+
+
+@dataclass
+class FlowRow:
+    """업종 하나의 흐름."""
+
+    code: str
+    label: str
+    level: float | None = None        # 3개월 시장 대비 (%p)
+    direction: float | None = None    # 1주 시장 대비 (%p)
+    phase: str | None = None          # lead · recover · fade · lag · flat
+    prev_phase: str | None = None     # 1주 전 판정
+    why_none: str = ""               # 판정 못 한 이유
+
+    @property
+    def moved(self) -> bool:
+        """1주 전과 칸이 바뀌었나 (방향 없음 ↔ 칸 은 셈하지 않음)."""
+        known = ("lead", "recover", "fade", "lag")
+        return (self.phase in known and self.prev_phase in known
+                and self.phase != self.prev_phase)
+
+    @property
+    def turned_up(self) -> bool:
+        """뒤처지던 쪽(둔화·침체) → 앞서는 쪽(주도·회복)."""
+        return self.prev_phase in _DOWN_PHASES and self.phase in _UP_PHASES
+
+    @property
+    def turned_down(self) -> bool:
+        """앞서던 쪽(주도·회복) → 뒤처지는 쪽(둔화·침체)."""
+        return self.prev_phase in _UP_PHASES and self.phase in _DOWN_PHASES
+
+
+def flow(rows: list[SectorRow]) -> list[FlowRow]:
+    """업종 줄 → 흐름 줄 (기준선 제외). 기준선이 없으면 빈 목록."""
+    bench = next((r for r in rows if r.benchmark and r.ok), None)
+    if bench is None:
+        return []
+    _lk, lbars = FLOW_LEVEL
+    _dk, dbars = FLOW_DIR
+    out: list[FlowRow] = []
+    for r in rows:
+        if r.benchmark:
+            continue
+        f = FlowRow(code=r.code, label=r.label)
+        if not r.ok:
+            f.why_none = "일봉 없음"
+        elif r.as_of and bench.as_of and r.as_of != bench.as_of:
+            # 네이버 실패 → 야후로 메운 줄은 마지막 봉 날짜가 다를 수 있습니다.
+            # 날짜가 어긋난 채로 빼면 하루치 등락이 '시장 대비' 로 둔갑합니다.
+            f.why_none = f"마지막 봉 날짜가 기준선과 다름 ({r.as_of} vs {bench.as_of})"
+        else:
+            f.level = rel_return(r.closes, bench.closes, lbars)
+            f.direction = rel_return(r.closes, bench.closes, dbars)
+            f.phase = phase_of(f.level, f.direction)
+            f.prev_phase = phase_of(
+                rel_return(r.closes, bench.closes, lbars, FLOW_LAG),
+                rel_return(r.closes, bench.closes, dbars, FLOW_LAG))
+            if f.phase is None:
+                f.why_none = "일봉이 모자람"
+        out.append(f)
+    return out
+
+
+@dataclass
+class FlowRead:
+    """흐름 판독 — 문장을 만들 재료."""
+
+    bench_label: str
+    bench_dir: float                  # 기준선 1주 수익률 (%)
+    n: int                            # 판정한 업종 수
+    beat: int                         # 이번 주 시장보다 더 오른 업종 수
+    drivers: list[FlowRow]            # 시장을 가장 크게 앞선 업종 (최대 2)
+    turned_up: list[FlowRow]
+    turned_down: list[FlowRow]
+    stayed_lead: list[FlowRow]        # 1주 전에도 주도
+    moved: int                        # 1주 전과 칸이 바뀐 업종 수
+    heavy: FlowRow | None             # 시소를 일으켰을 수 있는 업종
+    unknown: list[FlowRow]
+
+    @property
+    def breadth(self) -> str:
+        """'narrow' · 'broad' · 'mixed' — 시장보다 더 오른 업종의 비율."""
+        if self.n == 0:
+            return "mixed"
+        share = self.beat / self.n
+        if share <= 1 / 3:
+            return "narrow"
+        if share >= 2 / 3:
+            return "broad"
+        return "mixed"
+
+
+def flow_read(rows: list[SectorRow],
+              flows: list[FlowRow] | None = None) -> FlowRead | None:
+    """판독 재료. 기준선의 1주 수익률을 모르거나 판정한 업종이 없으면 None."""
+    bench = next((r for r in rows if r.benchmark and r.ok), None)
+    if bench is None:
+        return None
+    bdir = bench.returns.get(FLOW_DIR[0])
+    if bdir is None:
+        return None
+    flows = flow(rows) if flows is None else flows
+    known = [f for f in flows if f.phase is not None]
+    if not known:
+        return None
+    ahead = sorted((f for f in known if f.direction >= FLOW_FLAT),
+                   key=lambda f: -f.direction)
+    heavy = next((f for f in known if f.code == FLOW_HEAVY_CODE), None)
+    if heavy is not None:
+        others = [f for f in known if f is not heavy and abs(f.direction) >= FLOW_FLAT]
+        opposite = [f for f in others if (f.direction > 0) != (heavy.direction > 0)]
+        if not (abs(heavy.direction) >= FLOW_HEAVY_MIN and others
+                and len(opposite) >= len(others) * 2 / 3):
+            heavy = None
+    return FlowRead(
+        bench_label=bench.label, bench_dir=bdir, n=len(known),
+        beat=sum(1 for f in known if f.direction > 0),
+        drivers=ahead[:2],
+        turned_up=sorted((f for f in known if f.turned_up),
+                         key=lambda f: -f.direction),
+        turned_down=sorted((f for f in known if f.turned_down),
+                           key=lambda f: f.direction),
+        stayed_lead=[f for f in known if f.phase == "lead" and f.prev_phase == "lead"],
+        moved=sum(1 for f in known if f.moved),
+        heavy=heavy,
+        unknown=[f for f in flows if f.phase is None],
+    )
+
+
+def _josa(word: str, with_final: str, without_final: str) -> str:
+    """받침 있으면 '이', 없으면 '가' 처럼. 한글이 아니면 둘 다 적습니다."""
+    if not word:
+        return word
+    ch = word[-1]
+    if "가" <= ch <= "힣":
+        return word + (with_final if (ord(ch) - 0xAC00) % 28 else without_final)
+    return f"{word}{with_final}({without_final})"
+
+
+def _names(items: list[FlowRow], limit: int = 3) -> str:
+    names = [f.label for f in items[:limit]]
+    more = f" 등 {len(items)}개" if len(items) > limit else ""
+    return "·".join(names) + more
+
+
+def flow_sentences(read: FlowRead | None) -> list[str]:
+    """판독 문장 (최대 3줄, 글자만 — HTML 은 화면 쪽에서 감쌉니다).
+
+    전부 화면의 숫자에서 바로 나오는 사실만 적습니다. 매수·매도나 앞으로의
+    방향은 말하지 않습니다.
+    """
+    if read is None:
+        return []
+    out: list[str] = []
+    word = "올랐고" if read.bench_dir > 0 else ("내렸고" if read.bench_dir < 0 else "제자리였고")
+    tone = {"narrow": "몇 업종만 앞선 좁은 움직임",
+            "broad": "대부분 업종이 시장을 앞선 고른 움직임",
+            "mixed": "업종별로 갈린 움직임"}[read.breadth]
+    line = (f"이번 주 {read.bench_label} {read.bench_dir:+.1f}% {word}, 시장보다 더 "
+            f"오른 업종은 {read.beat}/{read.n}개 — {tone}.")
+    if read.drivers:
+        line += " 앞선 쪽: " + " · ".join(
+            f"{f.label} {f.direction:+.1f}%p" for f in read.drivers) + "."
+    out.append(line)
+
+    if read.turned_up or read.turned_down:
+        bits = []
+        if read.turned_up:
+            bits.append("돌아선 쪽 " + ", ".join(
+                f"{f.label}({PHASE_NAME[f.prev_phase]}→{PHASE_NAME[f.phase]})"
+                for f in read.turned_up[:3])
+                + (f" 외 {len(read.turned_up) - 3}개" if len(read.turned_up) > 3 else ""))
+        if read.turned_down:
+            bits.append(f"꺾인 쪽 {_names(read.turned_down)} "
+                        "(지난주엔 시장을 앞섰으나 이번 주 뒤처짐)")
+        out.append("1주 전과 비교: " + " / ".join(bits) + ".")
+    elif read.stayed_lead:
+        out.append(f"2주 연속 주도: {_names(read.stayed_lead)}.")
+
+    if read.heavy is not None:
+        h = read.heavy
+        side, mirror = (("앞서", "뒤처져") if h.direction > 0 else ("뒤처져", "앞서"))
+        out.append(f"{_josa(h.label, '이', '가')} 시장 대비 {h.direction:+.1f}%p 로 크게 "
+                   f"{side} 나머지 업종 대부분이 '시장 대비' 로는 {mirror} 보입니다. "
+                   f"{read.bench_label} 안의 {h.label} 비중이 커서 생기는 착시일 수 "
+                   "있으니, 업종 자체의 등락은 아래 기간별 수익률로 확인하십시오.")
+    return out[:3]

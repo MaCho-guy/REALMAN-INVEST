@@ -1651,6 +1651,53 @@ def build_rules() -> str:
     .bf-sec {{ padding: 12px 13px 10px; }}
     .bf-grid {{ grid-template-columns: 1fr; }}
   }}
+  /* ── 섹터 온도 — 흐름 판독 · 4칸 지도 (2026-11-13) ─────────────────────
+     폰: 1열(주도 → 회복 → 둔화 → 침체). 넓은 화면: 2×2 를 RRG 배치로
+     (위 = 이번 주 강, 오른쪽 = 3개월 강). 보라 계열 금지 — 등락색만 옅게. */
+  .dash-sflow {{
+    background: var(--dash-surface); border: 1px solid var(--dash-divider);
+    border-radius: var(--r-card); padding: 12px 12px 10px; margin: 0 0 var(--sp-3);
+  }}
+  .sf-read {{ margin: 0 0 10px; padding-left: 1.1em; }}
+  .sf-read li {{ font-size: var(--fs-3); line-height: 1.55; color: var(--dash-ink);
+                margin-bottom: 4px; }}
+  .sf-map {{ display: grid; grid-template-columns: 1fr; gap: 6px; }}
+  .sf-q {{ border-radius: var(--r-chip); padding: 7px 9px 8px;
+          border-left: 3px solid var(--dash-divider); background: var(--dash-raised); }}
+  .sf-lead {{ border-left-color: var(--dash-up);
+             background: color-mix(in srgb, var(--dash-up) 9%, var(--dash-surface)); }}
+  .sf-recover {{ border-left-color: color-mix(in srgb, var(--dash-up) 45%, var(--dash-surface));
+                background: color-mix(in srgb, var(--dash-up) 4%, var(--dash-surface)); }}
+  .sf-fade {{ border-left-color: color-mix(in srgb, var(--dash-down) 45%, var(--dash-surface));
+             background: color-mix(in srgb, var(--dash-down) 4%, var(--dash-surface)); }}
+  .sf-lag {{ border-left-color: var(--dash-down);
+            background: color-mix(in srgb, var(--dash-down) 9%, var(--dash-surface)); }}
+  .sf-qh {{ display: flex; align-items: baseline; gap: 8px; margin-bottom: 5px; }}
+  .sf-qh b {{ font-size: var(--fs-4); color: var(--dash-ink); }}
+  .sf-qh span {{ font-size: var(--fs-1); color: var(--dash-ink-muted); flex: 1; }}
+  .sf-qh small {{ font-size: var(--fs-2); font-weight: 700; color: var(--dash-ink-2); }}
+  .sf-chips {{ display: flex; flex-wrap: wrap; gap: 5px; }}
+  .sf-chip {{ display: inline-flex; align-items: baseline; gap: 5px;
+             background: var(--dash-surface); border: 1px solid var(--dash-divider);
+             border-radius: var(--r-chip); padding: 3px 7px; font-size: var(--fs-2); }}
+  .sf-chip b {{ color: var(--dash-ink); font-weight: 700; }}
+  .sf-chip em {{ font-style: normal; color: var(--dash-ink-2);
+                font-variant-numeric: tabular-nums; }}
+  .sf-chip i {{ font-style: normal; font-size: var(--fs-1); color: var(--dash-accent);
+               font-weight: 650; }}
+  .sf-none {{ font-size: var(--fs-2); color: var(--dash-ink-muted); }}
+  .sf-flat {{ margin-top: 7px; font-size: var(--fs-2); color: var(--dash-ink-muted);
+             display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px; }}
+  .sf-flat b {{ color: var(--dash-ink-2); }}
+  .sf-foot, .sf-unk {{ margin-top: 7px; font-size: var(--fs-1); color: var(--dash-ink-muted);
+                      line-height: 1.5; }}
+  .sf-foot i {{ font-style: normal; color: var(--dash-accent); font-weight: 650; }}
+  @media (min-width: 761px) {{
+    .sf-map {{ grid-template-columns: 1fr 1fr;
+              grid-template-areas: "recover lead" "lag fade"; }}
+    .sf-lead {{ grid-area: lead; }} .sf-recover {{ grid-area: recover; }}
+    .sf-fade {{ grid-area: fade; }} .sf-lag {{ grid-area: lag; }}
+  }}
 
   /* ── 요약 상태판 ──────────────────────────────────────────────────── */
   .dash-sgrid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1668,23 +1715,23 @@ def build_rules() -> str:
   /* ── 섹터 막대 ────────────────────────────────────────────────────── */
   .dash-sbars {{ background: var(--dash-surface); border: 1px solid var(--dash-border);
                 border-radius: var(--r-card); padding: 12px 14px; margin: 0 0 var(--sp-3); }}
-  .sb-head {{ font-size: var(--fs-2); color: var(--dash-ink-muted);
+  .dash-sbars .sb-head {{ font-size: var(--fs-2); color: var(--dash-ink-muted);
              margin-bottom: var(--sp-2); }}
-  .sb-row {{ display: grid; grid-template-columns: 92px 1fr 64px; gap: 10px;
+  .dash-sbars .sb-row {{ display: grid; grid-template-columns: 92px 1fr 64px; gap: 10px;
             align-items: center; padding: 3px 0; }}
-  .sb-name {{ font-size: var(--fs-3); color: var(--dash-ink); white-space: nowrap;
+  .dash-sbars .sb-name {{ font-size: var(--fs-3); color: var(--dash-ink); white-space: nowrap;
              overflow: hidden; text-overflow: ellipsis; }}
-  .sb-track {{ position: relative; height: 12px; }}
-  .sb-zero {{ position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px;
+  .dash-sbars .sb-track {{ position: relative; height: 12px; }}
+  .dash-sbars .sb-zero {{ position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px;
              background: var(--dash-border); }}
-  .sb-bar {{ position: absolute; top: 2px; bottom: 2px; border-radius: var(--r-chip); }}
-  .sb-bar.up {{ background: var(--dash-up); }}
-  .sb-bar.down {{ background: var(--dash-down); }}
-  .sb-bar.flat {{ background: var(--dash-ink-muted); }}
-  .sb-val {{ font-size: var(--fs-3); font-weight: 650; text-align: right;
+  .dash-sbars .sb-bar {{ position: absolute; top: 2px; bottom: 2px; border-radius: var(--r-chip); }}
+  .dash-sbars .sb-bar.up {{ background: var(--dash-up); }}
+  .dash-sbars .sb-bar.down {{ background: var(--dash-down); }}
+  .dash-sbars .sb-bar.flat {{ background: var(--dash-ink-muted); }}
+  .dash-sbars .sb-val {{ font-size: var(--fs-3); font-weight: 650; text-align: right;
             font-variant-numeric: tabular-nums; }}
-  .sb-val.up {{ color: var(--dash-up); }}
-  .sb-val.down {{ color: var(--dash-down); }}
+  .dash-sbars .sb-val.up {{ color: var(--dash-up); }}
+  .dash-sbars .sb-val.down {{ color: var(--dash-down); }}
 
   /* ── 통과 종목 비교표 ───────────────────────────────────────────── */
   .dash-htable-wrap {{ overflow-x: auto; margin: 0 0 var(--sp-3);

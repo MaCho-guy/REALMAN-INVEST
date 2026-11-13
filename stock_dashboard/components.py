@@ -3027,6 +3027,72 @@ def render_sector_heatgrid(rows: list) -> str:
             + head + "".join(body) + "</div>")
 
 
+def _flow_chip(f, show_prev: bool = True) -> str:
+    """흐름 칩 — 이름 · 3개월 | 1주 (시장 대비 %p) · 1주 전 칸."""
+    import sector_heat as _sh  # noqa: PLC0415
+
+    prev = ""
+    if show_prev and f.moved:
+        prev = f'<i>← {_esc(_sh.PHASE_NAME.get(f.prev_phase, ""))}</i>'
+    return (f'<span class="sf-chip"><b>{_esc(f.label)}</b>'
+            f'<em>{f.level:+.1f} | {f.direction:+.1f}</em>{prev}</span>')
+
+
+def render_sector_flow(rows: list) -> str:
+    """섹터 온도 맨 위 — 판독 문장 + 흐름 지도(주도 · 회복 · 둔화 · 침체).
+
+    2026-11-13 사용자: "섹터 온도의 변화 흐름이 무엇을 이야기하는지" 가 안 보임.
+    아래의 칩 · 막대 · 격자는 그대로 두고, 그 숫자들이 **무슨 이야기인지**를
+    먼저 적습니다. 판정 규칙은 sector_heat.flow · flow_read 에 있습니다.
+    기준선을 못 받았거나 판정한 업종이 없으면 아무것도 그리지 않습니다
+    (아래 칸들은 그대로 나옵니다).
+    """
+    import sector_heat as _sh  # noqa: PLC0415
+
+    flows = _sh.flow(rows or [])
+    read = _sh.flow_read(rows or [], flows)
+    if read is None:
+        return ""
+    day = _sh.as_of(rows)
+    when = f" · {int(day[5:7])}/{day[8:10]} 봉 기준" if len(day) >= 10 else ""
+    lines = "".join(f"<li>{_esc(t)}</li>" for t in _sh.flow_sentences(read))
+
+    known = [f for f in flows if f.phase is not None]
+    boxes = []
+    for key, name, meaning in _sh.PHASES:
+        items = sorted((f for f in known if f.phase == key),
+                       key=lambda f: -f.direction)
+        chips = ("".join(_flow_chip(f) for f in items)
+                 or '<span class="sf-none">없음</span>')
+        boxes.append(
+            f'<div class="sf-q sf-{key}"><div class="sf-qh"><b>{_esc(name)}</b>'
+            f"<span>{_esc(meaning)}</span><small>{len(items)}</small></div>"
+            f'<div class="sf-chips">{chips}</div></div>')
+
+    flat = sorted((f for f in known if f.phase == "flat"), key=lambda f: -f.level)
+    flat_html = ""
+    if flat:
+        flat_html = (f'<div class="sf-flat"><b>방향 없음</b> (1주 ±{_sh.FLOW_FLAT:g}%p 안) '
+                     + "".join(_flow_chip(f, show_prev=False) for f in flat) + "</div>")
+    unk_html = ""
+    if read.unknown:
+        unk_html = ('<div class="sf-unk">판정 못 함: '
+                    + " · ".join(f"{_esc(f.label)}({_esc(f.why_none)})"
+                                 for f in read.unknown) + "</div>")
+    moved = (f" · 1주 전과 칸이 바뀐 업종 {read.moved}/{read.n}개"
+             + (" — 1주 기준이라 칸이 자주 바뀝니다" if read.moved * 2 >= read.n else "")
+             if read.moved else "")
+    return (
+        '<div class="dash-sflow">'
+        f'<div class="sb-head"><b>흐름이 말하는 것</b><span>KODEX 업종 ETF · 네이버 일봉'
+        f"{_esc(when)}</span></div>"
+        f'<ul class="sf-read">{lines}</ul>'
+        f'<div class="sf-map">{"".join(boxes)}</div>{flat_html}'
+        f'<div class="sf-foot">숫자 = <b>3개월 | 1주</b>, {_esc(read.bench_label)} 대비 %p · '
+        f"<i>← 칸</i> = 1주 전에 있던 칸{_esc(moved)}</div>{unk_html}"
+        "</div>")
+
+
 def render_sector_heat_summary(rows: list) -> str:
     """표 위의 한 줄 — 강세·약세 업종. 표를 다 읽기 전에 결론부터."""
     import sector_heat as _sh  # noqa: PLC0415

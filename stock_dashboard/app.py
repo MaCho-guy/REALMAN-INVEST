@@ -3404,6 +3404,20 @@ def render_sector_heat_tab(use_demo: bool) -> None:
         _kind, note = calendar_events.bar_note(sector_heat.as_of(rows), "kr")
         if note:
             st.markdown(ui.render_notice(note), unsafe_allow_html=True)
+    # 2026-11-13 사용자: "변화 흐름이 무엇을 이야기하는지" — 판독 문장 + 4칸
+    # 흐름 지도를 맨 위에. 아래 칩 · 막대 · 격자 · 표는 그대로 둡니다.
+    st.markdown(ui.render_sector_flow(rows), unsafe_allow_html=True)
+    st.markdown(
+        ui.render_footnote(
+            "<b>흐름 지도 읽는 법.</b> 업종을 두 숫자로 나눕니다 — <b>3개월</b> "
+            "시장 대비(중기 위치)와 <b>1주</b> 시장 대비(최근 방향). 상대 순환 "
+            "그래프(RRG)를 단순화한 것이라, 아래 기간별 수익률 격자에서 업종의 "
+            "3개월 · 1주 칸에 KODEX 200 의 같은 칸을 빼면 그대로 검산됩니다. "
+            "1주 차이가 ±1%p 안이면 '방향 없음' 으로 둡니다. "
+            "KODEX 200 은 시가총액 비중대로 담아서 큰 업종(반도체)이 크게 "
+            "움직인 주에는 나머지 업종의 '시장 대비' 가 반대로 기웁니다."),
+        unsafe_allow_html=True,
+    )
     st.markdown(ui.render_sector_heat_summary(rows), unsafe_allow_html=True)
     # 2026-11-13 폰: "너무 허접하고 비어 보임" — 순위 막대 + 온도 격자를 먼저,
     # 원래 표(52주 위치 · 3개월 추이까지)는 접는 칸으로.

@@ -181,6 +181,113 @@ check("한국 요약은 공포탐욕을 안 받는다",
       'if market == "kr":\n        sector_rows = load_sector_heat(use_demo)'
       in _app, "안 쓰는 걸 받아오면 요약이 느려집니다")
 
+print("\n=== 흐름 — 4칸 판정 (2026-11-13) ===")
+check("주도 = 3개월 + · 1주 +", sh.phase_of(5.0, 3.0) == "lead")
+check("둔화 = 3개월 + · 1주 −", sh.phase_of(5.0, -3.0) == "fade")
+check("회복 = 3개월 − · 1주 +", sh.phase_of(-5.0, 3.0) == "recover")
+check("침체 = 3개월 − · 1주 −", sh.phase_of(-5.0, -3.0) == "lag")
+check("1주가 ±1%p 안이면 방향 없음", sh.phase_of(5.0, 0.9) == "flat"
+      and sh.phase_of(-5.0, -0.9) == "flat")
+check("값이 없으면 None", sh.phase_of(None, 3.0) is None)
+check("기간이 3개월 · 1주", sh.FLOW_LEVEL == ("m3", 63) and sh.FLOW_DIR == ("w1", 5))
+
+
+def series(daily_by_day):
+    """하루 수익률 목록 → 종가."""
+    p, out = 100.0, [100.0]
+    for g in daily_by_day:
+        p *= 1 + g
+        out.append(p)
+    return out
+
+
+# 기준선은 평평. A: 3개월 꾸준히 오르다 마지막 주 빠짐 → 지난주 주도, 이번 주 둔화
+# B: 3개월 빠지다 마지막 주 급등 → 지난주 침체, 이번 주 회복
+flat = series([0.0] * 120)
+a = series([0.004] * 115 + [-0.01] * 5)
+b = series([-0.004] * 115 + [0.02] * 5)
+specs_f = [("069500", "KODEX 200", ("200",), True),
+           ("A", "꺾인 업종", ()), ("B", "돌아선 업종", ()), ("C", "빈 업종", ())]
+rows_f = sh.build(specs_f, {"069500": flat, "A": a, "B": b, "C": []},
+                  dates_by_code={"069500": "2026-11-13", "A": "2026-11-13",
+                                 "B": "2026-11-13"})
+fl = {f.label: f for f in sh.flow(rows_f)}
+check("기준선은 흐름 줄에 없다", "KODEX 200" not in fl)
+fa, fb = fl["꺾인 업종"], fl["돌아선 업종"]
+check("A: 이번 주 둔화 · 1주 전 주도", (fa.phase, fa.prev_phase) == ("fade", "lead"),
+      f"{fa.phase} / {fa.prev_phase}")
+check("B: 이번 주 회복 · 1주 전 침체", (fb.phase, fb.prev_phase) == ("recover", "lag"),
+      f"{fb.phase} / {fb.prev_phase}")
+check("1주 값 = 업종 1주 − 기준선 1주 (격자로 검산 가능)",
+      abs(fb.direction - (sh.period_return(b, 5) - sh.period_return(flat, 5))) < 1e-9)
+check("A 는 꺾임, B 는 돌아섬", fa.turned_down and not fa.turned_up
+      and fb.turned_up and not fb.turned_down)
+check("일봉 없는 줄은 판정 못 함 + 이유", fl["빈 업종"].phase is None
+      and fl["빈 업종"].why_none != "")
+rows_d = sh.build(specs_f[:2], {"069500": flat, "A": a},
+                  dates_by_code={"069500": "2026-11-13", "A": "2026-11-12"})
+fd = sh.flow(rows_d)[0]
+check("마지막 봉 날짜가 기준선과 다르면 판정 안 함", fd.phase is None
+      and "날짜" in fd.why_none, fd.why_none)
+
+rd = sh.flow_read(rows_f)
+check("판독: 판정한 업종 2개 · 앞선 업종 1개", rd is not None and rd.n == 2
+      and rd.beat == 1, f"{rd and (rd.n, rd.beat)}")
+lines = sh.flow_sentences(rd)
+check("판독 문장 1~3줄", 1 <= len(lines) <= 3, str(len(lines)))
+check("돌아선 쪽에 '침체→회복' 이 적힌다", any("돌아선 업종(침체→회복)" in t for t in lines),
+      " / ".join(lines))
+check("매수 · 매도 · 전망 말이 없다",
+      not any(w in " ".join(lines) for w in ("매수", "매도", "목표", "전망", "추천")))
+check("기준선이 없으면 판독 없음",
+      sh.flow_read([r for r in rows_f if not r.benchmark]) is None
+      and ui.render_sector_flow([r for r in rows_f if not r.benchmark]) == "")
+check("빈 목록이어도 깨지지 않음", ui.render_sector_flow([]) == ""
+      and sh.flow_sentences(None) == [])
+check("기준선 일봉 실패여도 깨지지 않음",
+      ui.render_sector_flow(sh.build(specs_f, {"A": a, "B": b})) == "")
+html_f = ui.render_sector_flow(rows_f)
+check("지도에 네 칸이 모두 있다 (빈 칸은 '없음')",
+      all(f"sf-{k}" in html_f for k in ("lead", "recover", "fade", "lag"))
+      and "없음" in html_f)
+check("1주 전 칸 표시", "← 주도" in html_f and "← 침체" in html_f)
+check("출처 · 기준일 표시", "네이버 일봉" in html_f and "11/13 봉 기준" in html_f)
+check("판정 못 한 업종을 숨기지 않는다", "판정 못 함" in html_f and "빈 업종" in html_f)
+
+print("\n=== 흐름 — 시소 (큰 업종이 시장을 끌 때) ===")
+heavy = series([0.0] * 115 + [0.03] * 5)
+bench_h = series([0.0] * 115 + [0.012] * 5)           # 반도체가 끌어올린 시장
+others = {f"S{i}": series([0.0] * 115 + [0.004] * 5) for i in range(4)}
+specs_h = ([("069500", "KODEX 200", ("200",), True), ("091160", "반도체", ())]
+           + [(c, f"업종{c}", ()) for c in others])
+rh = sh.flow_read(sh.build(specs_h, {"069500": bench_h, "091160": heavy, **others}))
+check("반도체가 크게 앞서고 나머지가 반대면 시소 문장", rh is not None and rh.heavy is not None
+      and any("착시" in t for t in sh.flow_sentences(rh)))
+check("좁은 움직임으로 판정 (1/5 만 시장을 앞섬)", rh.breadth == "narrow"
+      and rh.beat == 1, f"{rh.breadth} {rh.beat}")
+check("조사: '반도체가'", any(t.startswith("반도체가 ") for t in sh.flow_sentences(rh)))
+same = {f"S{i}": series([0.0] * 115 + [0.02] * 5) for i in range(4)}
+rn = sh.flow_read(sh.build(specs_h, {"069500": bench_h, "091160": heavy, **same}))
+check("다른 업종도 같이 앞서면 시소 아님", rn.heavy is None and rn.breadth == "broad")
+
+print("\n=== 흐름 — 데모 · 화면 연결 ===")
+_demo = demo_mod.demo_sector_heat(config.KR_SECTOR_ETFS)
+check("데모로 흐름 지도가 그려진다", "dash-sflow" in ui.render_sector_flow(_demo))
+check("탭이 흐름을 칩 · 막대보다 먼저 그린다",
+      _app.index("ui.render_sector_flow(rows)")
+      < _app.index("ui.render_sector_heat_summary(rows)")
+      < _app.index("ui.render_sector_bars(rows)"))
+check("기존 칩 · 막대 · 격자 · 표가 그대로 있다",
+      all(x in _app for x in ("ui.render_sector_heat_summary(rows)",
+                               "ui.render_sector_bars(rows)",
+                               "ui.render_sector_heatgrid(rows)",
+                               "ui.render_sector_heat(rows)")))
+_css = theme.build_rules()
+check("흐름 CSS 가 있다", ".dash-sflow" in _css and "sf-map" in _css)
+check("예전 막대 CSS 가 새 막대를 덮지 않는다 (범위를 좁힘)",
+      ".dash-sbars .sb-row" in _css and "\n  .sb-row { display: grid; grid-template-columns: 92px"
+      not in _css)
+
 print("\n=== 스트림릿 테마가 theme.py 와 같은가 ===")
 # 주석을 '#' 로 잘라내면 '#1f3a5f' 같은 색값까지 잘립니다 — 진짜 TOML
 # 파서로 읽습니다.

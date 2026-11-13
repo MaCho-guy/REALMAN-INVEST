@@ -498,6 +498,19 @@ check("빈 결과는 그리지 않음", ui.render_backtest({}, "kr") == "")
 check("수집기 · 화면 연결", "build_backtest(out_dir" in col and "_render_backtest(market, use_demo)"
       in app_src and "backtest_tech" in config.UNIVERSE_URLS)
 
+print("\n== 폰 글자 크기 · 글꼴 (11/13)")
+import theme  # noqa: E402
+
+_css = theme.build_css("kr")
+check("글꼴 하나로 — 스트림릿 글 상자도 system-ui", '[data-testid="stMarkdownContainer"] { font-family: system-ui' in _css)
+check("글자 규칙이 표→카드 규칙보다 뒤 (덮어씀)", _css.index("⓪") > _css.index("table.dash-stk thead"))
+check("폰 — 본문 15 · 설명 14 · 리포트 카드 제목 = 리포트 제목",
+      ".dash-section-sub, .dash-section-count { font-size: var(--fs-2); }" in _css
+      and "td.rt-title {\n      order: -1;" in _css)
+ckh = ui.render_checklist([("pass", "가", "근거1"), ("unknown", "나", "근거2")], "추가 확인", "설명")
+check("추가 확인 카드 — 항목 / 근거 두 줄 · 상태 글자 · 설명 줄",
+      ckh.count('class="ck-top"') == 2 and "좋음" in ckh and "자료 부족" in ckh and 'class="ck-s"' in ckh)
+
 print("\n" + "=" * 54)
 if FAILURES:
     print(f"실패 {len(FAILURES)}건: {FAILURES}")

@@ -2945,10 +2945,15 @@ def build_type_rules() -> str:
     ② 위계가 뒤집힌 곳 — 섹션 설명(16px)이 본문보다 큼 · 산업 리포트 카드에서 날짜가
        제목(17px 굵게)이고 리포트 제목이 15px · 9개 기준 카드에서 종목 코드가 이름보다 큼 ·
        코드 글자 10.5~12px.
+    ③ 글꼴이 두 가지 — 스트림릿 글 상자 안은 Source Sans(한글 없음), 옛 카드는 system-ui.
     폰 기준 단계를 이렇게 맞춥니다: 13 태그 · 시각 / 14 설명 · 캡션 / 15 본문 /
     16 강조 라벨 / 17 카드 제목 / 18.5 섹션 제목 / 21↑ 수치.
     """
     return """
+  /* ⓪ 글꼴 하나로 — 스트림릿 글 상자(stMarkdownContainer)는 'Source Sans'(한글 없음)를
+     직접 지정해서, 그 안의 카드 · 문단은 영문 · 숫자만 Source Sans, 한글은 기기 글꼴로
+     섞여 그려졌습니다. 같은 15px 이어도 옛 카드(system-ui)보다 작고 가늘어 보였습니다. */
+  .stApp [data-testid="stMarkdownContainer"] { font-family: """ + FONT_STACK + """; }
   @media (max-width: 640px) {
     /* ① 본문 = 15px — 스트림릿 글과 대시보드 카드가 같은 크기 */
     [data-testid="stMain"] [data-testid="stMarkdownContainer"] { font-size: var(--fs-3); }

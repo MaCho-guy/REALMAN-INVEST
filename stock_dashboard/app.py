@@ -1001,9 +1001,14 @@ def load_sector_news(use_demo: bool):
     if use_demo:
         return demo_mod.demo_sector_news(config.KR_SECTORS)
     try:
+        # 11/13 '읽을만한 정보로': 최신순 → 사건별 순위 (sources/news.rank_stories)
         return news.fetch_sector_news(config.KR_SECTORS,
                                       limit=config.SECTOR_NEWS_PER,
-                                      max_days=config.SECTOR_NEWS_DAYS)
+                                      max_days=config.SECTOR_NEWS_DAYS,
+                                      rank=True,
+                                      must=config.SECTOR_NEWS_MUST,
+                                      avoid=config.SECTOR_NEWS_AVOID,
+                                      tier=config.NEWS_TIER_SOURCES)
     except Exception as exc:  # noqa: BLE001
         return {}, {"_": f"{type(exc).__name__}: {exc}"}
 
@@ -3601,6 +3606,13 @@ def _flows_korea(use_demo: bool) -> None:
         unsafe_allow_html=True,
     )
     sector_news, sector_errors = load_sector_news(use_demo)
+    # 꼭 보여야 하는 출처 · 규칙 (footnote 는 기본으로 숨으므로 legend 로)
+    st.markdown(
+        ui.render_legend(
+            f"구글 뉴스 · 최근 {config.SECTOR_NEWS_DAYS}일 · 30분마다 새로 · "
+            "같은 사건은 한 줄로 묶고(<b>관련 N곳</b>) 보도 많은 순 · 주요 매체 우선"),
+        unsafe_allow_html=True,
+    )
     st.markdown(
         ui.render_sector_news(config.KR_SECTORS, sector_news, sector_errors),
         unsafe_allow_html=True,

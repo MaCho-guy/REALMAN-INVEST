@@ -354,7 +354,7 @@ html = ui.render_sector_news(config.KR_SECTORS, sn, se)
 check("섹터마다 블록", html.count("dash-sector-name") == len(config.KR_SECTORS))
 check("빈 섹터도 자리를 남긴다", "dash-sector-empty" in html,
       "조용히 빼면 '오늘 뉴스가 없네' 로 오해합니다")
-check("검색어를 보여준다", "한국은행 기준금리" in html)
+check("검색어를 보여준다 (OR 은 · 로 풀어서)", "기준금리·국고채" in html and " OR " not in html)
 
 fl = ui.render_market_filings(demo_mod.demo_market_filings(),
                               held={"005930"}, scan=demo_mod.demo_filing_scan())

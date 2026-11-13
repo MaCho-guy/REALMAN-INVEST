@@ -2656,10 +2656,31 @@ def render_simple_rows(rows: list) -> str:
 
 
 def _news_meta(h) -> str:
-    """'매체 · 11/12' — 기사 날짜를 늘 같이 보입니다 (2026-11-13 '오래된 기사' 점검)."""
+    """'매체 · 11/12 · 관련 5곳' — 기사 날짜를 늘 같이 보입니다 (2026-11-13
+    '오래된 기사' 점검). '관련 N곳' 은 같은 사건으로 묶인 다른 매체 수 —
+    섹터 뉴스 순위에서만 채워집니다 (옛 캐시 객체엔 없을 수 있어 getattr)."""
     pub = getattr(h, "published", "") or ""
     day = f"{pub[5:7]}/{pub[8:10]}" if len(pub) >= 10 else ""
-    return " · ".join(x for x in (getattr(h, "source", "") or "", day) if x)
+    more = getattr(h, "more", 0) or 0
+    extra = f"관련 {more}곳" if more > 0 else ""
+    return " · ".join(x for x in (getattr(h, "source", "") or "", day, extra) if x)
+
+
+def _query_hint(query: str) -> str:
+    """'(반도체 OR HBM) (업황 OR 가격)' → '반도체·HBM + 업황·가격' — 폰에서 읽히게."""
+    parts: list[str] = []
+    bare: list[str] = []           # 괄호 밖 낱말은 띄어 쓴 그대로 한 덩어리
+    for grp, word in re.findall(r"\(([^)]*)\)|(\S+)", query or ""):
+        if grp:
+            if bare:
+                parts.append(" ".join(bare))
+                bare = []
+            parts.append("·".join(w.strip() for w in grp.split(" OR ") if w.strip()))
+        elif word and word != "OR":
+            bare.append(word)
+    if bare:
+        parts.append(" ".join(bare))
+    return " + ".join(parts)
 
 
 def render_sector_news(sectors, headlines: dict, errors: dict) -> str:
@@ -2687,7 +2708,7 @@ def render_sector_news(sectors, headlines: dict, errors: dict) -> str:
         blocks.append(
             '<div class="dash-sector">'
             f'<div class="dash-sector-name">{_esc(label)}'
-            f'<span class="dash-sector-q">{_esc(query)}</span></div>'
+            f'<span class="dash-sector-q">{_esc(_query_hint(query))}</span></div>'
             f"<ul>{lis}</ul></div>")
     return f'<div class="dash-sectors">{"".join(blocks)}</div>'
 

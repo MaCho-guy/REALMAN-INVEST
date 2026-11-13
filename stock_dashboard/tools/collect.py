@@ -903,7 +903,54 @@ def _build_universe(app, out_dir: str, markets=("us", "kr")) -> dict:
         pp = {"skipped": f"{type(exc).__name__}: {str(exc)[:160]}"}
     out["paper"] = pp
     print(f"  모의 매수 실험: {pp}")
+    try:
+        bt = build_backtest(out_dir, {"kr": kr_bars, "us": us_bars})
+    except Exception as exc:  # noqa: BLE001 - 백테스트가 실패해도 수집은 그대로
+        bt = {"skipped": f"{type(exc).__name__}: {str(exc)[:160]}"}
+    out["backtest_tech"] = bt
+    print(f"  차트 전략 백테스트: {bt}")
     return out
+
+
+def build_backtest(out_dir: str, bars: dict, *, now: float | None = None) -> dict:
+    """차트 전략 백테스트 (techtest.py, 11/13) — 차트 조건 단계가 받은 1년 일봉을 다시 씀."""
+    import buffett  # noqa: PLC0415
+    import integrate  # noqa: PLC0415
+    import techtest  # noqa: PLC0415
+    import universe  # noqa: PLC0415
+
+    t0 = time.time()
+    res, info = {}, {}
+    for m, b in bars.items():
+        if not b:
+            continue
+        v = _market_inputs(out_dir, m)
+        names, allowed = {}, set()
+        fix = (lambda t: t) if m == "kr" else (lambda t: str(t).replace("-", "."))
+        if v:
+            screens, frows, _rows, _s, _n = v
+            for s_ in screens:
+                sc = buffett.from_summary(s_) if isinstance(s_, dict) else None
+                if sc is None:
+                    continue
+                names[sc.ticker] = sc.name
+                ok_q = buffett.quality_pass(sc, m) or integrate.held_back(sc, m)
+                if ok_q and not funnel_eps_down((frows.get(sc.ticker) or {}).get("f")):
+                    allowed.add(sc.ticker)
+        keyed = {fix(k): x for k, x in b.items()}
+        res[m] = techtest.run(keyed, names, allowed)
+        info[m] = {k: (x["trades"], x["avg"]) for k, x in res[m]["variants"].items()}
+    if not res:
+        return {"skipped": "일봉이 없습니다"}
+    payload = {"params": {"cost": techtest.COST, "stop": techtest.STOP, "arm_wait": techtest.ARM_WAIT,
+                          "max_hold": techtest.MAX_HOLD}, **res}
+    size_b = _write_out(out_dir, "backtest_tech.json", universe.dump(payload))
+    return {"sec": round(time.time() - t0, 1), "bytes": size_b, **info}
+
+
+def funnel_eps_down(f) -> bool:
+    import funnel  # noqa: PLC0415
+    return funnel.eps_down(f)
 
 
 def _market_inputs(out_dir: str, m: str):

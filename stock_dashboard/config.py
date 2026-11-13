@@ -214,6 +214,9 @@ UNIVERSE_URLS["picks_history"] = os.environ.get("PICKS_HISTORY_URL",
 #: 모의 매수 실험 — 후보 상위를 '샀다고 치고' 근거가 깨지면 '판다' (paper.py, 11/13)
 UNIVERSE_URLS["paper_portfolio"] = os.environ.get("PAPER_PORTFOLIO_URL",
                                                   _DATA_RAW + "paper_portfolio.json")
+# 차트 전략 백테스트 (techtest.py, 11/13) — 매 회차 1년 일봉으로 다시 계산 (이어받지 않음)
+UNIVERSE_URLS["backtest_tech"] = os.environ.get("BACKTEST_TECH_URL",
+                                                _DATA_RAW + "backtest_tech.json")
 #: 국내 품질 심사(DART 사업보고서)를 다시 하는 주기(시간) — **일주일에 한 번**.
 #: 350종목 × 사업보고서 4건 = 약 1,400건 (DART 한도는 하루 20,000건)이고,
 #: 2026-11-12 첫 실행에서 **1,143초(19분)** 걸렸습니다. 매일 하면 아침 수집 전체가

@@ -1075,12 +1075,77 @@ def load_kr_exports(use_demo: bool):
         return None, f"{type(exc).__name__}: {exc}"
 
 
+def fetch_remote_briefings(today: dt.date | None = None, get=None) -> list:
+    """briefings 브랜치의 아침 브리핑 — 최근 며칠 치를 날짜로 직접 찾아 받습니다.
+
+    마크다운(.md)만 받습니다 — 화면은 이 글을 HTML 로 풀지 않고 마크다운으로만
+    그립니다. 없는 날(404)은 건너뛰고, 통신 실패는 그 날짜만 빠집니다.
+    """
+    import concurrent.futures as cf  # noqa: PLC0415
+    import urllib.error  # noqa: PLC0415
+    import urllib.request  # noqa: PLC0415
+
+    today = today or dt.datetime.now(KST).date()
+    days = [(today - dt.timedelta(days=i)).isoformat()
+            for i in range(config.BRIEFING_REMOTE_DAYS)]
+    base = os.path.join(swr.DISK_DIR, "briefings_remote")
+    os.makedirs(base, exist_ok=True)
+
+    def one(day: str):
+        url = config.BRIEFING_REMOTE_URL.format(date=day)
+        try:
+            if get is not None:
+                text = get(url)
+            else:
+                req = urllib.request.Request(url, headers={"User-Agent": "dash-briefing/1"})
+                with urllib.request.urlopen(req, timeout=6) as resp:
+                    text = resp.read(400_000).decode("utf-8", "replace")
+        except Exception:  # noqa: BLE001 - 없는 날 · 통신 실패
+            return None
+        if not text or not text.strip():
+            return None
+        path = os.path.join(base, f"{day}.md")
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(text)
+        except OSError:
+            return None
+        return bfs.load_one(path)
+
+    with cf.ThreadPoolExecutor(max_workers=8) as pool:
+        got = [b for b in pool.map(one, days) if b is not None]
+    got.sort(key=lambda b: b.date, reverse=True)
+    return got
+
+
+@swr.cached(900, stale=2 * 86_400)
+def load_remote_briefings(use_demo: bool) -> list:
+    """아침 브리핑 (briefings 브랜치). 15분 저장 — 아침에 올라온 글이 곧 보이게."""
+    if use_demo:
+        return []
+    return fetch_remote_briefings()
+
+
 @swr.cached(60, disk=False)
 def load_briefings() -> list:
-    """증시 브리핑. 로컬 파일이라 캐시를 짧게 둡니다 — 파일을 새로 넣고
-    1분 안에 보이는 편이, 캐시를 길게 잡아 '왜 안 보이지' 하는 것보다 낫습니다.
+    """증시 브리핑 — 저장소 폴더(briefings/)의 글 + briefings 브랜치의 아침 브리핑.
+
+    같은 날짜가 둘 다 있으면 폴더의 글(손으로 넣은 것)을 씁니다. 아침 브리핑은
+    **기다리지 않습니다** — 받아 둔 것이 있으면 쓰고, 없으면 뒤에서 받기 시작해
+    다음 화면부터 보입니다.
     """
-    return bfs.load_all(BRIEFING_PATH)
+    try:
+        remote = load_remote_briefings.peek(False) or []
+    except Exception:  # noqa: BLE001
+        remote = []
+    return _merge_briefings(bfs.load_all(BRIEFING_PATH), remote)
+
+
+def _merge_briefings(local: list, remote: list) -> list:
+    have = {b.date for b in local}
+    out = list(local) + [b for b in remote if b.date not in have]
+    out.sort(key=lambda b: b.date, reverse=True)
+    return out
 
 
 @swr.cached(config.MACRO_CACHE_TTL_SEC)
@@ -1559,7 +1624,7 @@ def render_holdings_tab(data: dict[str, dict[str, Quote]], fx,
                        if chart_from and missing else "")), unsafe_allow_html=True)
 
     # 실적 서프라이즈 — 내 종목 (2026-11-13 사용자: "내 종목에 대한 실적서프라이즈는
-    # 그 칸에서 보여주면"). '오늘 › 실적' 탭과 같은 화면 · 같은 대상(보유 · 관심)입니다.
+    # 그 칸에서 보여주면"). 예전 '오늘 › 실적' 탭의 화면입니다 — 그 탭은 같은 날 없앴습니다.
     # 켤 때만 받습니다 — 접는 칸은 닫혀 있어도 안을 계산해서 이 탭이 느려집니다.
     if market in ("kr", "us") and st.toggle("실적 서프라이즈 보기 (내 종목)", value=False,
                                             key=f"hold_earn_{market}"):
@@ -1567,8 +1632,8 @@ def render_holdings_tab(data: dict[str, dict[str, Quote]], fx,
             render_earnings_tab(use_demo, market=market)
         except Exception as exc:  # noqa: BLE001 - 실적이 내 종목 화면을 무너뜨리지 않게
             st.markdown(ui.render_notice(
-                f"<b>실적을 받지 못했습니다.</b> {type(exc).__name__} — '오늘 › 실적' 탭에서 "
-                "다시 볼 수 있습니다."), unsafe_allow_html=True)
+                f"<b>실적을 받지 못했습니다.</b> {type(exc).__name__} — 잠시 뒤 스위치를 "
+                "다시 켜 보십시오."), unsafe_allow_html=True)
 
     render_signals_tab(data, use_demo, market=market)
 
@@ -3997,15 +4062,24 @@ def render_briefing_section(use_demo: bool, *, readings=None,
         unsafe_allow_html=True,
     )
 
-    briefings = load_briefings()
+    # 이 탭은 브리핑을 읽으러 오는 곳이라 아침 브리핑을 기다려 받습니다 (15분 저장,
+    # 묵은 값이 있으면 그것부터). 실패하면 폴더의 글만.
+    try:
+        briefings = _merge_briefings(bfs.load_all(BRIEFING_PATH),
+                                     load_remote_briefings(use_demo) or [])
+    except Exception:  # noqa: BLE001
+        briefings = load_briefings()
     if briefings:
         st.markdown(
             ui.render_section_head(
-                "직접 쓴 브리핑", "briefings/ 폴더의 글을 날짜별로 읽어옵니다",
+                "아침 브리핑", "매일 아침 예약 작업이 쓴 글 · 날짜별",
                 len(briefings)),
             unsafe_allow_html=True,
         )
     if not briefings:
+        st.markdown(ui.render_notice(
+            "<b>아침 브리핑이 아직 없습니다.</b> 매일 07:18(화~토) 예약 작업이 쓴 글이 "
+            "올라오면 여기에 보입니다 (최근 8일 안의 글)."), unsafe_allow_html=True)
         with st.expander("직접 쓴 브리핑을 넣는 방법", expanded=False):
             st.markdown(ui.render_briefing_empty(bfs.example_file()),
                         unsafe_allow_html=True)
@@ -4591,6 +4665,7 @@ FETCH_LABELS = {
     "load_report_summaries": "AI 요약",
     "load_universe": "전수 심사", "load_eps_trend": "선행 EPS 추정",
     "load_daily_brief": "전일 브리핑", "load_briefings": "브리핑 글",
+    "load_remote_briefings": "아침 브리핑",
 }
 
 #: 이 나이를 넘긴 값은 '몇 시간 전' 을 함께 적고 굵게 보입니다.

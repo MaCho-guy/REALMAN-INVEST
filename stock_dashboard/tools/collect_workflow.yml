@@ -11,18 +11,25 @@
 name: collect
 
 on:
+  # 2026-11-13: **주 실행은 밖에서 깨웁니다** (Claude 예약 작업이 06:43 · 15:43 KST 에
+  # workflow_dispatch 로 실행). GitHub 예약은 실측으로 몇 시간씩 늦었습니다 — 11/12
+  # 15:50 KST 분이 11/13 00:37 에 시작했고, 11/13 06:30 분은 10시가 넘도록 안 돌았습니다.
+  # 아래 예약은 **예비**입니다: 깨우는 쪽이 실패한 날만 실제로 수집합니다 (아래
+  # '방금 수집했는가' 단계가 8시간 안에 올라온 결과가 있으면 건너뜁니다).
   schedule:
-    # 시각은 UTC 입니다. GitHub 는 붐빌 때 몇 분~수십 분 늦게 돌립니다.
-    - cron: "30 21 * * *"     # 매일 06:30 KST — 아침에 열기 전
-    - cron: "50 6 * * 1-5"    # 평일 15:50 KST — 국내 장 마감 뒤
-  workflow_dispatch: {}       # Actions 화면에서 손으로도 돌릴 수 있게
+    # 시각은 UTC 입니다. 정각 · 30분은 붐벼서 피합니다.
+    - cron: "17 22 * * *"     # 매일 07:17 KST — 06:43 깨우기가 실패했을 때
+    - cron: "17 7 * * 1-5"    # 평일 16:17 KST — 15:43 깨우기가 실패했을 때
+  workflow_dispatch: {}       # 깨우는 쪽 · Actions 화면에서 손으로
 
 permissions:
   contents: write             # data 브랜치에 올리는 데만 씁니다
 
+# 돌고 있는 수집을 끊지 않고 뒤에 줄 세웁니다 (전에는 나중 것이 앞의 것을 취소해서,
+# 손으로 돌리면 예약 실행이 사라졌습니다). 줄 선 예약 실행은 아래 단계에서 건너뜁니다.
 concurrency:
   group: collect
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   collect:
@@ -33,18 +40,36 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # 예약(예비) 실행만 봅니다 — 손 · 깨우기 실행은 늘 수집합니다.
+      - name: 방금 수집했는가
+        id: fresh
+        if: github.event_name == 'schedule'
+        run: |
+          skip=false
+          if git fetch -q --depth=1 origin data 2>/dev/null; then
+            last=$(git log -1 --format=%ct FETCH_HEAD)
+            age=$(( $(date +%s) - last ))
+            echo "지난 수집 결과: $(( age / 60 ))분 전"
+            if [ "$age" -lt 28800 ]; then skip=true; fi
+          fi
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+          if [ "$skip" = true ]; then echo "8시간 안에 수집한 결과가 있어 이번 예비 실행은 건너뜁니다"; fi
+
       - uses: actions/setup-python@v6
+        if: steps.fresh.outputs.skip != 'true'
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: stock_dashboard/requirements.txt
 
       - name: 필요한 패키지
+        if: steps.fresh.outputs.skip != 'true'
         run: pip install -r stock_dashboard/requirements.txt
 
       # data 브랜치는 매번 통째로 새로 올립니다. 지난 AI 요약과 전수 심사 결과를
       # 먼저 꺼내 두어야 이어 붙이거나(요약) 실패했을 때 그대로 둘 수 있습니다.
       - name: 지난 결과 꺼내기
+        if: steps.fresh.outputs.skip != 'true'
         run: |
           mkdir -p "$RUNNER_TEMP/seed"
           if git fetch -q --depth=1 origin data 2>/dev/null; then
@@ -61,6 +86,7 @@ jobs:
           fi
 
       - name: 수집
+        if: steps.fresh.outputs.skip != 'true'
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
@@ -70,6 +96,7 @@ jobs:
         run: python stock_dashboard/tools/collect.py --out "$RUNNER_TEMP/seed"
 
       - name: data 브랜치에 올리기
+        if: steps.fresh.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

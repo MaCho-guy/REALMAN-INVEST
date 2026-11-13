@@ -51,6 +51,55 @@ check("매크로 탭 — 임계값을 먼저 계산하고 브리핑에 넘김",
       body.index("triggers = macro_mod.evaluate_all(readings)") < body.index("render_briefing_section(")
       and "readings=readings, triggers=triggers" in body and "sessions=" in body)
 
+print("아침 브리핑 — briefings 브랜치에서 끌어오기")
+sys.path.insert(0, "tools")
+import collect  # noqa: E402
+import datetime as dt  # noqa: E402
+
+app = collect.load_app()
+MD = """---
+title: 11/13(금) 미국장 브리핑
+sources:
+  - https://example.com/a
+  - javascript:alert(1)
+---
+
+```
+■ 지수
+S&P500    6,890.25   ▲0.31%
+```
+
+- 리스크: <script>x</script>
+"""
+asked: list = []
+
+
+def fake_get(url):
+    asked.append(url)
+    if url.endswith("2026-11-13.md"):
+        return MD
+    if url.endswith("2026-11-11.md"):
+        return "# 수요일 글\n본문"
+    raise OSError("404")
+
+
+got = app.fetch_remote_briefings(dt.date(2026, 11, 13), get=fake_get)
+check("최근 8일을 날짜로 찾음", len(asked) == 8 and all("/briefings/2026-11-" in u for u in asked),
+      str(len(asked)))
+check("있는 날만 · 최신순", [b.date for b in got] == ["2026-11-13", "2026-11-11"])
+check("제목 · 출처(안전한 주소만)", got[0].title.startswith("11/13") and got[0].sources == ["https://example.com/a"])
+check("마크다운으로만 그림 (HTML 로 풀지 않음)", got[0].fmt == "md" and not got[0].is_html)
+import briefing_store as bfs  # noqa: E402
+local = [bfs.Briefing(date="2026-11-13", title="손으로 쓴 글")]
+merged = app._merge_briefings(local, got)
+check("같은 날짜면 폴더의 글 우선", [b.title for b in merged][0] == "손으로 쓴 글" and len(merged) == 2)
+check("전부 실패해도 빈 목록", app.fetch_remote_briefings(dt.date(2026, 11, 13),
+                                                  get=lambda u: (_ for _ in ()).throw(OSError())) == [])
+
+import config  # noqa: E402
+check("실적 탭 없음 (내 종목 탭 스위치로)", all("earnings" not in [k for _g, items in config.tab_groups(m)
+                                                        for k, _l in items] for m in ("kr", "us")))
+
 print()
 if FAILS:
     print(f"실패 {len(FAILS)}개: {FAILS}")

@@ -63,6 +63,15 @@ ANALYSIS_DIR = "analysis"
 #: 증시 브리핑 파일 폴더. 파일명이 날짜(YYYY-MM-DD.md|html)입니다 —
 #: briefing_store 가 파일명에서 날짜를 읽으므로 meta 파일이 없습니다.
 BRIEFING_DIR = "briefings"
+#: 아침 브리핑(다른 대화의 예약 작업이 매일 쓰는 글)이 올라오는 곳 — 저장소의
+#: `briefings` 브랜치, 파일명 YYYY-MM-DD.md (2026-11-13 사용자: "아침마다 브리핑
+#: 하잖아, 그거 끌어다가 볼 수 있게"). main 에 올리면 올릴 때마다 앱이 다시
+#: 배포되고, data 브랜치는 수집기가 통째로 새로 올려서 지워집니다 — 그래서 따로 둡니다.
+BRIEFING_REMOTE_URL = os.environ.get(
+    "BRIEFING_REMOTE_URL",
+    "https://raw.githubusercontent.com/MaCho-guy/REALMAN-INVEST/briefings/{date}.md")
+#: 며칠 전 글까지 찾아볼지 (파일 목록을 받지 않고 날짜로 직접 찾습니다)
+BRIEFING_REMOTE_DAYS = 8
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1062,7 +1071,8 @@ TAB_ORDER: tuple[str, ...] = (
     "cycle",        # 메모리 사이클 — 한·미 3사를 같이 봐야 하는 화면
     "calendar",     # 주요 일정 — FOMC·금통위·지표 발표·만기·휴장·실적·배당락
     "supply",       # 한국 — 종목별 외국인·기관 수급
-    "earnings",     # 실적 서프라이즈 — 발표치 vs 추정치
+    # "earnings" 탭은 2026-11-13 에 없앴습니다 (사용자 승인) — 같은 화면이 '내 종목'
+    # 탭의 '실적 서프라이즈 보기' 스위치 안에 있습니다.
 )
 
 #: 탭에서 내린 섹션들. **코드는 그대로 남아 있습니다** — 아래 목록에서
@@ -1118,14 +1128,14 @@ SECTIONS_MERGED_INTO: dict[str, str] = {
 #: 보든 같은 배경입니다.
 MARKET_TABS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
     "kr": (
-        ("오늘", ("summary", "holdings", "earnings")),
+        ("오늘", ("summary", "holdings")),
         ("찾기", ("discover", "screener", "valuation", "chart")),
         ("한국 시장", ("sector_heat", "supply", "research", "semi_research",
                    "kr_flows")),
         ("공통", ("calendar", "macro", "cycle")),
     ),
     "us": (
-        ("오늘", ("summary", "holdings", "earnings")),
+        ("오늘", ("summary", "holdings")),
         ("찾기", ("discover", "valuation", "chart")),
         ("미국 시장", ("macro", "us_flows")),
         ("공통", ("calendar", "cycle")),

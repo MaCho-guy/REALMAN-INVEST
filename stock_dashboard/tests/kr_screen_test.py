@@ -275,7 +275,7 @@ check("javascript: 는 링크로 만들지 않는다",
 print("\n=== 앱 배선 ===")
 _app = pathlib.Path("app.py").read_text(encoding="utf-8")
 check("발굴이 시장마다 갈린다",
-      "_discover_kr(use_demo)" in _app and "_discover_us(use_demo)" in _app)
+      "_discover_kr(use_demo, part=\"funnel\")" in _app and "_discover_us(use_demo)" in _app)
 check("미국에서 52주 위치를 뺐다",
       "render_discover_map" not in _app and "render_discover_table" not in _app,
       "사분면·52주 표가 남아 있으면 안 됩니다")

@@ -536,7 +536,11 @@ def run(market, payload, funnel_payload=None, kr_funnel=None, **kw):
           "runner": type("R", (), {"cli_info": staticmethod(lambda: None)}),
           "_render_skill_buttons": lambda *a: None}
     exec(compile(ast.Module(body=_fns, type_ignores=[]), "app.py", "exec"), ns)
-    ns["_discover_us" if market == "us" else "_discover_kr"](False)
+    if market == "us":
+        ns["_discover_us"](False)
+    else:   # 2026-11-13 두 탭으로 나뉨 — 둘 다 그려 봅니다
+        ns["_discover_kr"](False, part="funnel")
+        ns["_discover_kr"](False, part="screener")
     return st, "".join(st.md), calls
 
 
@@ -834,12 +838,12 @@ check("워크플로 — 지난 한국 깔때기 파일을 꺼내 둔다",
       "funnel_kr.json" in pathlib.Path("tools", "collect_workflow.yml").read_text(encoding="utf-8"))
 stk, hk, _c = run("kr", kr_pay, kr_funnel=kdata)
 check("한국 발굴 — 품질 깔때기가 여섯 스크리너 위에 나온다",
-      "품질 깔때기 · 한국" in hk and hk.index("품질 깔때기 · 한국") < hk.index("주가 · 거래 스크리너")
+      "품질 깔때기 · 한국" in hk and hk.index("품질 깔때기 · 한국") < hk.index("거래 스크리너 · 한국")
       and "가격 부담 낮음" in hk and "판정 불가" in hk and "DART 사업보고서" in hk
       and any(e.startswith("버핏식 품질 기준 9개") for e in stk.exp))
 stk0, hk0, _c = run("kr", kr_pay)
-check("깔때기 파일이 없으면 여섯 스크리너만 (화면은 그대로)",
-      "품질 깔때기 · 한국" not in hk0 and "단계별로 남은 종목" in hk0)
+check("깔때기 파일이 없으면 안내 + 스크리너는 그대로",
+      "아직 받지 못했습니다" in hk0 and "단계별로 남은 종목" in hk0)
 
 print("\n=== 국내 통과 판정 — 판정된 기준 중 비율 ===")
 _k77 = _mk("K1", [P] * 7 + [U, U])          # 7/7 — 감가상각비가 없는 전형

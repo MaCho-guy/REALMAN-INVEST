@@ -1611,6 +1611,11 @@ def _analysis_summary() -> str:
 # 남겨두면 다음에 "이건 왜 안 쓰지" 를 다시 따져야 합니다.
 
 
+def render_screener_tab(use_demo: bool, *, market: str = "kr") -> None:
+    """거래 스크리너 (한국) — 종목 발굴에서 나눈 탭 (2026-11-13)."""
+    _discover_kr(use_demo, part="screener")
+
+
 def render_discover_tab(use_demo: bool, *, market: str = "all") -> None:
     """종목 발굴 — 시장마다 **다른 도구**를 씁니다.
 
@@ -1624,7 +1629,7 @@ def render_discover_tab(use_demo: bool, *, market: str = "all") -> None:
       **주가 변동성이 훨씬 큽니다.** 그래서 변동성을 축으로 씁니다.
     """
     if market == "kr":
-        _discover_kr(use_demo)
+        _discover_kr(use_demo, part="funnel")
     else:
         _discover_us(use_demo)
 
@@ -2082,16 +2087,35 @@ def _kr_quality_block(use_demo: bool) -> None:
 
 # ── 국내 — 변동성 + 밸류 ────────────────────────────────────────────────
 
-def _discover_kr(use_demo: bool) -> None:
-    """국내 발굴 — 스크리너 → 종목 카드(개요·뉴스·스킬) 순서."""
+def _discover_kr(use_demo: bool, part: str = "funnel") -> None:
+    """국내 발굴 — part='funnel' 품질 깔때기 / 'screener' 주가 · 거래 스크리너.
+
+    2026-11-13 사용자(폰): "종목발굴 안에 품질깔때기 / 거래 스크리너 둘 다 있으니까
+    폰 화면에서 너무 길어지고 — 다른 탭으로 각기 정리". 두 화면은 질문이 다릅니다
+    (재무 품질 → 가격 → 차트 / 주가 · 거래 패턴). 탭: '품질 깔때기' · '거래 스크리너'.
+    """
     payload = _universe_or_none("kr", use_demo)
     from_file = bool(payload.get("profiles"))
     n_cands = (len(payload.get("members") or []) if from_file
                else len(config.screen_kr_candidates()))
+    if part == "funnel":
+        fpay = _universe_or_none("funnel_kr", use_demo)
+        if fpay.get("screens"):
+            _kr_quality_block(use_demo)      # 제목 · 기준 시각은 이 안에서 그립니다
+        else:
+            st.markdown(ui.render_section_head(
+                "품질 깔때기 · 한국", "재무 품질 → 가격(역DCF) → 차트 과매도 쪽"),
+                unsafe_allow_html=True)
+            st.markdown(ui.render_notice(
+                "<b>품질 심사 결과(funnel_kr.json)를 아직 받지 못했습니다.</b> 수집기가 "
+                "06:30 · 15:50 에 올립니다. 주가 · 거래 기준 목록은 '거래 스크리너' 탭에 "
+                "있습니다."), unsafe_allow_html=True)
+        return
     st.markdown(
         ui.render_section_head(
-            "종목 발굴 · 한국",
-            ("대형주 350종목 전수 심사 → 여섯 스크리너" if from_file else
+            "거래 스크리너 · 한국",
+            ("대형주 350종목 — 변동성 · 신고가 · 전통 밸류 · 상대강도 · 낙폭 · 거래대금"
+             if from_file else
              "변동성 × 신고가 × 전통 밸류 — 국내는 재무만으로 안 걸러집니다")),
         unsafe_allow_html=True,
     )
@@ -2099,13 +2123,6 @@ def _discover_kr(use_demo: bool) -> None:
         st.markdown(ui.render_legend(_universe_line("kr", payload)), unsafe_allow_html=True)
     elif not use_demo:
         st.markdown(ui.render_notice(_fallback_note("kr")), unsafe_allow_html=True)
-    # 품질 → 가격 → 차트 깔때기 (미국과 같은 순서). 아래 여섯 스크리너는 주가 ·
-    # 거래 기준이라 질문이 다릅니다 — 둘 다 둡니다.
-    _kr_quality_block(use_demo)
-    if from_file:
-        st.markdown(ui.render_section_head(
-            "주가 · 거래 스크리너", "변동성 · 신고가 · 전통 밸류 · 상대강도 · 낙폭 · 거래대금"),
-            unsafe_allow_html=True)
     st.markdown(
         ui.render_footnote(
             f"<b>왜 미국과 기준이 다른가.</b> 국내 후보 "
@@ -5321,6 +5338,7 @@ SECTION_LOADING = {
     "summary": "요약 — 시세·공포탐욕·VIX·FRED 를 불러옵니다 (처음 10~30초)",
     "holdings": "내 종목 — 시세와 공시를 불러옵니다 (처음 10~30초)",
     "discover": "종목 발굴 — 아침 수집기가 심사해 둔 결과를 읽습니다",
+    "screener": "거래 스크리너 — 아침 수집기가 심사해 둔 결과를 읽습니다",
     "macro": "매크로 — FRED 13종·VIX·공포탐욕 (처음 10~20초)",
     "chart": "차트 조건 — 후보 종목의 1년 일봉 (처음 10~30초)",
     "research": "산업 리포트 — 증권사 리포트 목록 (처음 5~10초)",
@@ -5450,7 +5468,7 @@ def _section_jobs(section: str, market: str, use_demo: bool) -> dict:
         jobs["일봉 (차트 조건)"] = lambda: load_chart_rows(market, use_demo)
     elif section == "chart":
         jobs["일봉 (차트 조건)"] = lambda: load_chart_rows(market, use_demo)
-    elif section == "discover" and market == "kr":
+    elif section == "screener" or (section == "discover" and market == "kr"):
         jobs.update({
             "국내 일봉": lambda: load_kr_vol_profiles(use_demo),
             "국내 지표": lambda: load_kr_value_rows(use_demo),
@@ -5507,7 +5525,7 @@ def _prefetch(section: str, market: str, use_demo: bool, log) -> None:
 
 
 #: 먼저 그리고 나중에 채우는 화면과, 그 화면이 처음에 기다려 주는 시간(초)
-SOFT_SECTIONS = ("summary", "holdings", "valuation", "discover")
+SOFT_SECTIONS = ("summary", "holdings", "valuation", "discover", "screener")
 PREFETCH_BUDGET = 3.0
 #: 이보다 묵은 값을 보여줬으면 화면 위에 알리고, 새 값이 오면 다시 그립니다
 STALE_NOTICE_SEC = 300.0
@@ -5789,6 +5807,8 @@ def render_body(opts: dict) -> None:
                                     market=market)
             elif active == "discover":
                 render_discover_tab(opts["demo"], market=market)
+            elif active == "screener":
+                render_screener_tab(opts["demo"], market=market)
             elif active == "valuation":
                 render_valuation_tab(data, fx, opts["demo"], opts["phone"],
                                      market=market)

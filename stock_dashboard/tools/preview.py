@@ -1642,7 +1642,7 @@ def build_html(convention: str, use_demo: bool) -> str:
     # ── 시장이 최상위 축 — 앱과 같은 구조 ─────────────────────────────
     # 시장마다 내용이 다른 탭은 패널을 따로 만듭니다 (kr:summary, us:summary).
     # 한쪽에만 있거나 공통인 탭은 하나만 만듭니다.
-    PER_MARKET = {"summary", "holdings", "discover", "valuation", "chart", "earnings"}
+    PER_MARKET = {"summary", "holdings", "discover", "screener", "valuation", "chart", "earnings"}
 
     def panel_key(market: str, key: str) -> str:
         return f"{market}:{key}" if key in PER_MARKET else key
@@ -1652,7 +1652,7 @@ def build_html(convention: str, use_demo: bool) -> str:
             return _summary_panel(data, fx, use_demo, market)
         if key == "holdings":
             return _holdings_panel(data, fx, use_demo, market)
-        if key == "discover":
+        if key in ("discover", "screener"):
             return _discover_panel(use_demo, market)
         if key == "valuation":
             return _valuation_tab_panel(data, fx, use_demo, market)

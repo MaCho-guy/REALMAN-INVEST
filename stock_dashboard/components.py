@@ -1262,9 +1262,15 @@ def render_screen_table(screens, criteria, *, held=(), sectors: dict | None = No
         miss = " · ".join(
             f"{_MARK[c.verdict]} {_esc(_bf.SHORT_NAMES.get(c.criterion.key, c.criterion.name))}"
             for c in s.checks if c.verdict != "pass") or "전부 통과"
+        # 국내 종목은 6자리 코드라 이름이 앞(크게), 코드가 뒤(작게) — 2026-11-13 폰:
+        # "기업명 대신 기업번호가 더 크게 뜸". 미국은 티커가 이름 구실을 해서 그대로.
+        if s.ticker.isdigit() and nm:
+            first, second = nm[:22], s.ticker
+        else:
+            first, second = s.ticker, nm[:22]
         rows.append(
-            f"<tr><td title='{_esc(nm)}'>{rk}{star}{_esc(s.ticker)}"
-            f"<span class='sc-name'>{_esc(nm[:22])}</span></td>{sect}"
+            f"<tr><td title='{_esc(nm)}'>{rk}{star}{_esc(first)}"
+            f"<span class='sc-name'>{_esc(second)}</span></td>{sect}"
             f'<td class="">{_esc(s.score_label)}{sub}</td>'
             + "".join(
                 f'<td class="sc-x">{_esc(v)}'

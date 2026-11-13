@@ -294,14 +294,22 @@ def _sig(title: str) -> _Sig:
     return _Sig(_bigrams(title), _words(title), _numbers(title))
 
 
-def same_story(a: _Sig, b: _Sig) -> bool:
-    """두 제목이 같은 사건인가. 표현만 다른 경우를 잡으려고 네 갈래로 봅니다."""
+def near_same(a: _Sig, b: _Sig) -> bool:
+    """제목이 거의 같은가 (글자 두 개씩 겹친 비율만). '관련 N곳' 숫자는 이것으로 셉니다."""
     n = len(a.bi & b.bi)
-    if a.bi and b.bi:
-        if n / (len(a.bi) + len(b.bi) - n) >= _SIM_JACCARD:
-            return True
-        if n / min(len(a.bi), len(b.bi)) >= _SIM_OVERLAP:
-            return True
+    if not (a.bi and b.bi):
+        return False
+    return (n / (len(a.bi) + len(b.bi) - n) >= _SIM_JACCARD
+            or n / min(len(a.bi), len(b.bi)) >= _SIM_OVERLAP)
+
+
+def same_story(a: _Sig, b: _Sig) -> bool:
+    """두 제목이 같은 사건인가 — **중복 줄 막기**용이라 느슨합니다. 표현만 다른
+    경우까지 잡습니다. 같은 주제의 다른 소식도 묶일 수 있어서, 보도 수(순위 ·
+    '관련 N곳')는 이 묶음 전체가 아니라 near_same 으로 셉니다 (11/13 두 번째
+    배포에서 '관련 27곳' 처럼 부풀었던 것)."""
+    if near_same(a, b):
+        return True
     shared = _shared_words(a.words, b.words)
     if (a.nums & b.nums) and shared >= 2:
         return True                      # 같은 숫자(1330.7원) + 낱말 둘
@@ -334,11 +342,13 @@ def rank_stories(items: list[tuple[dt.datetime | None, Headline]], limit: int, *
 
     scored = []
     for c in clusters:
-        outlets = {h.source or h.title for _w, h, _s in c}
-        latest = max((w for w, _h, _s in c if w), default=None)
+        rep_w, rep, rep_sig = sorted(
+            c, key=lambda x: (_is_tier(x[1].source, tier), x[0] or _MIN_UTC), reverse=True)[0]
+        # 보도 수 = 대표 제목과 거의 같은 제목을 낸 매체 (묶음 전체가 아님)
+        close = [(w, h) for w, h, sg in c if sg is rep_sig or near_same(sg, rep_sig)]
+        outlets = {h.source or h.title for _w, h in close}
+        latest = max((w for w, _h in close if w), default=None)
         age = (now - latest).total_seconds() / 86400 if latest else 7.0
-        rep_w, rep, _ = sorted(c, key=lambda x: (_is_tier(x[1].source, tier), x[0] or _MIN_UTC),
-                               reverse=True)[0]
         score = min(math.log2(1 + len(outlets)), _SCORE_OUTLET_CAP) - max(age, 0) * _SCORE_PER_DAY
         if _is_tier(rep.source, tier):
             score += _SCORE_TIER

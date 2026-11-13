@@ -125,6 +125,23 @@ check("바이오: 섹터 낱말 없는 국고채 기사는 3위 밖", not any("�
       str(titles))
 check("원래 객체는 그대로 (more=0)", all(h.more == 0 for _w, h in bio))
 
+# ── 2-b. 숫자는 '거의 같은 제목'만 (11/13 두 번째 배포 '관련 27곳') ──────────
+rates = [row("금통위원 과반 \"추가 금리인상 필요\"…AI 증시 충격 '경계'", "뉴스1", 2),
+         row("금통위원 과반 \"추가 금리인상 필요\"…AI 증시 충격 경계", "뉴시스", 3),
+         row("금통위원들 \"연속 금리 인상 효과 점검해야\"…과반이 추가 긴축에 공감", "아시아경제", 4),
+         row("한은 금리 인상 추가로 하나…금통위원 의견 갈려", "데일리팝", 5),
+         row("금리 인상 추가 압력…한은 고민", "톱스타뉴스", 6)]
+got = news.rank_stories(rates, 3, must=config.SECTOR_NEWS_MUST["rates"], tier=TIER, now=NOW)
+check("느슨하게 묶여도 첫 줄은 하나", sum("금통위원" in h.title for h in got) == 1,
+      str([h.title for h in got]))
+check("관련 N곳은 거의 같은 제목만 (1)", got[0].more <= 1, f"more={got[0].more} {got[0].title}")
+
+auto = [row("코스맥스, 생산능력 확대 속 실적 성장 가속화…목표가 39만원-현대차", "머니투데이", 1),
+        row("현대차 中 전략모델 '아이오닉 V', 첫 달 842대 판매", "뉴시스", 5)]
+got = news.rank_stories(auto, 1, must=config.SECTOR_NEWS_MUST["auto"],
+                        avoid=config.SECTOR_NEWS_AVOID["auto"], tier=TIER, now=NOW)
+check("자동차: 현대차증권 리포트 기사는 뒤로", "아이오닉" in got[0].title, got[0].title)
+
 # ── 3. 감점이지 버림이 아님 ─────────────────────────────────────────────────
 only_off = [row("국고채 금리 급등…채권시장 긴장", "톱스타뉴스")]
 check("섹터 낱말 기사가 없으면 그래도 나옴",

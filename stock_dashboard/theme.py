@@ -3096,9 +3096,12 @@ def build_type_rules() -> str:
     .dash-stkw.dash-stk-long:has(table.dash-sctable)::before { display: none !important; }
     table.dash-stk.dash-sctable tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
       column-gap: 12px; row-gap: 2px; padding: 6px 9px 6px; margin: 0 0 5px; }
-    table.dash-stk.dash-sctable td { text-align: left !important; white-space: nowrap !important;
-      overflow: hidden; text-overflow: ellipsis; padding: 1px 0 !important;
+    table.dash-stk.dash-sctable td { text-align: left !important; white-space: normal !important;
+      padding: 1px 0 !important; overflow-wrap: anywhere;
       border-top: none !important; font-size: var(--fs-2); line-height: 1.35; }
+    /* 차트 · 걸린 기준은 글이 길어 한 줄 전체 (19:22 "차트 내용이 잘림") */
+    table.dash-stk.dash-sctable td[data-l="차트"], table.dash-stk.dash-sctable td.sc-miss {
+      grid-column: 1 / -1; }
     table.dash-stk.dash-sctable td::before { float: none; display: block; max-width: none;
       margin: 0; font-size: var(--fs-1); line-height: 1.2; }
     table.dash-stk.dash-sctable td:first-child { padding: 0 0 3px !important; font-size: var(--fs-4); }
@@ -3114,6 +3117,29 @@ def build_type_rules() -> str:
     table.dash-mt.dash-stk td.mt-obs span { display: none; }
     table.dash-mt.dash-stk td.mt-spark svg { display: inline-block; vertical-align: middle;
       width: 84px; height: 20px; }
+    /* 19:22 "CPI · 코어 PCE 옆에 이상한 줄" — 임계값 표시 띠(첫 칸 안쪽 그림자)가 카드에서 글자에
+       겹침 → 카드 왼쪽 테두리로. 설명 줄(mt-why)은 카드 제목처럼 굵게 나오던 것을 작은 글로 */
+    table.dash-mt.dash-stk tr.mt-hit td:first-child { box-shadow: none; }
+    table.dash-mt.dash-stk tr.mt-hit { border-left: 3px solid var(--dash-accent) !important; }
+    table.dash-mt.dash-stk tr.mt-why { margin-top: -4px; padding: 5px 9px !important;
+      background: var(--dash-raised) !important; }
+    table.dash-mt.dash-stk tr.mt-why td { font-size: var(--fs-2) !important; font-weight: 400 !important;
+      color: var(--dash-ink-2); line-height: 1.5; padding: 0 !important; border: none !important; }
+    table.dash-mt.dash-stk tr.mt-group { padding: 6px 9px !important; background: var(--dash-raised) !important; }
+    table.dash-mt.dash-stk tr.mt-group td { font-size: var(--fs-3) !important; padding: 0 !important;
+      background: none; border: none !important; }
+    /* 증시 브리핑 — 글 줄을 작은 카드로 (19:22 "그냥 텍스트라 안 예쁨") */
+    .dash-brief { background: transparent; border: none; padding: 0 !important; }
+    .dash-brief-top { border-bottom: none; padding-bottom: 2px; margin-bottom: 2px; }
+    .dash-brief-line { display: block; background: var(--dash-surface);
+      border: 1px solid var(--dash-divider); border-left: 3px solid var(--dash-border);
+      border-radius: var(--r-inner); padding: 7px 10px; margin: 0 0 6px; }
+    .dash-brief-line.warm { border-left-color: #c9a650; }
+    .dash-brief-line.hot { border-left-color: #9a5a4a; }
+    .dash-brief-topic { display: inline-block; text-align: left; font-size: var(--fs-1);
+      font-weight: 700; color: var(--dash-ink); background: var(--grp-mid, var(--dash-raised));
+      border-radius: var(--r-pill); padding: 0 8px; margin: 0 0 3px; }
+    .dash-brief-text { display: block; line-height: 1.5; }
     table.dash-rt.dash-stk tr { display: flex; flex-direction: column; }
     table.dash-rt.dash-stk td.rt-title {
       order: -1; text-align: left !important; font-size: var(--fs-4); font-weight: 650;

@@ -1493,12 +1493,8 @@ def render_summary_tab(data: dict[str, dict[str, Quote]], fx,
     _render_upcoming(data, use_demo, market)
     _render_daily_briefs(use_demo, market)
 
-    # 브리핑은 한 줄만. 요약은 임계값을 건드린 것만 올리는 화면인데 브리핑은
-    # 매일 있으므로, 전문을 넣으면 요약이 항상 차 있게 됩니다.
-    briefings = load_briefings()
-    if briefings:
-        st.markdown(ui.render_briefing_line(briefings[0]),
-                    unsafe_allow_html=True)
+    # 브리핑 한 줄은 11/13 18:25 사용자 요청으로 요약에서 뺌 — 아침 브리핑은 공통 묶음의 자기
+    # 탭에서 봄. 함수(ui.render_briefing_line)는 그대로 둠.
 
     if summary.all_quiet:
         st.markdown(
@@ -1998,6 +1994,29 @@ def _render_growth_picks(stable_cands: list, meta: dict, market: str) -> None:
             st.markdown(ui.render_candidate_excluded(out), unsafe_allow_html=True)
 
 
+def _pick_one(label: str, options: list, key: str, fmt) -> str:
+    """누르는 칩 하나 고르기 (st.pills → segmented_control → radio). 세션 키에 값을 둠."""
+    if not options:
+        return None
+    cur = st.session_state.get(key)
+    if cur not in options:
+        st.session_state[key] = options[0]
+    for name in ("pills", "segmented_control"):
+        fn = getattr(st, name, None)
+        if fn is None:
+            continue
+        try:
+            got = fn(label, options, key=key, format_func=fmt, selection_mode="single",
+                     label_visibility="collapsed")
+        except Exception:  # noqa: BLE001
+            continue
+        if got not in options:          # 다시 누르면 선택이 풀림 → 직전 값 유지
+            got = cur if cur in options else options[0]
+        return got
+    return st.radio(label, options, key=key + "_r", format_func=fmt, horizontal=True,
+                    label_visibility="collapsed")
+
+
 def render_basis_tab(data, fx, use_demo: bool, phone: bool = False, *,
                      market: str = "kr") -> None:
     """찾기 › 근거 (한국) — 한 종목이 왜 후보인지 · 왜 빠졌는지 (11/13).
@@ -2044,12 +2063,37 @@ def render_basis_tab(data, fx, use_demo: bool, phone: bool = False, *,
             return ("보류" if sc is not None and integrate.held_back(sc, market)
                     else "품질 미달") + g
 
-        if st.session_state.get(f"basis_pick_{market}") not in order:
-            st.session_state.pop(f"basis_pick_{market}", None)
-        pick = st.selectbox(
-            f"종목 (후보 {len(picks)} → 빠짐 {len(out)} → 보류 {len(held_b)} → 품질 미달 순)",
-            order, key=f"basis_pick_{market}",
-            format_func=lambda t: f"{_state(t)} · {by_s[t].name[:18]} · {t}")
+        # 11/13 18:25 "후보 종목을 손으로 넘기기 불편 — 후보 · 빠짐 · 품질 미달을 따로 누르게,
+        # 아래 내용은 접었다 폈다" → 묶음 고르기 → 그 묶음 종목 고르기(20개 이하면 누르는 칩,
+        # 넘으면 고르는 칸) → 종목 카드는 늘 보이고 나머지는 접는 카드
+        groups_b = [("picks", "후보", [c.ticker for c in picks]),
+                    ("out", "빠짐", [c.ticker for c in out]),
+                    ("held", "보류", [sc.ticker for sc in held_b]),
+                    ("rest", "품질 미달", [sc.ticker for sc in rest])]
+        groups_b = [g for g in groups_b if g[2]]
+        gkeys = [g[0] for g in groups_b]
+        glabel = {g[0]: f"{g[1]} {len(g[2])}" for g in groups_b}
+        gitems = {g[0]: g[2] for g in groups_b}
+        prev_pick = st.session_state.get(f"basis_pick_{market}")
+        gk = f"basis_grp_{market}"
+        if st.session_state.get(gk) not in gkeys:
+            st.session_state[gk] = next((g for g in gkeys if prev_pick in gitems[g]),
+                                        gkeys[0] if gkeys else None)
+        grp = _pick_one("묶음", gkeys, gk, glabel.get)
+        items = gitems.get(grp) or order
+        pk = f"basis_pick_{market}_{grp}"
+        if st.session_state.get(pk) not in items:
+            st.session_state[pk] = prev_pick if prev_pick in items else items[0]
+        name_of = (lambda t: by_s[t].name[:12] + (" ·성장" if growth.passes(gr_of.get(t), market)
+                                                   else ""))
+        if len(items) <= 20:
+            pick = _pick_one("종목", items, pk, name_of)
+        else:
+            pick = st.selectbox(f"종목 ({len(items)}개)", items, key=pk,
+                                format_func=lambda t: f"{_state(t)} · {by_s[t].name[:18]} · {t}")
+        if pick not in by_s:
+            pick = items[0]
+        st.session_state[f"basis_pick_{market}"] = pick
         c, sc, fr = by_c.get(pick), by_s.get(pick), frows.get(pick) or {}
         if c is not None:
             st.markdown(ui.render_candidate_cards([c], 1), unsafe_allow_html=True)
@@ -2060,8 +2104,8 @@ def render_basis_tab(data, fx, use_demo: bool, phone: bool = False, *,
                 f"{c.notes.get('trade', '')}"), unsafe_allow_html=True)
         elif sc is not None:
             st.markdown(ui.render_notice(
-                f"<b>{_state(pick)}</b> — 판정 {sc.known_count} 중 통과 {sc.passed_count} · "
-                f"미달 {sc.failed_count} (통과 기준: "
+                f"<b>{_state(pick)}</b> · {by_s[pick].name} {pick} — 판정 {sc.known_count} 중 통과 "
+                f"{sc.passed_count} · 미달 {sc.failed_count} (통과 기준: "
                 + (f"확인된 미달 {config.KR_QUALITY_MAX_FAIL}개 이하 · 판정 "
                    f"{config.KR_QUALITY_MIN_KNOWN}개 이상)" if kr else
                    f"9개 중 {config.DISCOVER_QUALITY_MIN}개 이상 통과)")),
@@ -2069,31 +2113,37 @@ def render_basis_tab(data, fx, use_demo: bool, phone: bool = False, *,
         if fr:
             pv, pn = funnel.price_cells(fr.get("p"))
             ev, en = funnel.eps_cells(fr.get("f"))
-            st.markdown(ui.render_legend(
-                f"<b>가격(역DCF 요구 성장률)</b> {pv} — {pn} · <b>선행 EPS 90일</b> {ev} {en} "
-                f"· 가격 계산 {_when_kst(meta.get('p'))}"), unsafe_allow_html=True)
+            with st.expander(f"가격 · 선행 EPS — {pv} · {ev}", expanded=False):
+                st.markdown(ui.render_legend(
+                    f"<b>가격(역DCF 요구 성장률)</b> {pv} — {pn} · <b>선행 EPS 90일</b> {ev} {en} "
+                    f"· 가격 계산 {_when_kst(meta.get('p'))}"), unsafe_allow_html=True)
         # 추가 확인 (11/13) — 후보 판정에 넣지 않는 참고 항목
         summ = next((r for r in (meta.get("screens") or [])
                      if isinstance(r, dict) and r.get("t") == pick), None)
         q_tickers = [c.ticker for c in cands]
         med = integrate.median_fpe(meta.get("frows") or {}, meta.get("rows") or {}, q_tickers)
-        st.markdown(ui.render_checklist(
-            integrate.checklist(summ, fr, (meta.get("rows") or {}).get(pick), market, med),
-            title="추가 확인", sub="후보 판정(품질 · 가격 · 선행 EPS)과 별개로 보는 참고 항목"),
-            unsafe_allow_html=True)
-        if summ and summ.get("gr"):
-            import growth  # noqa: PLC0415
-            gcs = growth.checks(summ.get("gr"), market)
+        ck = integrate.checklist(summ, fr, (meta.get("rows") or {}).get(pick), market, med)
+        n_ok = sum(1 for x in ck if x[0] == "pass")
+        with st.expander(f"추가 확인 — 좋음 {n_ok} / {len(ck)}", expanded=False):
             st.markdown(ui.render_checklist(
-                [(st_, f"{nm}", tx) for _k, nm, st_, tx in gcs],
-                title=f"성장 품질 7개 — 통과 {sum(1 for c in gcs if c[2] == 'pass')}",
-                sub=f"성장형 후보 판정에 쓰는 항목 · {growth.GROWTH_MIN_PASS}개 이상 통과해야 성장형"),
+                ck, title="추가 확인", sub="후보 판정(품질 · 가격 · 선행 EPS)과 별개로 보는 참고 항목"),
                 unsafe_allow_html=True)
+        if summ and summ.get("gr"):
+            gcs = growth.checks(summ.get("gr"), market)
+            n_g = sum(1 for c_ in gcs if c_[2] == "pass")
+            with st.expander(f"성장 품질 7개 — 통과 {n_g}", expanded=False):
+                st.markdown(ui.render_checklist(
+                    [(st_, f"{nm}", tx) for _k, nm, st_, tx in gcs],
+                    title=f"성장 품질 7개 — 통과 {n_g}",
+                    sub=f"성장형 후보 판정에 쓰는 항목 · {growth.GROWTH_MIN_PASS}개 이상 통과해야 성장형"),
+                    unsafe_allow_html=True)
         if sc is not None:
-            st.markdown(ui.render_section_head(
-                "품질 9개 기준", f"{'DART 사업보고서' if kr else 'SEC EDGAR 10년 재무'} · "
-                f"심사 {_when_kst(meta.get('q'))}"), unsafe_allow_html=True)
-            st.markdown(ui.render_screen(sc, show_source=False), unsafe_allow_html=True)
+            with st.expander(f"품질 9개 기준 — 통과 {sc.passed_count} · 미달 {sc.failed_count} · "
+                             f"판정 불가 {9 - sc.known_count}", expanded=False):
+                st.markdown(ui.render_legend(
+                    f"{'DART 사업보고서' if kr else 'SEC EDGAR 10년 재무'} · 심사 "
+                    f"{_when_kst(meta.get('q'))}"), unsafe_allow_html=True)
+                st.markdown(ui.render_screen(sc, show_source=False), unsafe_allow_html=True)
     # 예전 탭 두 개 — 지우지 않고 스위치로 (접는 칸 안에 접는 칸 불가라 스위치)
     if st.toggle("품질 깔때기 전체 보기 (단계표 · 통과 종목 표 · 보류)", value=False,
                  key=f"basis_funnel_{market}"):

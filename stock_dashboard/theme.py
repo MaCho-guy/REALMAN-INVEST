@@ -3057,6 +3057,36 @@ def build_type_rules() -> str:
     .bf-sec { padding: 9px 11px 7px; }
     table.dash-stk tr { padding: 7px 10px 5px; margin: 0 0 6px; }
     table.dash-stk td { padding: 3px 0 !important; }
+    /* ⑤ 카드 더 작게 (11/13 18:25 요약 · 내 종목 변화 감지 · 매크로 · 물가 · 유동성 · 메모리 사이클) */
+    .dash-section-count { order: 1; margin-left: auto; padding: 0 7px; }
+    .dash-section-sub { order: 2; flex-basis: 100%; }
+    .dash-signal { padding: 7px 10px; }
+    .dash-db { padding: 8px 10px; }
+    .dash-sbar2 { padding: 8px 10px 7px; }
+    .dash-verdict-band { padding: 9px 11px; }
+    /* 기사 · 리포트 목록은 한 줄씩 (넘치면 … ) — 카드 높이의 절반이 기사 목록이었음 */
+    .dash-news ul, .db-rep ul { margin: 2px 0 0; padding-left: 1em; }
+    .dash-news li, .db-rep li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      margin: 1px 0; line-height: 1.45; }
+    .dash-news-head, .db-rep-h { margin: 4px 0 0; }
+    .dash-brief { padding: 9px 11px 6px; }
+    .dash-fg, .dash-vix { padding: 9px 11px 8px; }
+    .dash-fg-score, .dash-vix-spot { font-size: var(--fs-7); }
+    .dash-missing-cmd { padding: 6px 9px; font-size: var(--fs-1); }
+    .dash-missing-cmd li, .dash-missing-cmd p { margin: 1px 0; }
+    .dash-cycle { padding: 9px 10px 7px; }
+    .dash-cycle .val, .dash-exp-amt { font-size: var(--fs-6); }
+    .dash-exp { padding: 7px 10px; }
+    .dash-exp-value { font-size: var(--fs-6); }
+    .dash-criteria { padding: 8px 10px; }
+    /* 표 → 카드: 더 촘촘히 · 짧은 칸은 두 칸씩 나란히 (components.stack_tables 가 td[data-s] · dash-stk2) */
+    table.dash-stk tr { padding: 6px 9px 4px; }
+    table.dash-stk td { padding: 2px 0 !important; line-height: 1.35; }
+    table.dash-stk2 tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      column-gap: 14px; }
+    table.dash-stk2 td { grid-column: 1 / -1; }
+    table.dash-stk2 td[data-s] { grid-column: auto; }
+    table.dash-stk2 td[data-s]::before { max-width: 60%; }
     table.dash-rt.dash-stk tr { display: flex; flex-direction: column; }
     table.dash-rt.dash-stk td.rt-title {
       order: -1; text-align: left !important; font-size: var(--fs-4); font-weight: 650;

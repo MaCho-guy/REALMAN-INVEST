@@ -230,7 +230,7 @@ check("예전 탭은 옮긴 곳으로 (주소 · 세션)",
                               "screener": "timing", "chart": "timing"}
       and config.TAB_MOVED["kr"] is config.KR_TAB_MOVED)
 check("옮긴 화면을 지우지 않고 스위치로 부름",
-      '_discover_kr(use_demo, part="funnel")' in app_src.split("def render_basis_tab")[1][:6000]
+      '_discover_kr(use_demo, part="funnel")' in app_src.split("def render_basis_tab")[1][:12000]
       and "data, fx, use_demo, phone, market=market)" in app_src
       and "render_chart_tab(use_demo, market=market, today=False)" in app_src
       and "render_screener_tab(use_demo, market=market)" in app_src)
@@ -491,6 +491,17 @@ check("quick — 묵은 값을 바로 줌(기다리지 않음) · 뒤에서 새�
 check("화면: 세션 첫 화면만 기다리고 탭을 옮길 땐 quick", "def _quotes_fn()" in app_src
       and 'st.session_state["_quotes_once"] = True' in app_src
       and "_refresh_watch(bool(pending)" in app_src)
+
+print("\n== 폰 카드 더 작게 · 근거 고르기 (11/13 18:25)")
+_tb = ui.stack_tables('<div class="dash-table-wrap"><table class="dash-table"><thead><tr><th>분기</th><th>매출</th>'
+                      '<th>재고</th><th>설명</th></tr></thead><tbody><tr><td>3분기</td><td>$8.6B</td><td>$6.4B</td>'
+                      '<td>재고가 매출보다 빨리 늘어 다음 분기 주의가 필요함</td></tr></tbody></table></div>')
+check("표 → 카드: 짧은 칸만 두 칸 표시(data-s) · 첫 칸 · 긴 칸은 한 줄 전체", "dash-stk2" in _tb
+      and _tb.count('data-s="1"') == 2 and '<td data-l="분기">3분기' in _tb)
+check("근거 — 묶음(후보 · 빠짐 · 보류 · 품질 미달) 고르기 → 종목 → 접는 카드",
+      "def _pick_one(" in app_src and 'grp = _pick_one("묶음"' in app_src
+      and 'st.expander(f"추가 확인 — 좋음' in app_src and 'st.expander(f"품질 9개 기준' in app_src)
+check("요약에 아침 브리핑 한 줄 없음", "render_briefing_line(briefings[0])" not in app_src)
 
 print("\n== 차트 전략 백테스트 (techtest, 11/13)")
 import techtest  # noqa: E402

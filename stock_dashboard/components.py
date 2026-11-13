@@ -4661,6 +4661,9 @@ _STK_THEAD = re.compile(r"<thead\b[^>]*>(.*?)</thead>", re.S)
 _STK_TH = re.compile(r"<th\b([^>]*)>(.*?)</th>", re.S)
 _STK_TR = re.compile(r"(<tr\b[^>]*>)(.*?)(</tr>)", re.S)
 _STK_TD = re.compile(r"<td\b([^>]*)>")
+_STK_TDFULL = re.compile(r"<td\b([^>]*)>(.*?)</td>", re.S)
+#: 폰 카드에서 두 칸씩 나란히 둘 '짧은 칸' 기준 (머리글 + 값 글자 수, 11/13 18:25)
+STK_SHORT = 16
 _STK_TAG = re.compile(r"<[^>]+>")
 _STK_SPAN = re.compile(r"colspan=[\"']?(\d+)")
 
@@ -4696,22 +4699,37 @@ def stack_tables(markup: str) -> str:
         if len(labels) < 2:
             return m.group(0)
 
+        n_short = 0
+
         def row(rm: re.Match) -> str:
+            nonlocal n_short
             idx = 0
 
             def cell(cm: re.Match) -> str:
-                nonlocal idx
-                attrs = cm.group(1)
+                nonlocal idx, n_short
+                attrs, inner = cm.group(1), cm.group(2)
                 label = labels[idx] if idx < len(labels) else ""
                 span = _STK_SPAN.search(attrs)
+                first = idx == 0
                 idx += int(span.group(1)) if span else 1
-                return f'<td{attrs} data-l="{label}">'
+                text = " ".join(_STK_TAG.sub(" ", inner).split())
+                # 짧은 칸(첫 칸 = 카드 제목 제외)은 폰에서 두 칸씩 나란히 (dash-stk2 · td[data-s])
+                short = (not first and len(label) + len(text) <= STK_SHORT and "\n" not in text)
+                if short:
+                    n_short += 1
+                    attrs += ' data-s="1"'          # 클래스는 건드리지 않음 (테스트 · CSS 가 기대)
+                return f'<td{attrs} data-l="{label}">{inner}</td>'
 
-            return rm.group(1) + _STK_TD.sub(cell, rm.group(2)) + rm.group(3)
+            return rm.group(1) + _STK_TDFULL.sub(cell, rm.group(2)) + rm.group(3)
 
         cut = head.end()
         n_rows = len(_STK_TR.findall(body[cut:]))
         body = body[:cut] + _STK_TR.sub(row, body[cut:])
+        # 짧은 칸이 줄마다 평균 2개 이상인 표만 두 칸 카드 (특수 배치 표는 제외)
+        special = any(k in open_tag for k in ("dash-fl", "dash-rt", "dash-sctable", "dash-ctable"))
+        if not special and n_rows and n_short >= 2 * n_rows:
+            open_tag = (open_tag.replace('class="', 'class="dash-stk2 ', 1) if 'class="' in open_tag
+                        else open_tag.replace("<table", '<table class="dash-stk2"', 1))
         if 'class="' in open_tag:
             open_tag = open_tag.replace('class="', 'class="dash-stk ', 1)
         elif "class='" in open_tag:

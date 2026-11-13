@@ -1054,8 +1054,8 @@ check_true("브리핑이 시세 섹션보다 먼저",
 check_true("브리핑이 공포탐욕보다 먼저",
            _macro_body.index("render_briefing_section(")
            < _macro_body.index("load_feargreed(use_demo)"))
-check_true("요약 탭에 브리핑 한 줄",
-           "render_briefing_line(briefings[0])" in _app_src)
+check_true("요약 탭에는 브리핑 한 줄을 넣지 않음 (11/13 18:25 사용자 요청 — 공통 › 아침 브리핑)",
+           "render_briefing_line(briefings[0])" not in _app_src)
 check_true("요약에는 전문을 넣지 않는다",
            "_render_briefing_body" not in _app_src.split(
                "def render_holdings_tab")[0],

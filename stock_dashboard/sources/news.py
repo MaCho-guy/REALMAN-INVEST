@@ -152,8 +152,9 @@ _MIN_UTC = dt.datetime.min.replace(tzinfo=dt.timezone.utc)
 def _strip_source(title: str, source: str) -> str:
     """구글 뉴스 제목 끝의 ' - 매체' 를 뗍니다. 매체는 옆에 따로 보이므로
     두 번 나오면 한 줄이 길어지기만 합니다 (2026-11-13 섹터 뉴스 점검)."""
-    if source and title.endswith(f" - {source}") and len(title) > len(source) + 3:
-        return title[: -(len(source) + 3)].rstrip()
+    # 꼬리가 두 번 붙어 오기도 합니다 ("… - 머니투데이 - 머니투데이", 11/13 실화면)
+    while source and title.endswith(f" - {source}") and len(title) > len(source) + 3:
+        title = title[: -(len(source) + 3)].rstrip()
     return title
 
 
@@ -249,8 +250,31 @@ def _bigrams(t: str) -> set[str]:
     return {s[i:i + 2] for i in range(len(s) - 1)}
 
 
+#: 낱말 끝 조사 — "금통위원들" · "과반이" · "거래소서" 를 "금통위원" · "과반" ·
+#: "거래소" 로 봅니다. 11/13 실화면에서 같은 사건이 이 차이로 두 줄 나왔습니다.
+#: 긴 것부터 떼고, 남는 글자가 2자 미만이면 떼지 않습니다 (주가 → 주 X).
+_PARTICLES = ("에서", "으로", "에게", "들", "은", "는", "이", "가", "을", "를",
+              "의", "에", "서", "로", "와", "과", "도")
+
+
+def _stem(w: str) -> str:
+    for p in _PARTICLES:
+        if w.endswith(p) and len(w) - len(p) >= 2:
+            return w[: -len(p)]
+    return w
+
+
 def _words(t: str) -> list[str]:
-    return [w for w in re.split(r"[^가-힣A-Za-z0-9.]+", _norm_title(t)) if len(w) >= 2]
+    return [_stem(w) for w in re.split(r"[^가-힣A-Za-z0-9.]+", _norm_title(t)) if len(w) >= 2]
+
+
+def _shared_words(a: list[str], b: list[str]) -> int:
+    """겹친 낱말 수. 3자 이상이면 포함도 같다고 봅니다 (거래소 ⊂ 한국거래소)."""
+    n = 0
+    for w in dict.fromkeys(a):
+        if w in b or (len(w) >= 3 and any(w in x or (len(x) >= 3 and x in w) for x in b)):
+            n += 1
+    return n
 
 
 def _numbers(t: str) -> set[str]:
@@ -278,12 +302,10 @@ def same_story(a: _Sig, b: _Sig) -> bool:
             return True
         if n / min(len(a.bi), len(b.bi)) >= _SIM_OVERLAP:
             return True
-    shared = [w for w in a.words if w in b.words]
-    if a.words and b.words and a.words[0] == b.words[0] and len(shared) >= 3:
-        return True                      # 같은 주어(회사) + 낱말 셋
-    if (a.nums & b.nums) and len(shared) >= 2:
+    shared = _shared_words(a.words, b.words)
+    if (a.nums & b.nums) and shared >= 2:
         return True                      # 같은 숫자(1330.7원) + 낱말 둘
-    return len(shared) >= 4
+    return shared >= 3                   # 낱말 셋 (조사 떼고, 포함 허용)
 
 
 def _is_tier(source: str, tier) -> bool:

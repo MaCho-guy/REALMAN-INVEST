@@ -3087,6 +3087,25 @@ def build_type_rules() -> str:
     table.dash-stk2 td { grid-column: 1 / -1; }
     table.dash-stk2 td[data-s] { grid-column: auto; }
     table.dash-stk2 td[data-s]::before { max-width: 60%; }
+    /* ⑥ 품질 깔때기 목록 (11/13 18:34 "내용 넘길 때 스크롤하기 불편") — 600px 안쪽 스크롤 칸에
+       갇혀 화면 스크롤과 엉켰음(통과 20종목 = 안쪽 3,676px). 안쪽 스크롤을 풀고, 한 종목 카드를
+       이름 | 통과 / 두 칸씩 한 줄 요약으로 줄임 (170px → 약 80px) */
+    .dash-stkw.dash-stk-long:has(table.dash-sctable) {
+      max-height: none !important; overflow: visible !important; border: none !important;
+      padding: 0 !important; }
+    .dash-stkw.dash-stk-long:has(table.dash-sctable)::before { display: none !important; }
+    table.dash-stk.dash-sctable tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      column-gap: 12px; row-gap: 2px; padding: 6px 9px 6px; margin: 0 0 5px; }
+    table.dash-stk.dash-sctable td { text-align: left !important; white-space: nowrap !important;
+      overflow: hidden; text-overflow: ellipsis; padding: 1px 0 !important;
+      border-top: none !important; font-size: var(--fs-2); line-height: 1.35; }
+    table.dash-stk.dash-sctable td::before { float: none; display: block; max-width: none;
+      margin: 0; font-size: var(--fs-1); line-height: 1.2; }
+    table.dash-stk.dash-sctable td:first-child { padding: 0 0 3px !important; font-size: var(--fs-4); }
+    table.dash-stk.dash-sctable td:nth-child(2) { text-align: right !important; padding: 0 0 3px !important;
+      font-size: var(--fs-3); }
+    table.dash-stk.dash-sctable td:nth-child(2)::before { content: none; }
+    table.dash-stk.dash-sctable td .sub, table.dash-stk.dash-sctable td .sc-sub { display: none !important; }
     table.dash-rt.dash-stk tr { display: flex; flex-direction: column; }
     table.dash-rt.dash-stk td.rt-title {
       order: -1; text-align: left !important; font-size: var(--fs-4); font-weight: 650;

@@ -197,6 +197,29 @@ SEED_URL = os.environ.get(
     "SEED_URL",
     "https://raw.githubusercontent.com/MaCho-guy/REALMAN-INVEST/data/seed.pkl.gz")
 
+#: 저장소 비공개 전환(11/13, 사용자 결정 A) — 비공개 저장소의 raw 파일은 토큰이 있어야
+#: 받아집니다. Secrets(앱) · Actions(수집기)의 GITHUB_TOKEN 을 **이 저장소의 raw 주소에만**
+#: 붙입니다. 다른 곳으로는 절대 보내지 않습니다(주소 앞부분을 글자 그대로 비교).
+#: 토큰이 없으면 예전처럼 헤더 없이 받습니다 — 저장소가 공개면 그대로 동작.
+GITHUB_RAW_PREFIX = "https://raw.githubusercontent.com/MaCho-guy/REALMAN-INVEST/"
+GITHUB_TOKEN_ENV = "GITHUB_TOKEN"
+
+
+def github_auth_headers(url: str) -> dict:
+    """이 저장소 raw 주소면 {'Authorization': 'token …'}, 아니면 {}."""
+    tok = (os.environ.get(GITHUB_TOKEN_ENV) or "").strip()
+    if not tok or not isinstance(url, str) or not url.startswith(GITHUB_RAW_PREFIX):
+        return {}
+    return {"Authorization": f"token {tok}"}
+
+
+def add_github_auth(req) -> None:
+    """urllib Request 에 토큰을 붙입니다. add_unredirected_header 라 다른 주소로
+    넘겨지면(리다이렉트) 따라가지 않습니다."""
+    for k, v in github_auth_headers(req.full_url).items():
+        req.add_unredirected_header(k, v)
+
+
 #: 종목 발굴의 전수 심사 결과 — 수집기가 data 브랜치에 올리는 파일 (universe.py).
 _DATA_RAW = "https://raw.githubusercontent.com/MaCho-guy/REALMAN-INVEST/data/"
 UNIVERSE_URLS = {

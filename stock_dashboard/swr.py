@@ -781,6 +781,11 @@ def load_seed_from(url: str, timeout: float = 4.0) -> dict | None:
         try:
             import urllib.request  # noqa: PLC0415
             req = urllib.request.Request(url, headers={"User-Agent": "dash-seed/1"})
+            try:
+                import config as _cfg  # noqa: PLC0415 - 비공개 저장소(11/13)
+                _cfg.add_github_auth(req)
+            except Exception:  # noqa: BLE001
+                pass
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 blob = resp.read()
             report = import_seed(blob)

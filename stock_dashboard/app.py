@@ -636,6 +636,7 @@ def load_universe(market: str, use_demo: bool) -> dict:
         return {}
     req = urllib.request.Request(url, headers={"User-Agent": "dash-universe/1",
                                                "Accept-Encoding": "gzip"})
+    config.add_github_auth(req)  # 비공개 저장소(11/13)
     try:
         with urllib.request.urlopen(req, timeout=8) as resp:
             blob = resp.read(8_000_000)
@@ -664,6 +665,7 @@ def load_report_summaries(use_demo: bool) -> dict:
     import urllib.request  # noqa: PLC0415
 
     req = urllib.request.Request(config.SUMMARY_URL, headers={"User-Agent": "dash-summary/1"})
+    config.add_github_auth(req)  # 비공개 저장소(11/13)
     try:
         with urllib.request.urlopen(req, timeout=6) as resp:
             text = resp.read(4_000_000).decode("utf-8", "replace")
@@ -1104,6 +1106,7 @@ def fetch_remote_briefings(today: dt.date | None = None, get=None) -> list:
                 text = get(url)
             else:
                 req = urllib.request.Request(url, headers={"User-Agent": "dash-briefing/1"})
+                config.add_github_auth(req)  # 비공개 저장소(11/13)
                 with urllib.request.urlopen(req, timeout=6) as resp:
                     text = resp.read(400_000).decode("utf-8", "replace")
         except Exception:  # noqa: BLE001 - 없는 날 · 통신 실패

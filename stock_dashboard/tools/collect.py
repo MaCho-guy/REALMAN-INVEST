@@ -205,9 +205,13 @@ def write_seed(out_dir: str, rows: list[dict], secrets: tuple[str, ...]) -> dict
 def fetch_bytes(url: str, limit: int = 9 * 1024 * 1024, timeout: float = 30.0) -> bytes:
     """주소의 내용을 받습니다 (limit 를 넘으면 그만 받고 예외)."""
     import requests  # noqa: PLC0415
+    import config  # noqa: PLC0415
 
-    resp = requests.get(url, timeout=timeout, stream=True,
-                        headers={"User-Agent": "stock-dashboard/1.0 (personal dashboard)"})
+    headers = {"User-Agent": "stock-dashboard/1.0 (personal dashboard)"}
+    # 비공개 저장소(11/13): 이 저장소 raw 주소에만 토큰. requests 는 다른 호스트로
+    # 넘겨질 때 Authorization 을 떼므로 리다이렉트로 새지 않습니다.
+    headers.update(config.github_auth_headers(url))
+    resp = requests.get(url, timeout=timeout, stream=True, headers=headers)
     resp.raise_for_status()
     chunks, size = [], 0
     for chunk in resp.iter_content(65_536):

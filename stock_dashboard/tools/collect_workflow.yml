@@ -92,6 +92,8 @@ jobs:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           # 리포트 AI 요약용 (없으면 요약만 건너뜁니다)
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # 저장소 비공개(11/13): data 브랜치 raw 파일을 받을 때 쓰는 읽기 토큰 (자동 발급)
+          GITHUB_TOKEN: ${{ github.token }}
           TZ: Asia/Seoul
         run: python stock_dashboard/tools/collect.py --out "$RUNNER_TEMP/seed"
 

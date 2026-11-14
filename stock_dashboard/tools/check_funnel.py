@@ -240,13 +240,38 @@ def check_sensitivity(d: dict) -> list[str]:
     return bad
 
 
+def check_eps_carry(d: dict) -> list[str]:
+    """선행 EPS 이어 쓰기 (11/14, funnel.carry_eps) — 걸렸으면 보고하고 규칙대로인지 확인."""
+    import config  # noqa: PLC0415
+
+    bad: list[str] = []
+    for m in ("us", "kr"):
+        pay = d[f"funnel_{m}"]
+        rows = [r for r in pay.get("rows") or [] if isinstance(r, dict)]
+        old = [r for r in rows if (r.get("f") or {}).get("old")]
+        c = pay.get("eps_carry")
+        have = sum(1 for r in rows if r.get("f"))
+        print(f"[{m.upper()} 선행 EPS] 있는 줄 {have}/{len(rows)}"
+              + (f" · ⚠ 이어 씀 {c.get('carried')} (이번 받음 {c.get('cur')} · 지난 {c.get('prev')}"
+                 f" · 오래돼 못 이음 {c.get('stale')})" if c else " · 이어 쓰기 없음"))
+        if old and not c:
+            bad.append(f"{m}: 지난 값(old) 줄 {len(old)}개인데 eps_carry 기록이 없음")
+        if c and c.get("carried") != len(old):
+            bad.append(f"{m}: eps_carry.carried {c.get('carried')} ≠ old 줄 {len(old)}")
+        made = pay.get("made") or 0
+        late = [r["t"] for r in old if made - float(r["f"]["old"]) > config.EPS_CARRY_MAX_HOURS * 3600]
+        if late:
+            bad.append(f"{m}: {config.EPS_CARRY_MAX_HOURS}시간 넘은 값을 이어 씀 {late[:5]}")
+    return bad
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dir", default=None)
     a = ap.parse_args()
     d = {n: load(n, a.dir) for n in FILES}
     bad = (check_market("us", d) + check_market("kr", d) + check_kr_extra(d)
-           + check_growth(d) + check_sensitivity(d))
+           + check_growth(d) + check_sensitivity(d) + check_eps_carry(d))
     try:
         import paper  # noqa: PLC0415
         pf = load("paper_portfolio", a.dir)

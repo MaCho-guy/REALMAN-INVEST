@@ -132,13 +132,14 @@ def _eps(f: dict | None) -> tuple[str, str]:
     if c is None:
         return GRAY, "추정 없음 (야후)"
     txt = f"90일 {funnel.eps_arrow(c)} {c * 100:+.1f}%"
+    old = funnel.eps_old_note(f)        # 지난 수집 값을 이어 쓴 경우 (11/14 — funnel.carry_eps)
     if abs(c) > EPS_OUTLIER:
-        return GRAY, txt + " — 추정 이상값, 야후 확인 필요"
+        return GRAY, txt + " — 추정 이상값, 야후 확인 필요" + old
     if funnel.eps_down(f):
-        return RED, txt + " — 추정이 깎이는 중"
+        return RED, txt + " — 추정이 깎이는 중" + old
     if c >= funnel.EPS_FLAT:
-        return GREEN, txt + " 상향"
-    return YELLOW, txt + (" 보합" if c > -funnel.EPS_FLAT else " 소폭 하향")
+        return GREEN, txt + " 상향" + old
+    return YELLOW, txt + (" 보합" if c > -funnel.EPS_FLAT else " 소폭 하향") + old
 
 
 def _trade(keys: list[str]) -> tuple[str, str]:
@@ -235,14 +236,15 @@ def _trend_lamp(f) -> tuple[str, str]:
     c30, c90 = f.get("c30"), f.get("c90")
     if c90 is None or abs(c90) > EPS_OUTLIER:
         return GRAY, "추정 없음 · 이상값"
+    old = funnel.eps_old_note(f)        # 지난 수집 값을 이어 쓴 경우 (11/14)
     if funnel.eps_down(f):
-        return RED, f"90일 {c90 * 100:+.1f}% — 추정이 깎이는 중"
+        return RED, f"90일 {c90 * 100:+.1f}% — 추정이 깎이는 중" + old
     up90 = c90 >= funnel.EPS_FLAT
     up30 = c30 is not None and c30 >= funnel.EPS_FLAT
     txt = f"90일 {c90 * 100:+.1f}%" + ("" if c30 is None else f" · 30일 {c30 * 100:+.1f}%")
     if up90 and up30:
-        return GREEN, txt + " — 상향 지속"
-    return YELLOW, txt + (" — 최근 30일은 상향 아님" if up90 else " — 상향 아님")
+        return GREEN, txt + " — 상향 지속" + old
+    return YELLOW, txt + (" — 최근 30일은 상향 아님" if up90 else " — 상향 아님") + old
 
 
 def build_growth(screens: list, frows: dict, chart_rows: dict, semis: set = (),

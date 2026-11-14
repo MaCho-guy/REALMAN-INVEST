@@ -1814,6 +1814,7 @@ def _integrated(use_demo: bool, market: str = "kr") -> tuple[list, dict]:
     cands = integrate.build(screens, frows, rows, hits, semis, new, market=market)
     meta = {"q": q_made, "p": fpay.get("made"), "c": cpay.get("made"),
             "t": upay.get("made"), "have": bool(screens),
+            "eps_carry": fpay.get("eps_carry") if isinstance(fpay.get("eps_carry"), dict) else None,
             "chart": bool(items), "trade": bool(hits), "market": market,
             "screens": screens, "frows": frows, "rows": rows, "semis": semis, "new": new}
     return cands, meta
@@ -1850,6 +1851,15 @@ def render_picks_tab(use_demo: bool, *, market: str = "kr") -> None:
             f"품질 심사 파일({'funnel_kr' if kr else 'universe_us'}.json)을 읽지 못해 "
             "후보를 고르지 못했습니다."), unsafe_allow_html=True)
         return
+    carry = meta.get("eps_carry") or {}
+    if carry.get("carried"):
+        # 11/14 — 선행 EPS 를 받은 종목이 크게 줄어 빈 종목은 지난 수집 값을 이어 씀 (funnel.carry_eps)
+        st.markdown(ui.render_notice(
+            f"<b>선행 EPS {carry['carried']}종목은 지난 수집 값</b>입니다 — 이번 수집({_when_kst(meta['p'])})에서 "
+            f"야후 추정을 {carry.get('cur', '?')}종목만 받아(지난번 {carry.get('prev', '?')}) 빈 종목은 지난 값을 "
+            "이어 썼습니다. 종목별 시각은 등 설명에 '(지난 수집 … 값)' 으로 붙습니다."
+            + (f" 너무 오래된 {carry['stale']}종목은 '추정 없음'." if carry.get("stale") else "")),
+            unsafe_allow_html=True)
     missing = [n for k, n in (("chart", "차트"), ("trade", "거래"))
                if not meta[k] and (kr or k != "trade")]
     if missing:

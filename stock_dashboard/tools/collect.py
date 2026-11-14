@@ -487,6 +487,15 @@ def build_universe_kr(app, out_dir: str, *, members_fn=None) -> dict:
             "sec": time.time() - t0, "bytes": size_b, "rules": rules}
 
 
+def _carry_txt(res: dict) -> str:
+    """수집 로그 — 선행 EPS 를 지난 값으로 이어 썼으면 ' [이번 받음 a · 지난 b → 이어 씀 c]'."""
+    c = (res or {}).get("eps_carry") or {}
+    if not c.get("on"):
+        return ""
+    return (f" [⚠ 이번 받음 {c['cur']} · 지난 {c['prev']} → 이어 씀 {c['carried']}"
+            + (f" · 너무 오래돼 못 이음 {c['stale']}" if c.get("stale") else "") + "]")
+
+
 def _eps_trends(symbols, eps_fn=None) -> tuple[dict, float]:
     """선행 EPS 추정 추이 (야후) — 실패해도 깔때기의 나머지는 갑니다. (결과, 걸린 초)"""
     from sources import yahoo  # noqa: PLC0415
@@ -545,15 +554,20 @@ def build_funnel_us(app, out_dir: str, *, caps_fn=None, ohlc_fn=None, eps_fn=Non
                      "p": funnel.price_part(r["t"], r["d"], caps.get(s),
                                             financial=r.get("s") == "Financials"),
                      "c": funnel.chart_part(charts[s])})
-    size_b = _write_out(out_dir, "funnel_us.json", universe.dump({
-        "rows": rows, "min_pass": config.FUNNEL_MIN_PASS,
-        "universe_made": prev.get("made")}))
+    # 선행 EPS 가 크게 줄면 빈 종목만 지난 값으로 (11/14 — funnel.carry_eps)
+    prev_f = _read_prev(out_dir, "funnel_us.json")
+    carry = funnel.carry_eps(rows, prev_f.get("rows"), prev_f.get("made"))
+    payload = {"rows": rows, "min_pass": config.FUNNEL_MIN_PASS,
+               "universe_made": prev.get("made")}
+    if carry["on"]:
+        payload["eps_carry"] = carry
+    size_b = _write_out(out_dir, "funnel_us.json", universe.dump(payload))
     return {"n": len(rows), "caps": len(caps), "bars": sum(1 for r in rows if not r["c"].get("e")),
             "light": sum(1 for r in rows if funnel.is_light(r["p"])),
             "priced": sum(1 for r in rows if funnel.price_known(r["p"])),
             "os": sum(1 for r in rows if funnel.is_oversold(r["c"])),
             "eps": sum(1 for r in rows if r.get("f") and r["f"].get("c90") is not None),
-            "sec_eps": t_eps,
+            "sec_eps": t_eps, "eps_carry": carry,
             "sec": time.time() - t0, "sec_caps": t_caps, "bytes": size_b}
 
 
@@ -639,10 +653,14 @@ def build_funnel_kr(app, out_dir: str, *, screens_fn=None, caps_fn=None, ohlc_fn
     rows = [{"t": r["t"], "f": funnel.eps_part(eps.get(r["t"])),
              "p": funnel.price_part(r["t"], r["d"], caps.get(r["t"])),
              "c": funnel.chart_part(charts[r["t"]])} for r in todo]
-    size_b = _write_out(out_dir, name, universe.dump({
-        "screens": screens, "errors": errors, "rows": rows, "q_made": q_made,
-        "screen_rev": buffett_kr.KR_REV, "min_pass": config.FUNNEL_MIN_PASS,
-        "n_members": len(members)}))
+    # 선행 EPS 가 크게 줄면 빈 종목만 지난 값으로 (11/14 — funnel.carry_eps)
+    carry = funnel.carry_eps(rows, prev.get("rows"), prev.get("made"))
+    payload = {"screens": screens, "errors": errors, "rows": rows, "q_made": q_made,
+               "screen_rev": buffett_kr.KR_REV, "min_pass": config.FUNNEL_MIN_PASS,
+               "n_members": len(members)}
+    if carry["on"]:
+        payload["eps_carry"] = carry
+    size_b = _write_out(out_dir, name, universe.dump(payload))
     ok = [r for r in screens if r.get("y") and not r.get("e")]
     verdicts = [c[1] for r in ok for c in r.get("c") or []]
     return {"n": len(ok), "members": len(members), "errors": len(errors), "reused": bool(reuse),
@@ -657,7 +675,7 @@ def build_funnel_kr(app, out_dir: str, *, screens_fn=None, caps_fn=None, ohlc_fn
             "light": sum(1 for r in rows if funnel.is_light(r["p"])),
             "os": sum(1 for r in rows if funnel.is_oversold(r["c"])),
             "eps": sum(1 for r in rows if r.get("f") and r["f"].get("c90") is not None),
-            "sec_eps": t_eps,
+            "sec_eps": t_eps, "eps_carry": carry,
             "sec": time.time() - t0, "sec_q": t_q, "bytes": size_b}
 
 
@@ -858,7 +876,7 @@ def _build_universe(app, out_dir: str, markets=("us", "kr")) -> dict:
         else:
             print(f"  미국 깔때기: 품질 통과 {f['n']}종목 → 시가총액 {f['caps']} · 일봉 {f['bars']} · "
                   f"가격 판정 {f['priced']} (부담 낮음 {f['light']}) · 차트 과매도 쪽 {f['os']} · "
-                  f"선행 EPS {f['eps']} ({f['sec_eps']:.0f}초) · "
+                  f"선행 EPS {f['eps']} ({f['sec_eps']:.0f}초){_carry_txt(f)} · "
                   f"{f['sec']:.0f}초 (시가총액 {f['sec_caps']:.0f}초) · {f['bytes'] / 1024:.0f} KB")
     kr_bars: dict = {}
     if "kr" in markets:
@@ -892,7 +910,7 @@ def _build_universe(app, out_dir: str, markets=("us", "kr")) -> dict:
                   f"{k['unknown']}/{k['verdicts']} · 품질 통과(미달 2개 이하 · 판정 7개 이상) {k['pass_kr']} "
                   f"(예전 판정 중 7/9 {k['pass7']}) · "
                   f"가격 판정 {k['priced']}/{k['todo']} (부담 낮음 {k['light']}) · "
-                  f"차트 과매도 쪽 {k['os']} · 선행 EPS {k['eps']} ({k['sec_eps']:.0f}초) · "
+                  f"차트 과매도 쪽 {k['os']} · 선행 EPS {k['eps']} ({k['sec_eps']:.0f}초){_carry_txt(k)} · "
                   f"{k['sec']:.0f}초 (품질 {k['sec_q']:.0f}초) · "
                   f"{k['bytes'] / 1024:.0f} KB")
     try:

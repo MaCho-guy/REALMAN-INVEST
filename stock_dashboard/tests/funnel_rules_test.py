@@ -437,6 +437,56 @@ check("check_funnel — 문턱 민감도 표 (★ = 지금 규칙, 표에 지금
 check("수집기 — 규칙 · 업종을 넘김", "rules_=picks_log.rules(), sec=sec" in
       pathlib.Path("tools/collect.py").read_text(encoding="utf-8"))
 
+print("\n=== 선행 EPS 이어 쓰기 (funnel.carry_eps, 11/14) ===")
+_T0 = 1_800_000_000
+_prevr = [{"t": f"K{i}", "f": {"c90": 0.01 * i, "n": 1.0}} for i in range(20)]
+_cur_full = [{"t": f"K{i}", "f": {"c90": 0.5, "n": 2.0}} for i in range(20)]
+_i0 = funnel.carry_eps(_cur_full, _prevr, _T0 - 3600, now=_T0)
+check("다 받았으면 안 건드림", not _i0["on"] and _i0["carried"] == 0
+      and all(r["f"]["c90"] == 0.5 for r in _cur_full))
+_cur_15 = [{"t": f"K{i}", "f": ({"c90": 0.5} if i < 15 else None)} for i in range(20)]
+check("조금 줄면(15/20 ≥ 70%) 안 건드림",
+      not funnel.carry_eps(_cur_15, _prevr, _T0 - 3600, now=_T0)["on"]
+      and _cur_15[19]["f"] is None)
+_cur_5 = [{"t": f"K{i}", "f": ({"c90": 0.5} if i < 5 else None)} for i in range(20)]
+_i5 = funnel.carry_eps(_cur_5, _prevr, _T0 - 3600, now=_T0)
+check("크게 줄면(5/20) 빈 종목만 지난 값 + 받은 시각",
+      _i5 == {"cur": 5, "prev": 20, "carried": 15, "stale": 0, "on": True}
+      and _cur_5[0]["f"] == {"c90": 0.5}                              # 이번 값은 그대로
+      and _cur_5[19]["f"] == {"c90": 0.19, "n": 1.0, "old": _T0 - 3600}, str(_i5))
+_prev_carried = [dict(r, f=dict(r["f"], old=_T0 - 50 * 3600)) for r in _prevr]
+_cur_0 = [{"t": f"K{i}", "f": None} for i in range(20)]
+funnel.carry_eps(_cur_0, _prev_carried, _T0 - 3600, now=_T0)
+check("지난 값이 이미 이어 쓴 값이면 원래 시각을 이어받음(계속 늙음)",
+      all(r["f"]["old"] == _T0 - 50 * 3600 for r in _cur_0))
+_cur_x = [{"t": f"K{i}", "f": None} for i in range(20)]
+_prev_old = [dict(r, f=dict(r["f"], old=_T0 - 80 * 3600)) for r in _prevr]
+_ix = funnel.carry_eps(_cur_x, _prev_old, _T0 - 3600, now=_T0)
+check("72시간 넘은 값은 안 이음 → 추정 없음", _ix["carried"] == 0 and _ix["stale"] == 20
+      and all(r["f"] is None for r in _cur_x))
+check("지난 파일이 없거나 표본이 작으면(<10) 안 건드림",
+      not funnel.carry_eps([{"t": "A", "f": None}], None, None, now=_T0)["on"]
+      and not funnel.carry_eps([{"t": f"K{i}", "f": None} for i in range(5)],
+                               _prevr[:5], _T0, now=_T0)["on"])
+check("지난 파일에만 있는 종목은 세지 않음(이번 줄 기준)",
+      funnel.carry_eps([{"t": "K1", "f": None}] + [{"t": f"N{i}", "f": {"c90": 0}} for i in range(9)],
+                       _prevr, _T0, now=_T0)["prev"] == 1)
+_note = funnel.eps_old_note({"c90": 0.1, "old": 1794600000})
+check("종목 글 — '(지난 수집 MM/DD HH:MM 값)' (한국 시각)", _note.startswith(" (지난 수집 ")
+      and _note.endswith(" 값)") and funnel.eps_old_note({"c90": 0.1}) == "", _note)
+check("등 설명에 지난 값 표시 · 색은 그대로",
+      integrate._eps({"c90": 0.03, "old": 1794600000})[0] == integrate._eps({"c90": 0.03})[0]
+      and "지난 수집" in integrate._eps({"c90": 0.03, "old": 1794600000})[1]
+      and "지난 수집" in integrate._trend_lamp({"c90": 0.03, "c30": 0.02, "old": 1794600000})[1])
+_col = pathlib.Path("tools/collect.py").read_text(encoding="utf-8")
+check("수집기 — 한 · 미 깔때기 둘 다 이어 쓰기 · 로그",
+      _col.count("funnel.carry_eps(rows,") == 2 and "_carry_txt(f)" in _col and "_carry_txt(k)" in _col)
+check("check_funnel — 이어 쓰기 검사", "check_eps_carry(d)" in pathlib.Path(
+    "tools/check_funnel.py").read_text(encoding="utf-8"))
+for _wfp in ("tools/collect_workflow.yml", "../.github/workflows/collect.yml"):
+    check(f"지난 결과 꺼내기에 funnel_us.json ({_wfp})", "funnel_us.json funnel_kr.json" in
+          pathlib.Path(_wfp).read_text(encoding="utf-8"))
+
 wf = pathlib.Path("tools/collect_workflow.yml").read_text(encoding="utf-8")
 real = pathlib.Path("../.github/workflows/collect.yml").read_text(encoding="utf-8")
 check("워크플로가 지난 기록을 꺼내 이어 붙임", "picks_history.json" in wf and "picks_history.json" in real)

@@ -193,6 +193,62 @@ def eps_down(f: dict | None) -> bool:
     return c is not None and c <= config.EPS_DOWN_WARN
 
 
+def carry_eps(rows: list, prev_rows: list | None, prev_made: float | None,
+              now: float | None = None) -> dict:
+    """선행 EPS 를 받은 종목이 지난 수집보다 크게 줄면 빈 종목만 지난 값으로 채웁니다.
+
+    2026-11-14 사용자 승인. 그날 09:28 수집에서 한국 깔때기 87줄 중 선행 EPS 가 있는 줄이
+    72 → 24 로 줄었는데(코드 변경 없음 — 야후 응답이 빈 것으로 보임), 'EPS 하향' 관문이
+    덜 걸려 안정형 후보가 17 → 27 로 늘고 모의 매수에 '선행 EPS → 없음' 변경이 생겼습니다.
+    한 번 비는 것으로 판정이 흔들리지 않게 합니다.
+
+    규칙 (rows 를 직접 고침):
+      · 지난 파일에서 이번 줄과 같은 종목 중 EPS 가 있던 수(prev)가 EPS_CARRY_MIN_PREV 이상이고
+      · 이번에 EPS 가 있는 수(cur)가 prev × EPS_CARRY_RATIO 보다 적으면
+      · 이번에 EPS 가 빈 종목에 지난 값을 복사하고 `old` = 원래 받은 시각(epoch)을 붙임
+        (지난 값이 이미 이어 쓴 값이면 그 old 를 그대로 — 계속 늙어 감).
+      · 원래 받은 지 EPS_CARRY_MAX_HOURS 가 지난 값은 이어 쓰지 않음.
+    이번에 받은 값은 절대 덮어쓰지 않습니다. 줄어듦이 아니면(또는 지난 파일이 없으면) 아무것도
+    안 바꿉니다.
+
+    돌려줌: {"cur", "prev", "carried", "stale"(너무 오래돼 못 이은 수), "on"(규칙이 걸렸나)}
+    """
+    import time as _time
+
+    now = _time.time() if now is None else now
+    prev_f = {r.get("t"): r.get("f") for r in prev_rows or []
+              if isinstance(r, dict) and r.get("f")}
+    here = {r.get("t") for r in rows}
+    cur = sum(1 for r in rows if r.get("f"))
+    prev = sum(1 for t, f in prev_f.items() if t in here)
+    info = {"cur": cur, "prev": prev, "carried": 0, "stale": 0, "on": False}
+    if prev < config.EPS_CARRY_MIN_PREV or cur >= prev * config.EPS_CARRY_RATIO:
+        return info
+    info["on"] = True
+    for r in rows:
+        if r.get("f") or r.get("t") not in prev_f:
+            continue
+        old_f = prev_f[r["t"]]
+        born = old_f.get("old") or prev_made
+        if not born or now - float(born) > config.EPS_CARRY_MAX_HOURS * 3600:
+            info["stale"] += 1
+            continue
+        r["f"] = dict(old_f, old=int(born))
+        info["carried"] += 1
+    return info
+
+
+def eps_old_note(f: dict | None, fmt=None) -> str:
+    """이어 쓴 값이면 ' (지난 수집 MM/DD HH:MM 값)' — 아니면 빈 글."""
+    old = (f or {}).get("old")
+    if not old:
+        return ""
+    import datetime as _dt
+
+    when = _dt.datetime.fromtimestamp(float(old), _dt.timezone(_dt.timedelta(hours=9)))
+    return f" (지난 수집 {when:%m/%d %H:%M} 값)"
+
+
 def breakdown(rows: list) -> dict:
     """품질 통과 종목들의 가격 · 선행 EPS 내역 — rows = 깔때기 줄({f, p, c}) 목록.
 

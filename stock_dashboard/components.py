@@ -5551,6 +5551,58 @@ def _pct(v) -> str:
     return "—" if v is None else f"{v * 100:+.1f}%"
 
 
+def render_paper_curve(pts: list, bench_name: str, width: int = 340, height: int = 118) -> str:
+    """모의 매수 누적수익률 선 (11/16, paper.curve) — 묶음 가치(진한 선) · 시장(점선), 100 = 시작.
+
+    pts = [[날짜, 가치, 시장 가치], …] (첫 점은 시작 100). 점이 2개 미만이면 안내 한 줄.
+    """
+    pts = [x for x in pts or [] if isinstance(x, (list, tuple)) and len(x) >= 3 and x[1]]
+    if len(pts) < 2:
+        return ('<div class="pp-st">누적수익률 선 — 시작 점만 있습니다. 수집 회차마다 종가 날짜로 '
+                '점이 하나씩 쌓입니다.</div>')
+    vals = [float(x[1]) for x in pts] + [float(x[2]) for x in pts if x[2]] + [100.0]
+    lo, hi = min(vals), max(vals)
+    pad = max((hi - lo) * 0.12, 0.4)
+    lo, hi = lo - pad, hi + pad
+    l, r, t, b = 34, 6, 8, 18
+    n = len(pts) - 1
+
+    def xy(i, v):
+        return (l + i / n * (width - l - r), t + (hi - v) / (hi - lo) * (height - t - b))
+
+    def line(k):
+        seg = [xy(i, float(x[k])) for i, x in enumerate(pts) if x[k]]
+        return " ".join(f"{a:.1f},{c:.1f}" for a, c in seg)
+
+    last = float(pts[-1][1])
+    tone = ("var(--dash-up)" if last > 100.05 else "var(--dash-down)" if last < 99.95
+            else "var(--dash-flat)")
+    y100 = xy(0, 100.0)[1]
+    lab = lambda v: f"{v - 100:+.1f}%"   # noqa: E731
+    d0, d1 = str(pts[0][0])[5:10].replace("-", "/"), str(pts[-1][0])[5:10].replace("-", "/")
+    bl = pts[-1][2]
+    svg = (
+        f'<svg class="pp-curve" viewBox="0 0 {width} {height}" width="100%" '
+        f'preserveAspectRatio="xMidYMid meet" role="img" aria-label="누적수익률 {lab(last)}">'
+        f'<line x1="{l}" x2="{width - r}" y1="{y100:.1f}" y2="{y100:.1f}" '
+        'stroke="var(--dash-divider)" stroke-width="1" stroke-dasharray="3 3"/>'
+        + "".join(f'<text x="{l - 4}" y="{yy + 3:.1f}" text-anchor="end" font-size="10" '
+                  f'fill="var(--dash-ink-muted)">{txt}</text>'
+                  for yy, txt in ((t + 5, lab(hi)), (y100, "0%"), (height - b - 3, lab(lo)))
+                  # 위 · 아래 끝 글자가 0% 줄과 겹치면 뺌 (11/16 화면 확인)
+                  if txt == "0%" or abs(yy - y100) > 11) +
+        f'<polyline points="{line(2)}" fill="none" stroke="var(--dash-ink-muted)" '
+        'stroke-width="1.4" stroke-dasharray="4 3" stroke-linejoin="round"/>'
+        f'<polyline points="{line(1)}" fill="none" stroke="{tone}" stroke-width="2.2" '
+        'stroke-linejoin="round" stroke-linecap="round"/>'
+        f'<text x="{l}" y="{height - 4}" font-size="10" fill="var(--dash-ink-muted)">{d0} 시작</text>'
+        f'<text x="{width - r}" y="{height - 4}" text-anchor="end" font-size="10" '
+        f'fill="var(--dash-ink-muted)">{d1}</text></svg>')
+    legend = (f'<div class="pp-st">진한 선 = 묶음 누적 <b>{lab(last)}</b> · 점선 = 같은 기간 '
+              f'{_esc(bench_name)} {lab(float(bl)) if bl else "—"} · 점 {len(pts)}개(종가 날짜 기준)</div>')
+    return f'<div class="pp-curve-box">{svg}{legend}</div>'
+
+
 def render_paper(pf: dict, market: str) -> str:
     """모의 매수 실험 (11/13, paper.py) — 묶음(안정형 · 성장형)마다 요약 줄 + 종목 표 + 최근 변경점."""
     import paper  # noqa: PLC0415
@@ -5585,7 +5637,13 @@ def render_paper(pf: dict, market: str) -> str:
                 f'<div class="pp-st">{state}</div></div>')
         void_note = (f'<div class="pp-st">이전 규칙 묶음 {voided}종목은 규칙 변경으로 실험에서 뺌 — '
                      '아래 기록에 남김</div>' if voided else "")
-        out.append(head + void_note + f'<div class="pp-list">{"".join(rows)}</div>')
+        # 누적수익률 (11/16) — 처음 100 에서 사고판 것까지 이어 계산. 다시 산 묶음은 평균과 다름
+        nv = paper.nav(pf, market, track)
+        cum = (f'<div class="pp-st">누적(처음 100 기준, 판 돈은 현금) <b>{_pct(nv / 100 - 1)}</b>'
+               + (" — 규칙 변경 전 묶음의 손익까지 포함해 위 '평균' 과 다름" if voided else "")
+               + "</div>") if nv is not None else ""
+        chart = render_paper_curve(paper.curve(pf, market, track), paper.BENCH[market])
+        out.append(head + cum + chart + void_note + f'<div class="pp-list">{"".join(rows)}</div>')
     ev = [e for e in pf.get("events", []) if e[1] == market and e[4] != "buy"][-10:]
     if ev:
         names = {p["t"]: p["n"] for p in pf.get("pos", [])}

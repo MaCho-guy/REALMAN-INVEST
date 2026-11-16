@@ -21,9 +21,27 @@
      "bench": {"kr": {"sym","p0","p"}, "us": {...}},
      "pos": [{"m","track","t","n","d0","p0","l0"(매수 때 등),"p","l"(지금 등),
               "state":"hold"/"sold","d1"?,"p1"?,"why"?}],
-     "events": [[날짜, 시장, 트랙, 티커, 'buy'/'change'/'sell'/'na', 글], …]}
+     "events": [[날짜, 시장, 트랙, 티커, 'buy'/'change'/'sell'/'na', 글], …],
+     "curve": {"kr": {"stable": {"start": "YYYY-MM-DD", "pts": [[종가 날짜, 가치, 시장 가치], …]},
+                      "growth": {…}}, "us": {…}}}          # 11/16 — 아래 '누적수익률 곡선'
+
+누적수익률 곡선 (2026-11-16 사용자 승인 — "누적수익률 기록 가능한가?" → "그렇게 진행해줘")
+  묶음(시장 × 트랙)마다 계좌 가치를 100 에서 시작해 이어 붙입니다.
+    · 묶음을 살 때 그때 현금을 종목 수로 똑같이 나눠 주수(가치 ÷ 매수가)를 정함
+      (처음엔 100, 규칙 변경으로 다시 살 때는 그때까지 쌓인 현금 전부)
+    · 판 종목(sold) · 실험에서 뺀 종목(void)은 판 가격 × 주수 만큼 현금이 되고 이후 0%
+    · 가치 = 현금 + Σ 보유 주수 × 지금 가격 — nav() 가 pos 만으로 매번 처음부터 다시 셈
+      (주수를 따로 저장하지 않아 예전 파일도 그대로 됨)
+    · 시장 가치 = 100 × 지금 지수 ÷ 묶음 시작 때 지수
+  한 번에 같이 산 종목만 있으면 가치 − 100 = 예전 '평균'(ret 동일 비중 평균)과 같습니다.
+  다른 점은 다시 산 경우 — 평균은 새 묶음만 보지만 가치는 앞 묶음의 손익까지 이어 갑니다.
+  점은 수집 회차마다 차트 파일의 마지막 봉 날짜(종가 날짜)로 하나 — 같은 날짜면 바꿉니다
+  (주말 · 장 시작 전 수집이 같은 점을 반복해 찍지 않게). 지나간 날 가격은 저장하지 않으므로
+  수집이 빠진 날은 점이 없습니다(선은 이어 그림).
 """
 from __future__ import annotations
+
+import datetime as _dt
 
 import buffett
 import funnel
@@ -194,3 +212,126 @@ def summary(pf: dict, market: str, track: str) -> dict:
     return {"n": len(ps), "hold": sum(1 for p in ps if p["state"] == "hold"),
             "sold": sum(1 for p in ps if p["state"] == "sold"),
             "avg": sum(rs) / len(rs) if rs else None, "bench": bench}
+
+
+# ── 누적수익률 곡선 (11/16) ─────────────────────────────────────────────────
+
+#: 곡선 점을 몇 개까지 둘지 (하루 1점 — 약 4년)
+KEEP_POINTS = 1000
+
+
+def _sleeve(pf: dict, m: str, track: str) -> list:
+    return [(i, p) for i, p in enumerate(pf.get("pos") or [])
+            if p.get("m") == m and p.get("track") == track and p.get("p0")]
+
+
+def nav(pf: dict, m: str, track: str) -> float | None:
+    """묶음의 지금 계좌 가치 (처음 100) — 머리말 '누적수익률 곡선' 규칙대로 pos 를 다시 돌려 셈."""
+    ps = _sleeve(pf, m, track)
+    if not ps:
+        return None
+    by_i = dict(ps)
+    exits = sorted((p["d1"], i) for i, p in ps
+                   if p.get("state") in ("sold", "void") and p.get("d1"))
+    cash, units, k = 100.0, {}, 0
+
+    def take(upto):
+        nonlocal cash, k
+        while k < len(exits) and (upto is None or exits[k][0] <= upto):
+            q = by_i[exits[k][1]]
+            cash += units.get(exits[k][1], 0.0) * float(q.get("p1") or q.get("p") or 0.0)
+            k += 1
+
+    for d0 in sorted({p["d0"] for _i, p in ps}):
+        take(d0)                                   # 같은 시각에 판 것(규칙 변경)은 먼저 현금으로
+        grp = [i for i, p in ps if p["d0"] == d0]
+        if cash <= 0:
+            continue
+        each = cash / len(grp)
+        for i in grp:
+            units[i] = each / float(by_i[i]["p0"])
+        cash = 0.0
+    take(None)
+    held = sum(units.get(i, 0.0) * float(p.get("p") or p["p0"]) for i, p in ps
+               if p.get("state") == "hold")
+    return cash + held
+
+
+def close_date(stamp: str, market: str) -> str:
+    """수집 시각(KST "YYYY-MM-DD HH:MM") 에 그 시장의 마지막 종가 날짜(휴장일은 모름 — 주말만 뺌).
+    한국 = 15:30 지났으면 그날, 아니면 전 평일 / 미국 = 06:00 KST(뉴욕 16:00, 겨울 기준) 전이면
+    그 전 평일의 미국 날짜. 예전 묶음의 시작 점 날짜에만 씁니다(나머지는 차트 파일의 봉 날짜)."""
+    t = _dt.datetime.strptime(str(stamp)[:16], "%Y-%m-%d %H:%M")
+    if market == "kr":
+        d = t.date() if (t.hour, t.minute) >= (15, 30) else t.date() - _dt.timedelta(days=1)
+    else:
+        d = (t - _dt.timedelta(hours=6)).date() - _dt.timedelta(days=1)
+    while d.weekday() >= 5:
+        d -= _dt.timedelta(days=1)
+    return d.isoformat()
+
+
+def update_curve(pf: dict, m: str, track: str, bar_date: str | None,
+                 bench_now: float | None) -> list | None:
+    """이번 회차 점을 넣음(같은 날짜면 바꿈). 돌려줌: 넣은 점 [날짜, 가치, 시장 가치]."""
+    ps = _sleeve(pf, m, track)
+    v = nav(pf, m, track)
+    if not ps or v is None or not bar_date:
+        return None
+    cv = pf.setdefault("curve", {}).setdefault(m, {}).setdefault(track, {})
+    first = min(p["d0"] for _i, p in ps)
+    cv.setdefault("start", close_date(first, m))
+    b0 = next((p.get("b0") for _i, p in sorted(ps, key=lambda x: x[1]["d0"]) if p.get("b0")), None)
+    bv = round(100.0 * bench_now / b0, 3) if bench_now and b0 else None
+    pt = [str(bar_date)[:10], round(v, 3), bv]
+    pts = [x for x in cv.get("pts") or [] if x and x[0] != pt[0]]
+    pts.append(pt)
+    pts.sort(key=lambda x: x[0])
+    cv["pts"] = pts[-KEEP_POINTS:]
+    return pt
+
+
+def curve(pf: dict, m: str, track: str) -> list:
+    """그릴 점 — 시작 점(100, 100)을 앞에 붙임. [[날짜, 가치, 시장 가치], …]"""
+    cv = ((pf.get("curve") or {}).get(m) or {}).get(track) or {}
+    pts = [x for x in cv.get("pts") or [] if isinstance(x, list) and len(x) >= 3]
+    if not cv.get("start"):
+        return pts
+    # 시작 날짜와 같은 날짜의 점도 둠 — 같은 종가 날짜에 산 뒤 가격이 다르게 잡힌 경우(11/13
+    # 16:44 매수가 ≠ 이후 회차의 11/13 종가)가 있어, 빼면 100 만 보이고 실제 손익이 숨음
+    return [[cv["start"], 100.0, 100.0]] + [x for x in pts if x[0] >= cv["start"]]
+
+
+def fill_bench(pf: dict, m: str, dates: list, closes: list) -> int:
+    """시장 지수를 못 받은 회차에 산 종목(b0 없음)의 b0 를 일봉에서 채움 (11/16).
+
+    매수 시각의 종가 날짜(close_date) 이하 마지막 종가. 판 종목의 b(매도 때 지수)도 없으면
+    매도 날짜로 채움. 시장 상태 묶음(pf["bench"])의 p0 도 없으면 채움. 채운 수."""
+    pairs = [(str(d)[:10], c) for d, c in zip(dates or [], closes or []) if d and c]
+    if not pairs:
+        return 0
+
+    def on(stamp):
+        cd = close_date(stamp, m)
+        got = [c for d, c in pairs if d <= cd]
+        return float(got[-1]) if got else None
+
+    n = 0
+    for ps in pf.get("pos") or []:
+        if ps.get("m") != m:
+            continue
+        if not ps.get("b0") and ps.get("d0"):
+            v = on(ps["d0"])
+            if v:
+                ps["b0"] = v
+                n += 1
+        if ps.get("state") in ("sold", "void") and not ps.get("b") and ps.get("d1"):
+            v = on(ps["d1"])
+            if v:
+                ps["b"] = v
+        elif ps.get("state") == "hold" and not ps.get("b"):
+            ps["b"] = float(pairs[-1][1])
+    bm = (pf.get("bench") or {}).get(m)
+    if bm is not None and not bm.get("p0"):
+        bm["p0"] = (pf.get("pos") and on(min(p["d0"] for p in pf["pos"] if p.get("m") == m))) or None
+    return n

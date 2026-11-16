@@ -531,6 +531,84 @@ check("늦게 시작하는 묶음 (성장 지표가 다음 수집부터)",
 sm = paper.summary(pf2, "kr", "stable")
 check("요약 — 보유 · 매도 · 평균 · 시장", sm["sold"] == 1 and abs(sm["avg"] + 0.05) < 1e-9
       and abs(sm["bench"] + 0.04) < 1e-9)
+print("\n== 누적수익률 곡선 (paper.nav · update_curve, 11/16)")
+_g = {"quality": "g"}
+cv0 = paper.start("2026-11-13 16:44", {("kr", "stable"): [("A", "가", _g), ("B", "나", _g)]},
+                  {("kr", "A"): 100.0, ("kr", "B"): 50.0}, {"kr": 1000.0})
+check("산 직후 가치 = 100", abs(paper.nav(cv0, "kr", "stable") - 100) < 1e-9)
+cv0 = paper.step(cv0, "2026-11-16 15:45", {}, {("kr", "A"): 110.0, ("kr", "B"): 45.0}, {"kr": 1010.0})
+check("같이 산 종목만 → 가치 − 100 = 평균 (A +10% · B −10% → 0%)",
+      abs(paper.nav(cv0, "kr", "stable") - 100 - paper.summary(cv0, "kr", "stable")["avg"] * 100) < 1e-9)
+_lr, _br = paper.judge("stable", S, {"p": heavy_p, "f": {"c90": -0.07}}, None, "kr")
+cv0 = paper.step(cv0, "2026-11-17 15:45", {("kr", "stable", "A"): (_lr, _br),
+                                            ("kr", "stable", "B"): (l0, [])},
+                 {("kr", "A"): 120.0, ("kr", "B"): 40.0}, {"kr": 1020.0})
+cv1 = paper.step(cv0, "2026-11-18 15:45", {("kr", "stable", "B"): (l0, [])},
+                 {("kr", "B"): 60.0}, {"kr": 1030.0})
+check("판 종목은 현금(0%) — A 판 뒤 B 만 움직임: 50×1.2 + 50×1.2 = 120",
+      abs(paper.nav(cv1, "kr", "stable") - 120.0) < 1e-9
+      and abs(paper.nav(cv1, "kr", "stable") - 100 - paper.summary(cv1, "kr", "stable")["avg"] * 100) < 1e-9)
+# 규칙 변경으로 다시 삼 — 앞 묶음 손익을 이어 감
+cvg = paper.start("2026-11-13 16:44", {("us", "growth"): [("X", "엑", _g), ("Y", "와", _g)]},
+                  {("us", "X"): 10.0, ("us", "Y"): 20.0}, {"us": 500.0})
+cvg = paper.step(cvg, "2026-11-14 09:28", {}, {("us", "X"): 12.0, ("us", "Y"): 18.0}, {"us": 510.0})
+_before = paper.nav(cvg, "us", "growth")                     # 50×1.2 + 50×0.9 = 105
+paper.reset_track(cvg, "2026-11-14 09:28", "growth", "문턱 변경", {("us", "X"): 12.0, ("us", "Y"): 18.0})
+paper.add_sleeve(cvg, "2026-11-14 09:28", "us", "growth", [("Z", "제", _g)], {("us", "Z"): 7.0},
+                 {"us": 510.0})
+_after = paper.nav(cvg, "us", "growth")
+check("다시 산 순간 가치가 끊기지 않음 (105 → 105)", abs(_before - 105) < 1e-9 and abs(_after - 105) < 1e-9)
+cvg = paper.step(cvg, "2026-11-16 06:51", {}, {("us", "Z"): 7.7}, {"us": 520.0})
+check("다시 산 뒤 — 105 × 1.1 = 115.5 · 평균(새 묶음만 +10%) 과 다름",
+      abs(paper.nav(cvg, "us", "growth") - 115.5) < 1e-9
+      and abs(paper.summary(cvg, "us", "growth")["avg"] - 0.1) < 1e-9)
+check("종가 날짜 — 한국 16:44 금 → 그날 · 06:43 월 → 금 / 미국 16:44 KST 금 → 목 · 06:51 KST 월 → 금",
+      paper.close_date("2026-11-13 16:44", "kr") == "2026-11-13"
+      and paper.close_date("2026-11-16 06:43", "kr") == "2026-11-13"
+      and paper.close_date("2026-11-13 16:44", "us") == "2026-11-12"
+      and paper.close_date("2026-11-16 06:51", "us") == "2026-11-13")
+_p1 = paper.update_curve(cvg, "us", "growth", "2026-11-13", 520.0)
+_p2 = paper.update_curve(cvg, "us", "growth", "2026-11-13", 521.0)
+_c = cvg["curve"]["us"]["growth"]
+check("곡선 — 시작 날짜 · 시장 가치(100 × 지금 ÷ 시작) · 같은 날짜는 바꿈",
+      _c["start"] == "2026-11-12" and len(_c["pts"]) == 1 and _c["pts"][0] == ["2026-11-13", 115.5, 104.2]
+      and _p1[2] == 104.0, str(_c))
+paper.update_curve(cvg, "us", "growth", "2026-11-16", 530.0)
+check("다른 날짜면 점 추가 · 그릴 때 시작 점(100) 앞에", [x[0] for x in paper.curve(cvg, "us", "growth")]
+      == ["2026-11-12", "2026-11-13", "2026-11-16"] and paper.curve(cvg, "us", "growth")[0][1:] == [100.0, 100.0])
+check("봉 날짜가 없거나 묶음이 없으면 점 안 넣음",
+      paper.update_curve(cvg, "us", "growth", None, 1.0) is None
+      and paper.update_curve(cvg, "kr", "stable", "2026-11-16", 1.0) is None)
+_ch = ui.render_paper_curve(paper.curve(cvg, "us", "growth"), "SPY")
+check("화면 — 선 두 개(묶음 · 시장) · 0% 기준선 · 누적 글", _ch.count("<polyline") == 2
+      and "+15.5%" in _ch and "SPY" in _ch and "0%" in _ch)
+check("화면 — 점이 하나뿐이면 안내 (깨지지 않음)", "시작 점만" in ui.render_paper_curve([["d", 100, 100]], "SPY")
+      and "시작 점만" in ui.render_paper_curve(None, "SPY"))
+_rp = ui.render_paper(cvg, "us")
+check("모의 매수 화면 — 누적 줄 · 선 · 다시 산 묶음은 평균과 다르다는 설명",
+      "누적(처음 100 기준" in _rp and "pp-curve" in _rp and "평균' 과 다름" in _rp)
+check("예전 파일(곡선 없음)도 그림 — 누적 줄 + 시작 점 안내",
+      "누적(처음 100 기준" in ui.render_paper(pf2, "kr") and paper.curve(pf2, "kr", "stable") == [])
+check("수집기 — 회차마다 곡선 점", "paper.update_curve(pf, m, track, bar, bench.get(m))" in
+      pathlib.Path("tools/collect.py").read_text(encoding="utf-8"))
+_cs = {"curve": {"kr": {"stable": {"start": "2026-11-13", "pts": [["2026-11-13", 99.7, 100.0]]}}}}
+check("시작 날짜와 같은 날짜의 점도 그림 (11/13 매수가 ≠ 11/13 종가)",
+      paper.curve(_cs, "kr", "stable") == [["2026-11-13", 100.0, 100.0], ["2026-11-13", 99.7, 100.0]])
+# 시장 지수를 못 받은 회차에 산 종목 — 일봉으로 b0 채움 (11/16)
+_fb = paper.start("2026-11-13 16:44", {("us", "growth"): [("X", "엑", _g)]}, {("us", "X"): 10.0}, {})
+_fb["pos"].append({"m": "us", "track": "growth", "t": "Y", "n": "와", "d0": "2026-11-14 09:28",
+                   "p0": 5.0, "p": 5.0, "state": "hold", "b0": None, "b": None, "l0": {}, "l": {}})
+_nf = paper.fill_bench(_fb, "us", ["2026-11-11", "2026-11-12", "2026-11-13", "2026-11-14"],
+                       [700.0, 757.12, 760.0, None])
+check("b0 채움 — 11/13 16:44 KST 매수 = 11/12 미국 종가 · 11/14 09:28 = 11/13 종가 · 지금 b = 마지막 종가",
+      _nf == 2 and _fb["pos"][0]["b0"] == 757.12 and _fb["pos"][1]["b0"] == 760.0
+      and _fb["pos"][1]["b"] == 760.0, str([(p_["b0"], p_["b"]) for p_ in _fb["pos"]]))
+check("일봉이 없으면 아무것도 안 바꿈", paper.fill_bench(_fb, "us", [], []) == 0)
+_cc = pathlib.Path("tools/collect.py").read_text(encoding="utf-8")
+check("수집기 — KODEX 200 은 네이버, SPY 는 야후 3번 · 로그에 지수 값(못 받으면 ⚠)",
+      'naver.fetch_ohlc(s_.split(".")[0]' in _cc and "for wait in (0, 3, 8)" in _cc
+      and "⚠ 못 받음" in _cc and "paper.fill_bench(pf, m, dts, cls)" in _cc)
+
 ph = ui.render_paper(pf2, "kr")
 import theme as _th_  # noqa: E402
 _css_all = _th_.build_css("kr")

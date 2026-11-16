@@ -2033,6 +2033,9 @@ def build_rules() -> str:
   .dash-paper .pp-sub {{ font-size: var(--fs-2); color: var(--dash-ink-2); margin-top: 2px;
                         font-variant-numeric: tabular-nums; }}
   .dash-paper .pp-st {{ font-size: var(--fs-1); color: var(--dash-ink-2); margin-top: 2px; }}
+  /* 누적수익률 선 (11/16) */
+  .dash-paper .pp-curve-box {{ margin: 4px 0 10px; }}
+  .dash-paper .pp-curve {{ display: block; width: 100%; max-width: 560px; height: auto; }}
   .dash-paper .pp-ev ul {{ margin: 0; padding-left: 1.1em; font-size: var(--fs-2); }}
   .dash-paper .pp-ev li {{ margin: 3px 0; }} .dash-paper .pp-ev li span {{ color: var(--dash-ink-muted); }}
   /* 내 종목 기준 점검 (11/13) */

@@ -1016,15 +1016,41 @@ def build_paper(out_dir: str, markets=("us", "kr"), *, now: float | None = None,
         return {"skipped": "깔때기 파일이 없습니다"}
 
     def bench_default(syms):
-        from sources import yahoo  # noqa: PLC0415
-        got, _e = yahoo.fetch_ohlc(list(syms))
-        return {s_: (d.get("close") or [None])[-1] for s_, d in got.items()}
+        """시장 지수 일봉 {심볼: {"date", "close"}} — 11/16: 11/13 16:44 뒤로 한 번도 못 받아
+        (야후가 수집 끝무렵 요청을 막는 것으로 보임 — 같은 회차 선행 EPS 도 급감) '같은 기간
+        시장' 이 0% 로 멈춰 있었음. 한국 KODEX 200 은 종목 일봉과 같은 네이버에서, 미국 SPY 는
+        야후를 3번까지 다시 시도."""
+        import time as _t  # noqa: PLC0415
+
+        from sources import naver, yahoo  # noqa: PLC0415
+        out_ = {}
+        for s_ in syms:
+            if s_.endswith(".KS"):
+                d, _e = naver.fetch_ohlc(s_.split(".")[0], count=120)
+                if d.get("close"):
+                    out_[s_] = d
+                    continue
+            for wait in (0, 3, 8):
+                _t.sleep(wait)
+                got, _e = yahoo.fetch_ohlc([s_], period="6mo")
+                if (got.get(s_) or {}).get("close"):
+                    out_[s_] = got[s_]
+                    break
+        return out_
 
     try:
         braw = (bench_fn or bench_default)([paper.BENCH[m] for m in inputs])
     except Exception:  # noqa: BLE001
         braw = {}
-    bench = {m: braw.get(paper.BENCH[m]) for m in inputs}
+    bench, bench_hist = {}, {}
+    for m in inputs:
+        v = braw.get(paper.BENCH[m])
+        if isinstance(v, dict):                    # 일봉 (날짜 · 종가)
+            cl = [x for x in v.get("close") or []]
+            bench[m] = next((x for x in reversed(cl) if x), None)
+            bench_hist[m] = (list(v.get("date") or []), cl)
+        else:                                      # 숫자 하나 (예전 · 테스트)
+            bench[m] = v
     prices = {(m, t): paper._px(r) for m, v in inputs.items() for t, r in v[2].items()
               if paper._px(r) is not None}
     pf = _read_prev(out_dir, "paper_portfolio.json")
@@ -1069,15 +1095,28 @@ def build_paper(out_dir: str, markets=("us", "kr"), *, now: float | None = None,
             judged[(ps["m"], ps["track"], ps["t"])] = paper.judge(
                 ps["track"], summ, frows.get(ps["t"]), rows.get(ps["t"]), ps["m"])
         pf = paper.step(pf, day, judged, prices, bench)
+        # 시장 지수를 못 받은 회차에 산 종목(b0 없음)은 일봉에서 그 매수 날짜 종가로 채움 (11/16)
+        for m, (dts, cls) in bench_hist.items():
+            paper.fill_bench(pf, m, dts, cls)
     for (m, track), chosen in picks.items():
         if chosen and not paper.has_sleeve(pf, m, track):
             if paper.add_sleeve(pf, day, m, track, chosen, prices, bench):
                 started.append(f"{m}/{track}")
     pf["last"] = day
+    # 누적수익률 곡선 — 묶음마다 이번 회차 점 (11/16, paper.update_curve)
+    curve_pts = {}
+    for m in inputs:
+        bar = _read_prev(out_dir, f"chart_{m}.json").get("bar")
+        for track in ("stable", "growth"):
+            pt = paper.update_curve(pf, m, track, bar, bench.get(m))
+            if pt:
+                curve_pts[f"{m}/{track}"] = pt
     action = "start " + ",".join(started) if started else "step"
     size_b = _write_out(out_dir, "paper_portfolio.json", universe.dump(pf))
     return {"action": action, "pos": len(pf["pos"]),
-            "hold": sum(1 for p in pf["pos"] if p["state"] == "hold"), "bytes": size_b}
+            "hold": sum(1 for p in pf["pos"] if p["state"] == "hold"), "bytes": size_b,
+            "bench": {m: (round(v, 2) if v else "⚠ 못 받음") for m, v in bench.items()},
+            "curve": curve_pts}
 
 
 def build_picks_history(out_dir: str, markets=("us", "kr"), *, now: float | None = None) -> dict:

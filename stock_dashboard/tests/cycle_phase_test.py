@@ -80,13 +80,16 @@ rej = with_states({n: "unlit" for n in range(1, 11)} | {1: "lit", 6: "lit", 3: "
 check("점등 3개 · 레이어 2 포함 → 재판정 필요", rej.status == cp.STATUS_REJUDGE)
 mixed = with_states({n: "unlit" for n in range(1, 11)} | {1: "lit", 6: "lit", 9: "lit"})
 check("'2·3' 겸용 항목(어조)은 레이어 2 로 세지 않음", mixed.status == cp.STATUS_WATCH)
-check("현재 기록(11/11) = 전환 감시, 점등 4", ph.status == cp.STATUS_WATCH and ph.lit_count == 4)
+check("현재 기록 = 전환 감시, 점등 4", ph.status == cp.STATUS_WATCH and ph.lit_count == 4)
 
 print("── 레이어 1 스프레드")
-check("DDR4 8Gb 스프레드 = 45.607/27.50 − 1", abs(ph.spread - (45.607 / 27.50 - 1) * 100) < 1e-9,
-      f"{ph.spread:.2f}%")
-check("기준일 스프레드 +70.3%", round(ph.ref_spread, 1) == 70.3)
-check("DDR5 변화 −2.17%", round(ph.ddr5_change_pct, 2) == -2.17)
+P = ph.prices
+check("DDR4 8Gb 스프레드 = 현물/고정 − 1 (같은 품목)",
+      abs(ph.spread - (P.ddr4_8gb_spot / P.ddr4_8gb_contract - 1) * 100) < 1e-9, f"{ph.spread:.2f}%")
+check("기준일(11/3) 스프레드 +70.3%", round(ph.ref_spread, 1) == 70.3)
+check("11/12 스프레드 +62.6% (§8-1 정정값)", round(ph.spread, 1) == 62.6, f"{ph.spread:.2f}")
+check("DDR5 변화 = 현물/기준 − 1",
+      abs(ph.ddr5_change_pct - (P.ddr5_16gb_spot / P.ref_ddr5_16gb_spot - 1) * 100) < 1e-9)
 nocon = copy.deepcopy(raw())
 nocon["prices"]["ddr4_8gb_contract"] = 0
 check("고정가 0 이면 스프레드 계산 안 함", cp.parse(nocon).spread is None)
@@ -147,7 +150,7 @@ check("재고 데이터 없음 → 대조 없음", cp.cross_check(ph, {}) == {})
 check("기록이 깨졌으면 대조 없음", cp.cross_check(cp.Phase(error="x"), three_up) == {})
 
 print("── 내 종목 칩")
-today = ph.as_of + dt.timedelta(days=5)
+today = ph.as_of + dt.timedelta(days=3)
 html_skh = ui.phase_chips_html(ph, "000660", today)
 check("SK하이닉스 — HBM · D램 · 낸드 순", html_skh.index("HBM") < html_skh.index("D램") < html_skh.index("낸드"))
 check("낸드 ③ 은 남색 칩(p3)", 'cyc-chip p3">낸드' in html_skh)
@@ -177,9 +180,12 @@ print("── 국면 보드")
 board = ui.render_phase_board(ph, today, {})
 check("상태 칩 '전환 감시'", "ph-status watch" in board)
 check("점등 4/10", "점등 4/10" in board)
-check("현물 10일 전 → 갱신 필요", "갱신 필요" in board and "ph-price stale" in board,
+check("현물이 신선하면 갱신 필요 없음", "갱신 필요" not in board,
       f"현물 {ph.price_age_days(today)}일 전")
-check("판정 5일 전 → 점검 경고 없음", "점검이 필요합니다" not in board)
+stale_day = ph.prices.spot_date + dt.timedelta(days=cp.STALE_PRICE_DAYS + 1)
+stale_board = ui.render_phase_board(ph, stale_day, {})
+check("현물 8일 지나면 → 갱신 필요 · 회색", "갱신 필요" in stale_board and "ph-price stale" in stale_board)
+check("판정 3일 전 → 점검 경고 없음", "점검이 필요합니다" not in board)
 old_board = ui.render_phase_board(ph, ph.as_of + dt.timedelta(days=15), {})
 check("판정 15일 전 → 점검 경고", "점검이 필요합니다" in old_board)
 diff_board = ui.render_phase_board(ph, today, ck)

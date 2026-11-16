@@ -36,8 +36,11 @@
   한 번에 같이 산 종목만 있으면 가치 − 100 = 예전 '평균'(ret 동일 비중 평균)과 같습니다.
   다른 점은 다시 산 경우 — 평균은 새 묶음만 보지만 가치는 앞 묶음의 손익까지 이어 갑니다.
   점은 수집 회차마다 차트 파일의 마지막 봉 날짜(종가 날짜)로 하나 — 같은 날짜면 바꿉니다
-  (주말 · 장 시작 전 수집이 같은 점을 반복해 찍지 않게). 지나간 날 가격은 저장하지 않으므로
-  수집이 빠진 날은 점이 없습니다(선은 이어 그림).
+  (주말 · 장 시작 전 수집이 같은 점을 반복해 찍지 않게).
+  11/16 오후: 수집기가 받은 1년 일봉으로 묶음 시작부터 **거래일마다** 다시 채웁니다
+  (backfill_curve — 수집이 빠진 날도 점이 생김). 그날까지 산 · 판 것만 반영하고(매수 · 매도
+  시각의 종가 날짜 = close_date), 보유 종목은 그날 종가로 셈. 일봉이 없는 종목은 그날 이전
+  마지막으로 아는 가격(없으면 매수가).
 """
 from __future__ import annotations
 
@@ -334,4 +337,91 @@ def fill_bench(pf: dict, m: str, dates: list, closes: list) -> int:
     bm = (pf.get("bench") or {}).get(m)
     if bm is not None and not bm.get("p0"):
         bm["p0"] = (pf.get("pos") and on(min(p["d0"] for p in pf["pos"] if p.get("m") == m))) or None
+    return n
+
+
+def _on_or_before(hist, day):
+    """(날짜 목록, 종가 목록) 에서 day 이하 마지막 종가 — 없으면 None."""
+    import bisect  # noqa: PLC0415
+
+    dates, closes = hist
+    i = bisect.bisect_right(dates, day) - 1
+    while i >= 0:
+        if closes[i]:
+            return float(closes[i])
+        i -= 1
+    return None
+
+
+def nav_on(pf: dict, m: str, track: str, day: str, px_hist: dict) -> float | None:
+    """그 종가 날짜(day)의 계좌 가치 — nav() 와 같은 규칙, 그날까지 산 · 판 것만. 보유는 그날 종가."""
+    ps = [(i, p) for i, p in _sleeve(pf, m, track) if close_date(p["d0"], m) <= day]
+    if not ps:
+        return None
+    by_i = dict(ps)
+    exits = sorted((p["d1"], i) for i, p in ps
+                   if p.get("state") in ("sold", "void") and p.get("d1")
+                   and close_date(p["d1"], m) <= day)
+    gone = {i for _d, i in exits}
+    cash, units, k = 100.0, {}, 0
+
+    def take(upto):
+        nonlocal cash, k
+        while k < len(exits) and (upto is None or exits[k][0] <= upto):
+            q = by_i[exits[k][1]]
+            cash += units.get(exits[k][1], 0.0) * float(q.get("p1") or q.get("p") or 0.0)
+            k += 1
+
+    for d0 in sorted({p["d0"] for _i, p in ps}):
+        take(d0)
+        grp = [i for i, p in ps if p["d0"] == d0]
+        if cash <= 0:
+            continue
+        each = cash / len(grp)
+        for i in grp:
+            units[i] = each / float(by_i[i]["p0"])
+        cash = 0.0
+    take(None)
+    held = 0.0
+    for i, p in ps:
+        if i in gone or i not in units:
+            continue
+        h = px_hist.get(p["t"])
+        px = _on_or_before(h, day) if h else None
+        held += units[i] * (px or float(p.get("p") or p["p0"]))
+    return cash + held
+
+
+def backfill_curve(pf: dict, m: str, track: str, px_hist: dict, bench_hist,
+                   upto: str | None = None) -> int:
+    """일봉으로 묶음 시작부터 거래일마다 점을 다시 채움 — 넣거나 바꾼 점 수.
+
+    px_hist = {티커: (날짜 목록, 종가 목록)} · bench_hist = (날짜, 종가) 또는 None.
+    거래일 = 지수 일봉 날짜(없으면 종목 일봉 날짜 모음) 중 묶음 시작 이후 · upto 이하.
+    """
+    ps = _sleeve(pf, m, track)
+    if not ps:
+        return 0
+    start = close_date(min(p["d0"] for _i, p in ps), m)
+    days = set(bench_hist[0]) if bench_hist and bench_hist[0] else set()
+    if not days:
+        for i, p in ps:
+            days.update((px_hist.get(p["t"]) or ([], []))[0])
+    days = sorted(d for d in days if d and d >= start and (upto is None or d <= upto))
+    if not days:
+        return 0
+    b0 = next((p.get("b0") for _i, p in sorted(ps, key=lambda x: x[1]["d0"]) if p.get("b0")), None)
+    cv = pf.setdefault("curve", {}).setdefault(m, {}).setdefault(track, {})
+    cv.setdefault("start", start)
+    pts = {x[0]: x for x in cv.get("pts") or [] if x}
+    n = 0
+    for d in days:
+        v = nav_on(pf, m, track, d, px_hist)
+        if v is None:
+            continue
+        bnow = _on_or_before(bench_hist, d) if bench_hist else None
+        bv = round(100.0 * bnow / b0, 3) if bnow and b0 else (pts.get(d) or [None, None, None])[2]
+        pts[d] = [d, round(v, 3), bv]
+        n += 1
+    cv["pts"] = sorted(pts.values(), key=lambda x: x[0])[-KEEP_POINTS:]
     return n

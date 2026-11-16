@@ -496,16 +496,51 @@ def _carry_txt(res: dict) -> str:
             + (f" · 너무 오래돼 못 이음 {c['stale']}" if c.get("stale") else "") + "]")
 
 
-def _eps_trends(symbols, eps_fn=None) -> tuple[dict, float]:
-    """선행 EPS 추정 추이 (야후) — 실패해도 깔때기의 나머지는 갑니다. (결과, 걸린 초)"""
+#: 선행 EPS 를 못 받은 종목을 다시 묻기 전에 쉬는 초 · 다시 물을 때 동시에 묻는 수 (11/16)
+EPS_RETRY_WAIT = 20.0
+EPS_RETRY_WORKERS = 3
+#: 지난 회차 결과 — 수집 로그에 다시 물은 결과를 붙이려고 (_eps_trends 가 채움)
+LAST_EPS_RETRY: dict = {}
+
+
+def _eps_trends(symbols, eps_fn=None, *, wait: float | None = None) -> tuple[dict, float]:
+    """선행 EPS 추정 추이 (야후) — 실패해도 깔때기의 나머지는 갑니다. (결과, 걸린 초)
+
+    11/16: 처음에 못 받은 종목은 EPS_RETRY_WAIT 초 쉬고 동시 3개로 한 번 더 묻습니다
+    (11/14 09:28 한국 72 → 24 처럼 야후가 잠깐 막은 경우를 되살리려고). 정말 추정이 없는
+    종목도 다시 묻게 되어 한국은 회차마다 20초 남짓 늘어납니다. 결과는 LAST_EPS_RETRY.
+    """
     from sources import yahoo  # noqa: PLC0415
 
     t = time.time()
+    syms = list(dict.fromkeys(symbols))
+    fn = eps_fn or yahoo.fetch_eps_trend
     try:
-        got = (eps_fn or yahoo.fetch_eps_trend)(list(symbols))
+        got = dict(fn(syms) or {})
     except Exception:  # noqa: BLE001
         got = {}
-    return got or {}, time.time() - t
+    miss = [s_ for s_ in syms if s_ not in got]
+    LAST_EPS_RETRY.clear()
+    LAST_EPS_RETRY.update({"asked": len(syms), "first": len(got), "missing": len(miss), "back": 0})
+    if miss:
+        if wait is not None or eps_fn is None:          # 주입한 함수(테스트)면 안 쉼
+            time.sleep(EPS_RETRY_WAIT if wait is None else wait)
+        try:
+            again = (fn(miss) if eps_fn else yahoo.fetch_eps_trend(miss, workers=EPS_RETRY_WORKERS)) or {}
+        except Exception:  # noqa: BLE001
+            again = {}
+        back = {k: v for k, v in again.items() if k in set(miss) and v}
+        got.update(back)
+        LAST_EPS_RETRY["back"] = len(back)
+    return got, time.time() - t
+
+
+def _retry_of(res: dict) -> str:
+    r = (res or {}).get("eps_retry") or {}
+    if not r.get("missing"):
+        return ""
+    return f" · 처음 {r['first']}/{r['asked']} → 다시 물어 +{r['back']}"
+
 
 
 def build_funnel_us(app, out_dir: str, *, caps_fn=None, ohlc_fn=None, eps_fn=None) -> dict:
@@ -567,7 +602,7 @@ def build_funnel_us(app, out_dir: str, *, caps_fn=None, ohlc_fn=None, eps_fn=Non
             "priced": sum(1 for r in rows if funnel.price_known(r["p"])),
             "os": sum(1 for r in rows if funnel.is_oversold(r["c"])),
             "eps": sum(1 for r in rows if r.get("f") and r["f"].get("c90") is not None),
-            "sec_eps": t_eps, "eps_carry": carry,
+            "sec_eps": t_eps, "eps_carry": carry, "eps_retry": dict(LAST_EPS_RETRY),
             "sec": time.time() - t0, "sec_caps": t_caps, "bytes": size_b}
 
 
@@ -675,7 +710,7 @@ def build_funnel_kr(app, out_dir: str, *, screens_fn=None, caps_fn=None, ohlc_fn
             "light": sum(1 for r in rows if funnel.is_light(r["p"])),
             "os": sum(1 for r in rows if funnel.is_oversold(r["c"])),
             "eps": sum(1 for r in rows if r.get("f") and r["f"].get("c90") is not None),
-            "sec_eps": t_eps, "eps_carry": carry,
+            "sec_eps": t_eps, "eps_carry": carry, "eps_retry": dict(LAST_EPS_RETRY),
             "sec": time.time() - t0, "sec_q": t_q, "bytes": size_b}
 
 
@@ -847,37 +882,16 @@ def _build_universe(app, out_dir: str, markets=("us", "kr")) -> dict:
               f"{c['sec']:.0f}초 (일봉 {c['sec_bars']:.0f}초 · 업종 {c['sec_semi']:.0f}초) · "
               f"{c['bytes'] / 1024:.0f} KB")
 
-    us_bars: dict = {}
-    if "us" in markets:
-        try:
-            c = build_chart_us(app, out_dir, keep=us_bars)
-        except Exception as exc:  # noqa: BLE001
-            c = {"skipped": f"{type(exc).__name__}: {redact(str(exc), secret_values())[:160]}"}
-        out["chart_us"] = c
-        print_chart("미국", c)
-
-    def us_ohlc_reuse(symbols):
-        """차트 조건에서 받은 일봉을 다시 씁니다 — 없는 심볼만 새로 받습니다."""
-        from sources import yahoo  # noqa: PLC0415
-
-        have = {s_: us_bars[s_] for s_ in symbols if s_ in us_bars}
-        need = [s_ for s_ in symbols if s_ not in us_bars]
-        got, errs = yahoo.fetch_ohlc(need) if need else ({}, {})
-        return {**have, **got}, errs
-
-    if "us" in markets:
-        try:
-            f = build_funnel_us(app, out_dir, ohlc_fn=us_ohlc_reuse if us_bars else None)
-        except Exception as exc:  # noqa: BLE001
-            f = {"skipped": f"{type(exc).__name__}: {redact(str(exc), secret_values())[:160]}"}
-        out["funnel_us"] = f
-        if f.get("skipped"):
-            print(f"  미국 깔때기: 건너뜀 — {f['skipped']}")
-        else:
-            print(f"  미국 깔때기: 품질 통과 {f['n']}종목 → 시가총액 {f['caps']} · 일봉 {f['bars']} · "
-                  f"가격 판정 {f['priced']} (부담 낮음 {f['light']}) · 차트 과매도 쪽 {f['os']} · "
-                  f"선행 EPS {f['eps']} ({f['sec_eps']:.0f}초){_carry_txt(f)} · "
-                  f"{f['sec']:.0f}초 (시가총액 {f['sec_caps']:.0f}초) · {f['bytes'] / 1024:.0f} KB")
+    # 순서 (11/16): ① 시장 지수 일봉(모의 매수 비교용) ② 한국(야후는 선행 EPS 만) ③ 미국(야후 일봉
+    # 516 · 시가총액 · 선행 EPS). 11/14 09:28 한국 선행 EPS 72 → 24 · 모의 매수 지수 못 받음이 둘 다
+    # 수집 끝무렵 야후 요청이라 — 야후가 많이 쌓인 뒤 막는 것으로 보여 적게 쓰는 것부터 먼저.
+    import paper as _paper  # noqa: PLC0415
+    try:
+        bench_raw = _bench_history([_paper.BENCH[m] for m in markets if m in _paper.BENCH])
+    except Exception:  # noqa: BLE001
+        bench_raw = {}
+    print(f"  시장 지수 일봉: " + (", ".join(f"{k} {len(v.get('close') or [])}봉" for k, v in bench_raw.items())
+                               or "⚠ 못 받음 (모의 매수 단계에서 다시 시도)"))
     kr_bars: dict = {}
     if "kr" in markets:
         try:
@@ -910,9 +924,40 @@ def _build_universe(app, out_dir: str, markets=("us", "kr")) -> dict:
                   f"{k['unknown']}/{k['verdicts']} · 품질 통과(미달 2개 이하 · 판정 7개 이상) {k['pass_kr']} "
                   f"(예전 판정 중 7/9 {k['pass7']}) · "
                   f"가격 판정 {k['priced']}/{k['todo']} (부담 낮음 {k['light']}) · "
-                  f"차트 과매도 쪽 {k['os']} · 선행 EPS {k['eps']} ({k['sec_eps']:.0f}초){_carry_txt(k)} · "
+                  f"차트 과매도 쪽 {k['os']} · 선행 EPS {k['eps']} ({k['sec_eps']:.0f}초{_retry_of(k)}){_carry_txt(k)} · "
                   f"{k['sec']:.0f}초 (품질 {k['sec_q']:.0f}초) · "
                   f"{k['bytes'] / 1024:.0f} KB")
+    us_bars: dict = {}
+    if "us" in markets:
+        try:
+            c = build_chart_us(app, out_dir, keep=us_bars)
+        except Exception as exc:  # noqa: BLE001
+            c = {"skipped": f"{type(exc).__name__}: {redact(str(exc), secret_values())[:160]}"}
+        out["chart_us"] = c
+        print_chart("미국", c)
+
+    def us_ohlc_reuse(symbols):
+        """차트 조건에서 받은 일봉을 다시 씁니다 — 없는 심볼만 새로 받습니다."""
+        from sources import yahoo  # noqa: PLC0415
+
+        have = {s_: us_bars[s_] for s_ in symbols if s_ in us_bars}
+        need = [s_ for s_ in symbols if s_ not in us_bars]
+        got, errs = yahoo.fetch_ohlc(need) if need else ({}, {})
+        return {**have, **got}, errs
+
+    if "us" in markets:
+        try:
+            f = build_funnel_us(app, out_dir, ohlc_fn=us_ohlc_reuse if us_bars else None)
+        except Exception as exc:  # noqa: BLE001
+            f = {"skipped": f"{type(exc).__name__}: {redact(str(exc), secret_values())[:160]}"}
+        out["funnel_us"] = f
+        if f.get("skipped"):
+            print(f"  미국 깔때기: 건너뜀 — {f['skipped']}")
+        else:
+            print(f"  미국 깔때기: 품질 통과 {f['n']}종목 → 시가총액 {f['caps']} · 일봉 {f['bars']} · "
+                  f"가격 판정 {f['priced']} (부담 낮음 {f['light']}) · 차트 과매도 쪽 {f['os']} · "
+                  f"선행 EPS {f['eps']} ({f['sec_eps']:.0f}초{_retry_of(f)}){_carry_txt(f)} · "
+                  f"{f['sec']:.0f}초 (시가총액 {f['sec_caps']:.0f}초) · {f['bytes'] / 1024:.0f} KB")
     try:
         h = build_picks_history(out_dir, markets)
     except Exception as exc:  # noqa: BLE001 - 기록이 실패해도 수집은 그대로
@@ -920,7 +965,8 @@ def _build_universe(app, out_dir: str, markets=("us", "kr")) -> dict:
     out["picks_history"] = h
     print(f"  후보 기록: {h}")
     try:
-        pp = build_paper(out_dir, markets)
+        pp = build_paper(out_dir, markets, bench_raw=bench_raw,
+                         bars={"kr": kr_bars, "us": us_bars})
     except Exception as exc:  # noqa: BLE001 - 실험이 실패해도 수집은 그대로
         pp = {"skipped": f"{type(exc).__name__}: {str(exc)[:160]}"}
     out["paper"] = pp
@@ -1000,8 +1046,32 @@ def _market_inputs(out_dir: str, m: str):
     return screens, frows, rows, semis, new
 
 
+def _bench_history(syms) -> dict:
+    """시장 지수 일봉 {심볼: {"date", "close"}} — 11/16: 11/13 16:44 뒤로 한 번도 못 받아
+    (야후가 수집 끝무렵 요청을 막는 것으로 보임 — 같은 회차 선행 EPS 도 급감) '같은 기간
+    시장' 이 0% 로 멈춰 있었음. 한국 KODEX 200 은 종목 일봉과 같은 네이버에서, 미국 SPY 는
+    야후를 3번까지 다시 시도. 수집 맨 앞에서 한 번 받고(11/16), 모의 매수 단계에서 빠진 것만 다시."""
+    import time as _t  # noqa: PLC0415
+
+    from sources import naver, yahoo  # noqa: PLC0415
+    out_ = {}
+    for s_ in syms:
+        if s_.endswith(".KS"):
+            d, _e = naver.fetch_ohlc(s_.split(".")[0], count=120)
+            if d.get("close"):
+                out_[s_] = d
+                continue
+        for wait in (0, 3, 8):
+            _t.sleep(wait)
+            got, _e = yahoo.fetch_ohlc([s_], period="6mo")
+            if (got.get(s_) or {}).get("close"):
+                out_[s_] = got[s_]
+                break
+    return out_
+
+
 def build_paper(out_dir: str, markets=("us", "kr"), *, now: float | None = None,
-                bench_fn=None) -> dict:
+                bench_fn=None, bench_raw: dict | None = None, bars: dict | None = None) -> dict:
     """모의 매수 실험 (paper.py, 11/13) — 첫 회차에 후보 상위를 '사고', 이후 회차마다 근거를
     다시 판정해 깨지면 '판다'. 지난 paper_portfolio.json 을 이어받습니다."""
     import integrate  # noqa: PLC0415
@@ -1015,33 +1085,14 @@ def build_paper(out_dir: str, markets=("us", "kr"), *, now: float | None = None,
     if not inputs:
         return {"skipped": "깔때기 파일이 없습니다"}
 
-    def bench_default(syms):
-        """시장 지수 일봉 {심볼: {"date", "close"}} — 11/16: 11/13 16:44 뒤로 한 번도 못 받아
-        (야후가 수집 끝무렵 요청을 막는 것으로 보임 — 같은 회차 선행 EPS 도 급감) '같은 기간
-        시장' 이 0% 로 멈춰 있었음. 한국 KODEX 200 은 종목 일봉과 같은 네이버에서, 미국 SPY 는
-        야후를 3번까지 다시 시도."""
-        import time as _t  # noqa: PLC0415
-
-        from sources import naver, yahoo  # noqa: PLC0415
-        out_ = {}
-        for s_ in syms:
-            if s_.endswith(".KS"):
-                d, _e = naver.fetch_ohlc(s_.split(".")[0], count=120)
-                if d.get("close"):
-                    out_[s_] = d
-                    continue
-            for wait in (0, 3, 8):
-                _t.sleep(wait)
-                got, _e = yahoo.fetch_ohlc([s_], period="6mo")
-                if (got.get(s_) or {}).get("close"):
-                    out_[s_] = got[s_]
-                    break
-        return out_
-
-    try:
-        braw = (bench_fn or bench_default)([paper.BENCH[m] for m in inputs])
-    except Exception:  # noqa: BLE001
-        braw = {}
+    want = [paper.BENCH[m] for m in inputs]
+    braw = {k: v for k, v in (bench_raw or {}).items() if k in want}   # 수집 맨 앞에서 받은 것
+    miss = [s_ for s_ in want if s_ not in braw]
+    if miss:
+        try:
+            braw.update((bench_fn or _bench_history)(miss) or {})
+        except Exception:  # noqa: BLE001
+            pass
     bench, bench_hist = {}, {}
     for m in inputs:
         v = braw.get(paper.BENCH[m])
@@ -1103,11 +1154,24 @@ def build_paper(out_dir: str, markets=("us", "kr"), *, now: float | None = None,
             if paper.add_sleeve(pf, day, m, track, chosen, prices, bench):
                 started.append(f"{m}/{track}")
     pf["last"] = day
-    # 누적수익률 곡선 — 묶음마다 이번 회차 점 (11/16, paper.update_curve)
-    curve_pts = {}
+    # 누적수익률 곡선 — 일봉으로 거래일마다 다시 채우고(11/16 오후, paper.backfill_curve)
+    # 이번 회차 점을 넣음(paper.update_curve — 지금 가격, 같은 날짜면 바꿈)
+    curve_pts, filled = {}, {}
     for m in inputs:
         bar = _read_prev(out_dir, f"chart_{m}.json").get("bar")
+        mb = (bars or {}).get(m) or {}
+        px_hist = {}
+        for ps in pf.get("pos", []):
+            if ps["m"] != m:
+                continue
+            b_ = mb.get(ps["t"]) or mb.get(str(ps["t"]).replace(".", "-"))
+            if b_ and b_.get("date") and b_.get("close"):
+                px_hist[ps["t"]] = ([str(d)[:10] for d in b_["date"]], list(b_["close"]))
+        bh = bench_hist.get(m)
+        bh = ([str(d)[:10] for d in bh[0]], list(bh[1])) if bh and bh[0] else None
         for track in ("stable", "growth"):
+            if px_hist or bh:
+                filled[f"{m}/{track}"] = paper.backfill_curve(pf, m, track, px_hist, bh, upto=bar)
             pt = paper.update_curve(pf, m, track, bar, bench.get(m))
             if pt:
                 curve_pts[f"{m}/{track}"] = pt
@@ -1116,7 +1180,7 @@ def build_paper(out_dir: str, markets=("us", "kr"), *, now: float | None = None,
     return {"action": action, "pos": len(pf["pos"]),
             "hold": sum(1 for p in pf["pos"] if p["state"] == "hold"), "bytes": size_b,
             "bench": {m: (round(v, 2) if v else "⚠ 못 받음") for m, v in bench.items()},
-            "curve": curve_pts}
+            "curve": curve_pts, "curve_days": filled}
 
 
 def build_picks_history(out_dir: str, markets=("us", "kr"), *, now: float | None = None) -> dict:

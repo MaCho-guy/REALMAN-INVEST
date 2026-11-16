@@ -358,7 +358,7 @@ def fetch_market_cap(symbol: str) -> float | None:
 # 선행 EPS 추정 추이 — 애널리스트 평균 추정치가 최근 90일 사이 어떻게 바뀌었나
 # ──────────────────────────────────────────────────────────────────────────────
 
-def fetch_eps_trend(symbols: list[str]) -> dict[str, dict]:
+def fetch_eps_trend(symbols: list[str], workers: int | None = None) -> dict[str, dict]:
     """심볼마다 올해 · 내년 EPS 추정치의 현재값과 30 · 90일 전 값.
 
     반환: {심볼: {"e0","e1": 현재(올해 · 내년 회계연도), "m0","m1": 30일 전,
@@ -405,7 +405,8 @@ def fetch_eps_trend(symbols: list[str]) -> dict[str, dict]:
 
     if not unique:
         return {}
-    with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(unique))) as pool:
+    # workers: 수집기가 빈 종목을 다시 물을 때 동시에 덜 묻도록 (11/16)
+    with ThreadPoolExecutor(max_workers=min(workers or MAX_WORKERS, len(unique))) as pool:
         return {s: v for s, v in pool.map(one, unique) if v}
 
 

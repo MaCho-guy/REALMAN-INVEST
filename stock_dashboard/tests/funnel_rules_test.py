@@ -609,6 +609,58 @@ check("수집기 — KODEX 200 은 네이버, SPY 는 야후 3번 · 로그에 �
       'naver.fetch_ohlc(s_.split(".")[0]' in _cc and "for wait in (0, 3, 8)" in _cc
       and "⚠ 못 받음" in _cc and "paper.fill_bench(pf, m, dts, cls)" in _cc)
 
+print("\n== 곡선 거래일마다 채우기 (paper.backfill_curve, 11/16 오후)")
+_bf = paper.start("2026-11-13 16:44", {("kr", "stable"): [("A", "가", _g), ("B", "나", _g)]},
+                  {("kr", "A"): 100.0, ("kr", "B"): 50.0}, {"kr": 1000.0})
+_hist = {"A": (["2026-11-12", "2026-11-13", "2026-11-16", "2026-11-17", "2026-11-18"],
+               [99.0, 100.0, 110.0, 120.0, 90.0]),
+         "B": (["2026-11-13", "2026-11-16", "2026-11-17", "2026-11-18"], [50.0, 45.0, 40.0, 60.0])}
+_bh = (["2026-11-12", "2026-11-13", "2026-11-16", "2026-11-17", "2026-11-18"],
+       [990.0, 1000.0, 1010.0, 1020.0, 1030.0])
+# 11/17 장 마감 뒤 A 를 120 에 팜 (수집 11/17 16:00 → 종가 날짜 11/17)
+_bf["pos"][0].update(state="sold", d1="2026-11-17 16:00", p1=120.0)
+_nb = paper.backfill_curve(_bf, "kr", "stable", _hist, _bh)
+_pts = {x[0]: x[1:] for x in _bf["curve"]["kr"]["stable"]["pts"]}
+check("시작 전 날짜(11/12)는 안 넣음 · 거래일마다 점 (11/13 · 16 · 17 · 18)",
+      _nb == 4 and sorted(_pts) == ["2026-11-13", "2026-11-16", "2026-11-17", "2026-11-18"], str(_pts))
+check("그날 종가로 셈 — 11/16: 50×1.1 + 50×0.9 = 100 · 시장 101",
+      _pts["2026-11-16"] == [100.0, 101.0])
+check("판 날부터 A 는 현금 — 11/17: 60 + 50×0.8 = 100 · 11/18: 60 + 50×1.2 = 120 (A 가 90 으로 떨어져도 무관)",
+      _pts["2026-11-17"][0] == 100.0 and _pts["2026-11-18"][0] == 120.0)
+check("마지막 점 = 지금 가치(nav) 와 같음 (B 지금가 60 으로 두면)",
+      abs(paper.nav(dict(_bf, pos=[_bf["pos"][0], dict(_bf["pos"][1], p=60.0)]), "kr", "stable") - 120.0) < 1e-9)
+_bf2 = paper.start("2026-11-13 16:44", {("kr", "stable"): [("A", "가", _g)]}, {("kr", "A"): 100.0}, {"kr": 1000.0})
+check("upto — 그날 이후는 안 넣음 · 일봉 없는 종목은 매수가로",
+      paper.backfill_curve(_bf2, "kr", "stable", {}, _bh, upto="2026-11-16") == 2
+      and _bf2["curve"]["kr"]["stable"]["pts"][-1] == ["2026-11-16", 100.0, 101.0])
+check("나중에 산 묶음 — 산 날 전 거래일에는 그 종목이 없음",
+      paper.nav_on(_bf, "kr", "stable", "2026-11-12", _hist) is None)
+print("\n== 수집 순서 · 선행 EPS 다시 묻기 (11/16 오후)")
+from tools import collect as _colm  # noqa: E402
+_calls = []
+
+
+def _fake_eps(syms):
+    _calls.append(list(syms))
+    return {s_: {"e0": 1.0} for s_ in syms if s_ != "Z" and (len(_calls) > 1 or s_ != "B")}
+
+
+_got, _t = _colm._eps_trends(["A", "B", "Z"], _fake_eps)
+check("처음 못 받은 것만 다시 물음 · 되살린 수 기록 · 주입 함수면 안 쉼",
+      _calls == [["A", "B", "Z"], ["B", "Z"]] and set(_got) == {"A", "B"}
+      and _colm.LAST_EPS_RETRY == {"asked": 3, "first": 1, "missing": 2, "back": 1} and _t < 5,
+      str(_colm.LAST_EPS_RETRY))
+_calls.clear()
+_colm._eps_trends(["A"], lambda s_: {"A": {"e0": 1}})
+check("다 받으면 다시 안 물음", _colm.LAST_EPS_RETRY["missing"] == 0)
+check("로그 글 — '처음 a/b → 다시 물어 +c'", _colm._retry_of({"eps_retry": {"asked": 87, "first": 24,
+      "missing": 63, "back": 50}}) == " · 처음 24/87 → 다시 물어 +50" and _colm._retry_of({}) == "")
+_src = pathlib.Path("tools/collect.py").read_text(encoding="utf-8")
+check("수집 순서 — 시장 지수 일봉 → 한국 → 미국 → 기록 · 모의 매수(맨 앞 지수 · 일봉 넘김)",
+      _src.index("bench_raw = _bench_history(") < _src.index("kr_bars: dict = {}")
+      < _src.index("us_bars: dict = {}") < _src.index("h = build_picks_history(out_dir, markets)")
+      and 'bars={"kr": kr_bars, "us": us_bars}' in _src and "paper.backfill_curve(pf, m, track" in _src)
+
 ph = ui.render_paper(pf2, "kr")
 import theme as _th_  # noqa: E402
 _css_all = _th_.build_css("kr")
@@ -622,7 +674,7 @@ check("폰 본문 13px · 내비 버튼 13px 고정 (17:20)", "--fs-3: 0.82rem; 
       and "--fs-nav: 0.82rem;" in _css_all)
 col = pathlib.Path("tools/collect.py").read_text(encoding="utf-8")
 check("수집기가 실험 단계를 부르고 워크플로가 이어받음",
-      "pp = build_paper(out_dir, markets)" in col and "paper_portfolio.json" in wf
+      "pp = build_paper(out_dir, markets" in col and "paper_portfolio.json" in wf
       and "paper_portfolio.json" in real)
 check("모의 매수 탭이 실험을 그림 (17:04 후보 탭에서 뺌)",
       '_render_paper(market, opts["demo"])' in app_src

@@ -763,13 +763,13 @@ def load_universe(market: str, use_demo: bool) -> dict:
     return universe.parse(blob.decode("utf-8", "replace"))
 
 
-@swr.cached(1_800, stale=7 * 86_400)
+@swr.cached(600, stale=7 * 86_400)        # 11/16: 30분 → 10분 (새 요약이 빨리 보이게)
 def load_report_summaries(use_demo: bool) -> dict:
     """리포트 AI 요약 — 수집기가 data 브랜치에 올린 summaries.json.
 
     {"items": {이름: 항목}, "made": 만든 시각(초), "note": 없을 때의 사유}.
     요약은 이 서버가 만들지 않습니다 (키를 서버에 두지 않으려고). 수집기가
-    Claude API 로 만들어 올린 파일을 읽기만 합니다. 30분 저장.
+    Claude API 로 만들어 올린 파일을 읽기만 합니다. 10분 저장(11/16, 전 30분).
     파일이 아직 없는 것(404)은 실패가 아니라 '아직 켜지 않음' 입니다.
     """
     if use_demo:

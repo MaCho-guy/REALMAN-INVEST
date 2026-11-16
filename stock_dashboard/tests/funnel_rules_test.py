@@ -765,6 +765,16 @@ check("폰: 접는 메뉴 줄이 있을 때만 세로 메뉴 숨김 · PC 에서
 check("접는 메뉴 버튼은 key 를 따로(_m) · 색 규칙도 popover 범위", "navbtn_kr_picks_m" in
       theme.nav_group_css("kr", config.tab_groups("kr"), mobile=True))
 
+print("\n== 리포트 요약 평일 오전 실행 (11/16)")
+_wf = pathlib.Path("../.github/workflows/summarize.yml")
+_wft = _wf.read_text(encoding="utf-8") if _wf.exists() else ""
+check("요약만 모드 · 새 요약 없으면 파일 그대로", "--summaries-only" in col
+      and "if not summ[\"new\"] and before is not None" in col)
+check("평일 오전 워크플로 — 수집과 같은 줄(group: collect) · summaries.json 하나만 올림 · 강제 push 아님",
+      "--summaries-only" in _wft and "group: collect" in _wft and "git add summaries.json" in _wft
+      and "push -q -f" not in _wft and 'cron: "7 1 * * 1-5"' in _wft)
+check("앱의 요약 저장 10분", "@swr.cached(600, stale=7 * 86_400)" in app_src)
+
 print("\n== 차트 전략 백테스트 (techtest, 11/13)")
 import techtest  # noqa: E402
 

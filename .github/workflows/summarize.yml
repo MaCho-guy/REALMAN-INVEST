@@ -1,0 +1,77 @@
+# 리포트 AI 요약만 — 평일 오전 (2026-11-16, 사용자 승인)
+#
+# 왜: 증권사 리포트는 대개 아침에 올라오는데, 요약은 전체 수집(06:43 · 15:43 KST) 때만
+# 돌아서 그날 리포트가 오후 4시쯤까지 요약 없이 보였습니다 (11/16 실측: 06:44 수집 0건 →
+# 15:43 수집 2건). 이 실행은 리포트 목록만 확인해 **새 리포트만** 요약하고,
+# data 브랜치의 summaries.json 한 파일만 바꿔 올립니다 (다른 파일은 그대로).
+#
+# 비용 상한 · 연속 실패 중단 · 키 없음 건너뜀은 전체 수집의 요약 단계와 같습니다
+# (tools/collect.py summarize_reports).
+name: summarize
+
+on:
+  schedule:
+    # UTC. 평일 10:07 KST (정각 · 30분은 붐벼서 피함). GitHub 예약은 늦게 돌 수 있습니다.
+    - cron: "7 1 * * 1-5"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write             # data 브랜치의 summaries.json 하나를 올리는 데만
+
+# 전체 수집과 같은 줄 — data 브랜치를 동시에 건드리지 않게 (수집은 data 를 통째로 덮어씀)
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  summarize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: data 브랜치 꺼내기
+        id: data
+        run: |
+          if git fetch -q --depth=1 origin data:data 2>/dev/null; then
+            git worktree add -q "$RUNNER_TEMP/data" data
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            ls -la "$RUNNER_TEMP/data/summaries.json" || echo "summaries.json 없음 (처음이면 정상)"
+          else
+            echo "data 브랜치가 없습니다 — 전체 수집이 먼저 돌아야 합니다"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-python@v6
+        if: steps.data.outputs.ok == 'true'
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: stock_dashboard/requirements.txt
+
+      - name: 필요한 패키지
+        if: steps.data.outputs.ok == 'true'
+        run: pip install -r stock_dashboard/requirements.txt
+
+      - name: 새 리포트 요약
+        if: steps.data.outputs.ok == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+          TZ: Asia/Seoul
+        run: python stock_dashboard/tools/collect.py --summaries-only --out "$RUNNER_TEMP/data"
+
+      - name: summaries.json 만 올리기
+        if: steps.data.outputs.ok == 'true'
+        run: |
+          cd "$RUNNER_TEMP/data"
+          if git diff --quiet -- summaries.json && ! git ls-files --others --exclude-standard | grep -q summaries.json; then
+            echo "새 요약 없음 — 올리지 않습니다"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add summaries.json
+          git commit -q -m "summaries $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -q origin HEAD:data
+          echo "올림: summaries.json"

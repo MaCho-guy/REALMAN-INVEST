@@ -1228,7 +1228,29 @@ def main(argv=None) -> int:
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--list", action="store_true",
                     help="무엇을 받을지 목록만 찍고 끝냅니다")
+    ap.add_argument("--summaries-only", action="store_true",
+                    help="리포트 AI 요약만 (--out 의 summaries.json 에 이어 붙임, 11/16)")
     args = ap.parse_args(argv)
+
+    if args.summaries_only:
+        # 11/16 사용자 승인 "아침 리포트도 요약되게" — 증권사 리포트는 아침에 올라오는데
+        # 요약은 수집(06:43 · 15:43) 때만 돌아 그날 리포트가 오후까지 요약 없이 보였음.
+        # 평일 오전 가벼운 실행(summarize.yml)이 이 모드로 새 리포트만 요약합니다.
+        app = load_app()
+        import swr  # noqa: PLC0415
+        swr.DISK = False
+        print("리포트 요약만 (Claude API)")
+        path = os.path.join(args.out, "summaries.json")
+        before = open(path, "rb").read() if os.path.exists(path) else None
+        summ = summarize_reports(app, args.out)
+        if not summ["new"] and before is not None:
+            with open(path, "wb") as fh:        # 새 요약이 없으면 파일을 그대로 (불필요한 커밋 막기)
+                fh.write(before)
+        if summ["skipped"]:
+            print(f"  건너뜀 — {summ['skipped']}")
+        print(f"  새 요약 {summ['new']}건 · 저장된 요약 {summ['total']}건"
+              + (f" · 실패 {len(summ['failed'])}건" if summ["failed"] else ""))
+        return 0
 
     missing = [k for k in ("DART_API_KEY", "FRED_API_KEY") if not os.environ.get(k)]
     if missing:

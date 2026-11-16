@@ -80,9 +80,16 @@ class RunLog:
         return line
 
 
+#: 동시에 돌리는 받기 수의 상한. 요약 화면이 13~14가지를 받으므로(11/16
+#: 섹터 뉴스 추가) 12개면 마지막 한두 개가 앞의 하나가 끝날 때까지 기다려
+#: 한 바퀴(0.2초 이상)가 더 걸렸습니다. 네트워크 대기라 CPU 부담은 작습니다.
+#: 화면별 받기 수가 이 값을 넘으면 tests/nav_speed_test.py 가 알려 줍니다.
+MAX_WORKERS = 16
+
+
 def run_parallel(calls: dict[str, Callable[[], object]], log: RunLog | None = None,
                  initializer: Callable[[], None] | None = None,
-                 max_workers: int = 12,
+                 max_workers: int = MAX_WORKERS,
                  budget: float | None = None) -> dict[str, object]:
     """이름 → 인자 없는 함수. 동시에 실행하고 {이름: 결과} 를 돌려줍니다.
 

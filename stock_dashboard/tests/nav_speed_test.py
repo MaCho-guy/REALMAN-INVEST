@@ -197,12 +197,18 @@ check("요약(미국)은 섹터 대신 공포탐욕·VIX",
       "섹터 온도" not in jobs_us and {"공포탐욕", "VIX"} <= set(jobs_us))
 for sec in config.market_tab_keys("kr") + config.market_tab_keys("us"):
     check(f"{sec}: 어느 화면이든 시세는 같이", "시세" in ns["_section_jobs"](sec, "kr", False))
+_most = max(((len(ns["_section_jobs"](sec, m, False)), f"{m}/{sec}")
+             for m in ("kr", "us") for sec in config.market_tab_keys(m)))
+check("어느 화면의 받기 수도 동시 상한(perf.MAX_WORKERS) 안 — 넘으면 한 바퀴 더 기다림",
+      _most[0] <= perf.MAX_WORKERS, f"가장 많은 {_most[1]} {_most[0]}개 / 상한 {perf.MAX_WORKERS}")
 
 log = perf.RunLog()
 called.clear()
 t0 = time.perf_counter()
 ns["_prefetch"]("summary", "kr", False, log)
 wall = time.perf_counter() - t0
+# 0.6초는 '한 바퀴(0.2초) + CI 여유'. 상한보다 많으면 두 바퀴(0.4초)에 CI 지연이
+# 더해져 넘습니다(11/16 CI 0.70~0.74초).
 check("요약의 13가지를 동시에 (0.2초×13 → 0.6초 안, 11/16 섹터 뉴스 추가)", wall < 0.6 and len(called) == 13,
       f"{wall:.2f}s, {len(called)}건")
 called.clear()

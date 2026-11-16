@@ -9,7 +9,7 @@
 
     1. 내 종목에 생긴 일   — 신규 공시 · 실적 임박 · 급변 (긴급한 것만)
     2. 시장 분위기        — 공포탐욕지수 + VIX 기간구조
-    3. 메모리 사이클      — DIO 방향 + 반도체 생산·가격 전년대비
+    3. 메모리 사이클      — 국면 판정 기록 + DIO 방향 + 반도체 생산·가격 전년대비
     4. 발굴 신규          — 어디를 봐야 하는지 (수치는 그 탭에서)
 
 **담지 않는 것:** 68종목 스크리닝과 역DCF 는 책상 작업입니다. 휴대폰으로
@@ -149,13 +149,53 @@ def row_sentiment(fg, vix_state) -> Row:
     return row
 
 
-def row_cycle(trends: dict, macro_readings: list) -> Row:
-    """3. 메모리 사이클 — DIO 방향 + 반도체 생산·가격."""
+def _phase_bits(phase, trends: dict, today) -> tuple[str, str, list[str]]:
+    """(국면 머리말, 올릴 수준, 세부 문구). phase 가 없거나 깨졌으면 ('', 'quiet', []).
+
+    '전환 감시' 자체로는 수준을 올리지 않습니다 — 몇 주씩 이어지는 상태라
+    올려 두면 요약 줄이 늘 '볼 것 있음' 이 되어 조용함의 뜻이 사라집니다.
+    올리는 건 셋뿐입니다: 재판정 필요 · 공시가 기록과 달라짐 · 판정이 오래됨.
+    """
+    if phase is None or not getattr(phase, "ok", False):
+        return "", "quiet", []
+    import datetime as _dt
+
+    import cycle_phase  # 요약이 다른 탭의 무거운 모듈을 먼저 부르지 않게 여기서
+
+    today = today or _dt.date.today()
+    main = phase.main_track
+    status = phase.status
+    head = f"{main.abbr} {main.short}" if main else ""
+    if status != cycle_phase.STATUS_HOLD:
+        head += f" ({status})"
+    level = "quiet"
+    details: list[str] = []
+    if status == cycle_phase.STATUS_REJUDGE:
+        level = "watch"
+        details.append("체크리스트 재판정 대상 (재고 항목 점등 포함)")
+    diff = cycle_phase.disagreements(cycle_phase.cross_check(phase, trends or {}))
+    if diff:
+        level = "watch"
+        details.append("공시가 판정 기록과 달라짐: " + ", ".join(f"{n}번" for n in diff))
+    if phase.is_stale(today):
+        level = "watch"
+        details.append(f"국면 판정이 {phase.age_days(today)}일 전 기준 — 점검 필요")
+    others = [t for t in phase.tracks if t.key != phase.checklist_track and t.phase >= 3]
+    if others:
+        details.append(" · ".join(f"{t.abbr} {t.short}" for t in others) + " 먼저 둔화")
+    return head, level, details
+
+
+def row_cycle(trends: dict, macro_readings: list, phase=None, today=None,
+              *, phase_check: bool = True) -> Row:
+    """3. 메모리 사이클 — 국면 판정 기록 + DIO 방향 + 반도체 생산·가격."""
     row = Row(key="cycle", title="메모리 사이클", goto="메모리 사이클")
 
     bits: list[str] = []
     level = "quiet"
     details: list[str] = []
+    phase_head, phase_level, phase_details = _phase_bits(
+        phase, trends if phase_check else {}, today)
 
     rising = []
     for trend in (trends or {}).values():
@@ -174,14 +214,22 @@ def row_cycle(trends: dict, macro_readings: list) -> Row:
             continue
         bits.append(f"{reading.spec.name.split(' (')[0]} {reading.value_label}")
 
-    if not bits:
+    if phase_level == "watch":
+        level = "watch"
+    details = phase_details + details
+
+    if not bits and not phase_head:
         row.level = "unknown"
         row.headline = "재고·반도체 지표를 받지 못했습니다"
         row.detail = "DART 인증키가 필요하거나 조회가 실패했습니다"
         return row
 
     row.level = level
-    row.headline = " · ".join(bits[:3])
+    # 국면이 맨 앞 — 휴대폰에서 첫 단어만 보고도 어느 국면인지 알게
+    row.headline = " · ".join(([phase_head] if phase_head else [])
+                              + bits[:2 if phase_head else 3])
+    if not bits:
+        details.append("재고·반도체 지표는 받지 못했습니다")
     row.detail = (" · ".join(details) if details
                   else "레이어 2(재고)와 레이어 1·4(생산·가격)를 교차해야 판정됩니다")
     return row
@@ -232,7 +280,8 @@ def row_sector(sector_rows) -> Row:
 def build(*, urgent=None, soon=None, holdings_total: int = 0,
           fg=None, vix_state=None, trends=None,
           macro_readings=None, market: str = "us",
-          sector_rows=None) -> Summary:
+          sector_rows=None, phase=None, today=None,
+          phase_check: bool = True) -> Summary:
     """요약을 만듭니다. 없는 입력은 '데이터 없음' 으로 표시합니다.
 
     **시장마다 둘째 줄이 다릅니다.** 미국은 시장 심리(공포탐욕·VIX),
@@ -252,6 +301,7 @@ def build(*, urgent=None, soon=None, holdings_total: int = 0,
     return Summary(rows=[
         row_holdings(urgent or [], soon or [], holdings_total),
         second,
-        row_cycle(trends or {}, macro_readings or []),
+        row_cycle(trends or {}, macro_readings or [], phase, today,
+                  phase_check=phase_check),
         row_discover(discover_note + " 발굴·밸류에이션 탭에서 확인하십시오."),
     ])

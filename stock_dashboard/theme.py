@@ -1795,6 +1795,86 @@ def build_rules() -> str:
   .hd-sig.now {{ border-color: var(--dash-up); color: var(--dash-up); }}
   .hd-sig.soon {{ border-color: var(--dash-accent); color: var(--dash-accent); }}
 
+  /* ── 사이클 국면 (2026-11-16) ──────────────────────────────────────
+     색으로 좋고 나쁨을 말하지 않습니다 — ①② 테두리만, ③ 남색, ④ '지금' 색.
+     내 종목 표의 '지금 · 이번 주' 칩과 같은 위계입니다. */
+  .hd-cyc {{ display: block; margin-top: 3px; line-height: 1.6; }}
+  .hd-cyc b {{ display: inline-block; font-size: var(--fs-1); font-weight: 650;
+              padding: 0 6px; margin: 0 4px 2px 0; border-radius: var(--r-chip);
+              border: 1px solid var(--dash-border); color: var(--dash-ink-2);
+              white-space: nowrap; }}
+  .hd-cyc b.cyc-chip.p3 {{ border-color: var(--dash-accent); color: var(--dash-accent); }}
+  .hd-cyc b.cyc-chip.p4 {{ border-color: var(--dash-up); color: var(--dash-up); }}
+  .hd-cyc b.cyc-via, .hd-cyc b.cyc-stale {{ border-style: dashed; color: var(--dash-ink-muted);
+                                          font-weight: 500; }}
+
+  .dash-phase {{ background: var(--dash-surface); border: 1px solid var(--dash-border);
+                border-radius: var(--r-card); padding: var(--sp-3); margin: var(--sp-2) 0 var(--sp-3); }}
+  .dash-phase.err {{ font-size: var(--fs-3); color: var(--dash-ink-2); }}
+  .dash-phase .ph-head {{ display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }}
+  .dash-phase .ph-title {{ font-size: var(--fs-6); font-weight: 750; color: var(--dash-ink); }}
+  .dash-phase .ph-status {{ font-size: var(--fs-2); font-weight: 700; padding: 1px 9px;
+                           border-radius: var(--r-pill); border: 1px solid var(--dash-border);
+                           color: var(--dash-ink-2); }}
+  .dash-phase .ph-status.watch {{ border-color: var(--dash-accent); color: var(--dash-accent); }}
+  .dash-phase .ph-status.rejudge {{ border-color: var(--dash-up); color: var(--dash-up); }}
+  .dash-phase .ph-lit {{ font-size: var(--fs-2); color: var(--dash-ink-muted);
+                        font-variant-numeric: tabular-nums; }}
+  .dash-phase .ph-alert {{ margin-top: var(--sp-2); padding: 6px 10px; font-size: var(--fs-3);
+                          border-left: 3px solid var(--dash-up); color: var(--dash-ink);
+                          background: color-mix(in srgb, var(--dash-up) 7%, transparent);
+                          border-radius: var(--r-chip); }}
+  .dash-phase .ph-overall {{ margin-top: var(--sp-2); font-size: var(--fs-3); color: var(--dash-ink-2); }}
+  .dash-phase .ph-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+                         gap: 8px; margin-top: var(--sp-3); }}
+  .dash-phase .ph-track {{ border: 1px solid var(--dash-border); border-radius: var(--r-inner);
+                          padding: 8px 10px; min-width: 0; background: var(--dash-raised); }}
+  .dash-phase .ph-track.p3 {{ border-color: var(--dash-accent); }}
+  .dash-phase .ph-track.p4 {{ border-color: var(--dash-up); }}
+  .dash-phase .ph-tname {{ font-size: var(--fs-2); color: var(--dash-ink-muted); font-weight: 600; }}
+  .dash-phase .ph-tphase {{ font-size: var(--fs-7); font-weight: 750; color: var(--dash-ink); line-height: 1.3; }}
+  .dash-phase .ph-tphase span {{ font-size: var(--fs-4); font-weight: 650; margin-left: 2px; }}
+  .dash-phase .ph-track.p3 .ph-tphase {{ color: var(--dash-accent); }}
+  .dash-phase .ph-track.p4 .ph-tphase {{ color: var(--dash-up); }}
+  .dash-phase .ph-mark {{ display: inline-block; margin-left: 6px; font-size: var(--fs-1);
+                         font-weight: 700; padding: 0 6px; border-radius: var(--r-chip);
+                         border: 1px solid var(--dash-accent); color: var(--dash-accent);
+                         vertical-align: middle; }}
+  .dash-phase .ph-why {{ margin-top: 4px; font-size: var(--fs-2); color: var(--dash-ink-2); }}
+  .dash-phase .ph-price {{ margin-top: var(--sp-3); font-size: var(--fs-3); color: var(--dash-ink);
+                          font-variant-numeric: tabular-nums; }}
+  .dash-phase .ph-price.stale {{ color: var(--dash-ink-muted); }}
+  .dash-phase .ph-layer {{ display: inline-block; font-size: var(--fs-1); font-weight: 700;
+                          padding: 0 6px; margin-right: 6px; border-radius: var(--r-chip);
+                          border: 1px solid var(--dash-border); color: var(--dash-ink-muted); }}
+  .dash-phase .ph-when {{ font-size: var(--fs-2); color: var(--dash-ink-muted); }}
+  .dash-phase .ph-old {{ font-size: var(--fs-2); font-weight: 650; color: var(--dash-up); }}
+  .dash-phase .ph-foot {{ margin-top: var(--sp-2); font-size: var(--fs-1); color: var(--dash-ink-muted); }}
+
+  .dash-phase-cl table {{ width: 100%; border-collapse: collapse; font-size: var(--fs-3); }}
+  .dash-phase-cl th {{ font-size: var(--fs-1); color: var(--dash-ink-muted); font-weight: 600;
+                      text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--dash-border); }}
+  .dash-phase-cl td {{ padding: 6px; vertical-align: top; border-bottom: 1px solid var(--dash-divider); }}
+  .dash-phase-cl th:nth-child(3), .dash-phase-cl td:nth-child(3),
+  .dash-phase-cl th:nth-child(4), .dash-phase-cl td:nth-child(4) {{ min-width: 64px; width: 22%; }}
+  .dash-phase-cl td.cl-n {{ color: var(--dash-ink-muted); width: 22px; text-align: center; }}
+  .dash-phase-cl tr.diff td {{ background: color-mix(in srgb, var(--dash-up) 7%, transparent); }}
+  .dash-phase-cl .cl-sub {{ font-size: var(--fs-2); color: var(--dash-ink-muted); margin-top: 2px; }}
+  .dash-phase-cl .cl-diff {{ font-size: var(--fs-1); font-weight: 700; color: var(--dash-up); margin-top: 2px; }}
+  .dash-phase-cl .cl-st {{ white-space: nowrap; font-weight: 650; color: var(--dash-ink-2); }}
+  .dash-phase-cl .cl-st.lit {{ color: var(--dash-accent); }}
+  .dash-phase-cl .cl-st.unknown {{ color: var(--dash-ink-muted); font-weight: 500; }}
+  .dash-phase-cl .cl-na {{ font-size: var(--fs-2); color: var(--dash-ink-muted); }}
+  .dash-phase-cl .cl-rule {{ margin-top: var(--sp-2); font-size: var(--fs-2); color: var(--dash-ink-muted); }}
+  .dash-phase-cl .cl-up-t {{ margin-top: var(--sp-3); font-size: var(--fs-2); font-weight: 700;
+                            color: var(--dash-ink-2); }}
+  .dash-phase-cl ul.cl-up {{ margin: 4px 0 0; padding-left: 18px; font-size: var(--fs-3); }}
+  .dash-phase-cl ul.cl-up li span {{ color: var(--dash-ink-muted); font-size: var(--fs-2); }}
+  @media (max-width: 640px) {{
+    .dash-phase .ph-grid {{ grid-template-columns: 1fr 1fr; }}
+    .dash-phase-cl td.cl-item .cl-sub {{ font-size: var(--fs-1); }}
+  }}
+
   .dash-table th.mk, .dash-table td.mk {{ text-align: center !important;
     min-width: 64px; white-space: normal; }}
   .dash-table th.mk {{ font-size: var(--fs-1); line-height: 1.3; vertical-align: bottom; }}

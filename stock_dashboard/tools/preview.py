@@ -395,6 +395,35 @@ def _prelim_block(use_demo: bool) -> str:
     ])
 
 
+def _phase():
+    """앱과 같은 국면 기록 파일(cycle_phase.json)을 읽습니다."""
+    import os
+
+    import cycle_phase
+    return cycle_phase.load(os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), cycle_phase.PHASE_FILE))
+
+
+def _phase_block(trends: dict) -> str:
+    """사이클 탭 맨 위 — 국면 보드 + 체크리스트(접힘). 앱의 _render_phase 와 같은 순서."""
+    import datetime as _dt
+
+    import cycle_phase
+    phase = _phase()
+    today = _dt.date.today()
+    checks = cycle_phase.cross_check(phase, trends) if trends else {}
+    parts = [ui.render_section_head(
+                 "사이클 국면",
+                 "4트랙 판정 기록 · 체크리스트 §5 규칙 · 재고 3항목은 공시와 자동 대조", None),
+             ui.render_phase_board(phase, today, checks)]
+    if phase.ok:
+        parts.append(
+            '<details class="pv-fold"><summary>'
+            f"전환 체크리스트 10개 — 점등 {phase.lit_count} (앱에서는 접혀 있습니다)"
+            "</summary>" + ui.render_phase_checklist(phase, today, checks) + "</details>")
+    return "".join(parts)
+
+
 def _cycle_panel(use_demo: bool) -> str:
     """재고 지표 탭."""
     import cycle as cycle_mod
@@ -470,6 +499,8 @@ def _cycle_panel(use_demo: bool) -> str:
                     inst.name, inst.symbol, collected, warns)
 
     parts = [
+        # 국면 판정 기록이 맨 위 — 데모 재고 숫자로는 대조하지 않습니다
+        _phase_block({} if use_demo else {**us_trends, **trends}),
         # 잠정실적이 정식 보고서보다 먼저 나오므로 재고 지표 위에 둡니다
         _prelim_block(use_demo),
         ui.render_section_head(
@@ -719,7 +750,8 @@ def _summary_panel(data, fx, use_demo: bool, market: str = "kr") -> str:
     summary = sm.build(
         urgent=[], soon=[], holdings_total=len(held),
         fg=fg, vix_state=vix_state, trends=trends, macro_readings=readings,
-        market=market, sector_rows=sector_rows)
+        market=market, sector_rows=sector_rows,
+        phase=_phase(), phase_check=not use_demo)
 
     parts = [
         ui.render_section_head(
@@ -759,7 +791,7 @@ def _holdings_panel(data, fx, use_demo: bool, market: str = "kr") -> str:
     parts.append(ui.render_holdings_table(
         [(inst, pick_quote(inst, data),
           [s for s in found if s.inst.symbol == inst.symbol]) for inst in shown],
-        chart_rows=crow))
+        chart_rows=crow, phase=_phase()))
     parts.append(signals_html)
     # 공시 분석은 앱에서 **접혀 있습니다** — 프리뷰에도 접힌 상태로 보여줍니다
     parts.append(

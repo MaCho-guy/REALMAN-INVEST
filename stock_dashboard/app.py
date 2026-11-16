@@ -143,6 +143,7 @@ import analysis_store
 import components as ui
 import config
 import cycle
+import cycle_phase
 import buffett
 import buffett_kr
 import demo as demo_mod
@@ -170,6 +171,18 @@ ET = ZoneInfo("America/New_York")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ANALYSIS_PATH = os.path.join(BASE_DIR, config.ANALYSIS_DIR)
 BRIEFING_PATH = os.path.join(BASE_DIR, config.BRIEFING_DIR)
+PHASE_PATH = os.path.join(BASE_DIR, cycle_phase.PHASE_FILE)
+
+
+def load_phase() -> "cycle_phase.Phase":
+    """사이클 국면 판정 기록 (cycle_phase.json). 캐시하지 않습니다 — 2KB 파일이라
+    매번 읽어도 1ms 안쪽이고, 캐시하면 파일을 고쳐 올린 뒤에도 옛 판정이
+    남습니다. 파일이 없거나 깨져도 던지지 않습니다 (Phase.error)."""
+    return cycle_phase.load(PHASE_PATH)
+
+
+def _today_kst() -> dt.date:
+    return dt.datetime.now(KST).date()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1472,6 +1485,8 @@ def render_summary_tab(data: dict[str, dict[str, Quote]], fx,
         urgent=urgent, soon=soon, holdings_total=len(instruments),
         fg=fg, vix_state=vix_state, trends=trends, macro_readings=readings,
         market=market, sector_rows=sector_rows,
+        # 데모 재고 숫자로 기록을 대조하면 가짜 '기록과 다름' 이 뜹니다
+        phase=load_phase(), today=_today_kst(), phase_check=not use_demo,
     )
 
     st.markdown(ui.render_summary(summary), unsafe_allow_html=True)
@@ -1674,7 +1689,8 @@ def render_holdings_tab(data: dict[str, dict[str, Quote]], fx,
     st.markdown(ui.render_holdings_table(
         [(inst, pick_quote(inst, data),
           [s for s in found if getattr(s.inst, "symbol", None) == inst.symbol])
-         for inst in shown], chart_rows=chart_rows), unsafe_allow_html=True)
+         for inst in shown], chart_rows=chart_rows,
+        phase=load_phase(), today=_today_kst()), unsafe_allow_html=True)
     if market in ("kr", "us") and not use_demo:
         try:
             _render_holding_checks(shown, use_demo, market)
@@ -5708,6 +5724,33 @@ def render_signals_tab(data: dict[str, dict[str, Quote]], use_demo: bool,
     )
 
 
+def _render_phase(phase, trends: dict) -> None:
+    """국면 보드 + 체크리스트(접힘). 데모에서는 trends={} 로 대조를 끕니다 —
+    가짜 재고 숫자로 대조하면 '기록과 다름' 이 거짓으로 뜹니다."""
+    today = _today_kst()
+    try:
+        checks = cycle_phase.cross_check(phase, trends)
+    except Exception:  # noqa: BLE001 - 대조가 실패해도 판정 기록은 보여줍니다
+        checks = {}
+    st.markdown(
+        ui.render_section_head(
+            "사이클 국면",
+            "4트랙 판정 기록 · 체크리스트 §5 규칙 · 재고 3항목은 공시와 자동 대조",
+            None),
+        unsafe_allow_html=True,
+    )
+    st.markdown(ui.render_phase_board(phase, today, checks), unsafe_allow_html=True)
+    if getattr(phase, "ok", False):
+        n_auto = sum(1 for c in checks.values() if c.state != "unknown")
+        diff = len(cycle_phase.disagreements(checks))
+        label = (f"전환 체크리스트 10개 — 점등 {phase.lit_count}"
+                 + (f" · 공시 대조 {n_auto}개" if n_auto else "")
+                 + (f" · 기록과 다름 {diff}" if diff else ""))
+        with st.expander(label, expanded=bool(diff)):
+            st.markdown(ui.render_phase_checklist(phase, today, checks),
+                        unsafe_allow_html=True)
+
+
 def render_cycle_tab(use_demo: bool, *, market: str = "all") -> None:
     """재고 지표 — 반도체 사이클 레이어 2. 메모리 3사를 한 화면에서 비교."""
     # 이 화면만은 **시장 선택을 따르지 않습니다.** 메모리 재고 사이클은
@@ -5716,6 +5759,12 @@ def render_cycle_tab(use_demo: bool, *, market: str = "all") -> None:
     # 구분이 안 됩니다. 분리가 목적이 아니라 비교가 목적인 화면입니다.
     kr_instruments = config.cycle_instruments()
     us_tickers = list(config.CYCLE_US_TICKERS)
+
+    # 사이클 국면 — 판정 기록이 맨 위 (2026-11-16 "사이클 국면까지 표시").
+    # 재고 공시와 대조하려면 아래에서 받는 재고 추세가 필요해서, 자리만 먼저
+    # 잡고 추세를 받은 뒤에 채웁니다. 재고를 못 받아도 국면 판정은 보입니다.
+    phase = load_phase()
+    phase_box = st.container()
 
     st.markdown(
         ui.render_section_head(
@@ -5746,6 +5795,9 @@ def render_cycle_tab(use_demo: bool, *, market: str = "all") -> None:
     kr_trends, kr_errors = load_inventory_trends(
         use_demo, dart.key_fingerprint())
     us_trends, us_errors = load_us_inventory_trends(use_demo)
+
+    with phase_box:
+        _render_phase(phase, {} if use_demo else {**us_trends, **kr_trends})
 
     # 잠정실적 레이더 — 재고 지표는 정식 분기보고서가 있어야 계산되는데,
     # 영업(잠정)실적은 그보다 2주쯤 먼저 나옵니다. 그 사이 기간에 메모리

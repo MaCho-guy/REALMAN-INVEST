@@ -1,0 +1,64 @@
+{
+ "_note": "사이클 국면 판정 기록. 판정은 사람이 내리고 이 파일에 적습니다 — 화면은 읽기만 합니다. 원본은 프로젝트 문서 '반도체-사이클-지표체계.md' §7 스냅샷. 고칠 때는 as_of 를 바꾸고, 현물가를 새로 넣으면 prices.spot_date 도 같이 바꾸십시오. state 는 lit(점등) · unlit(미점등) · unknown(판정 불가) 중 하나. phase 는 1 회복 · 2 확장 · 3 피크·둔화 · 4 하강.",
+ "as_of": "2026-11-11",
+ "source": "반도체-사이클-지표체계.md §7 (2026-11-11 스냅샷)",
+ "checklist_track": "dram",
+ "overall": "메모리 사이클은 ② 확장기 후반 유지. 11월 초 현물가 3거래일 하락은 정치 이벤트(데이터센터 규제 우려)에 따른 심리성으로 판정 — 같은 기간 TSMC 월매출·한국 반도체 수출이 사상 최대였고 재고 쪽(레이어 2) 점등이 없습니다.",
+ "tracks": [
+  {"key": "hbm", "name": "HBM·선단 로직", "abbr": "HBM", "phase": 2, "short": "②중반", "label": "확장기 중반",
+   "why": "TSMC 10월 매출 NT$586.89bn 월간 최대(+59.7% YoY). SK하이닉스 2029년까지 솔드아웃, ASML 2027~28 공급이 수요 미충족. 피크 신호 없음"},
+  {"key": "dram", "name": "범용·서버 DRAM", "abbr": "D램", "phase": 2, "short": "②후반", "label": "확장기 후반",
+   "why": "현물-고정 스프레드 +65.8%로 극단적 타이트. 고정가 상승률 4분기 연속 감속 · CapEx 급증 · 전방 수요 파괴가 전환 선행 신호로 켜져 있음"},
+  {"key": "nand", "name": "NAND", "abbr": "낸드", "phase": 3, "short": "③진입", "label": "피크·둔화 진입",
+   "why": "10월 고정가 21개월 만에 상승 멈춤. NAND ASP 상승률 약 70% → 20%대 중반. 2027 수급 균형식 공급 과잉 +5~9%p"},
+  {"key": "legacy", "name": "레거시 아날로그·MCU", "abbr": "아날로그", "phase": 1, "short": "①→②", "label": "회복기 → 확장기 초입",
+   "why": "TXN 3Q26 매출 +28% YoY, 산업용이 2022년 피크 돌파. 재고 194일(−2일), 유통재고 −7~10% QoQ. 메모리와 2~3년 위상차"}
+ ],
+ "prices": {
+  "spot_date": "2026-11-06",
+  "ddr5_16gb_spot": 60.167,
+  "ddr4_8gb_spot": 45.607,
+  "ddr4_8gb_contract": 27.50,
+  "contract_month": "2026-10",
+  "ref_date": "2026-11-03",
+  "ref_ddr5_16gb_spot": 61.500,
+  "ref_ddr4_8gb_spot": 46.821,
+  "source": "TrendForce/DRAMeXchange 세션 평균 · 고정가는 월말 공표"
+ },
+ "checklist": [
+  {"n": 1, "label": "현물-고정 스프레드 축소 또는 역전", "layer": "1", "state": "lit",
+   "detail": "DDR4 8Gb +70.3% → +65.8% · 11/6 이후 추가 하락 없음 (확산 중단)"},
+  {"n": 2, "label": "고정가 상승률 2분기 연속 감속", "layer": "1", "state": "lit",
+   "detail": "범용 D램 QoQ +90~95% → +58~63% → 약 +40% → 4Q +10~20%(전망)", "next": "2026-11-30"},
+  {"n": 3, "label": "자사 DIO 2분기 연속 상승", "layer": "2", "state": "unlit", "auto": "dio_rising",
+   "detail": "MU DIO 129일(+9일) — 1분기 상승", "next": "2026-12-23"},
+  {"n": 4, "label": "재고-매출 증가율 갭 플러스 전환", "layer": "2", "state": "unlit", "auto": "inv_gap",
+   "detail": "삼성전자 3Q26 −13.0%p (재고 +0.8% vs 매출 +13.9%)", "next": "2026-11-16"},
+  {"n": 5, "label": "완제품 재고 비중 급증", "layer": "2", "state": "unknown", "auto": "finished_jump",
+   "detail": "재고 구성은 분기보고서 주석에만 있음 — 원문 확인 필요", "next": "2026-11-16"},
+  {"n": 6, "label": "CapEx 가이던스 급증 발표", "layer": "3", "state": "lit",
+   "detail": "삼성 반도체 76.8조 · SK하이닉스 2027 '상당한 증가' · MU FY27 상반기 약 $25bn"},
+  {"n": 7, "label": "신규 팹 양산 개시 시점 도달", "layer": "3", "state": "unlit",
+   "detail": "주요 신규 대형 팹 가동은 2028년 (카운터포인트)"},
+  {"n": 8, "label": "전방 수요 파괴", "layer": "4", "state": "lit",
+   "detail": "스마트폰 BOM 메모리 원가율 11% → 46% · 갤럭시A 4Q 부품 주문 약 20% 축소"},
+  {"n": 9, "label": "경영진 어조 변화", "layer": "2·3", "state": "unlit",
+   "detail": "'sold out' · 'shortage' 유지 — 'digestion' · 'normalization' 미등장"},
+  {"n": 10, "label": "비트 공급 > 수요 전환", "layer": "3", "state": "unlit",
+   "detail": "D램 2027 −1~−5%p(부족) · 낸드는 +5~9%p로 이미 과잉 전환 (낸드 트랙에 반영)"}
+ ],
+ "exposure": {
+  "000660": {"tracks": ["hbm", "dram", "nand"], "note": "3Q26 매출 D램 75%(HBM 포함) · 낸드 24%"},
+  "402340": {"tracks": ["hbm", "dram", "nand"], "via": "SK하이닉스", "note": "SK하이닉스 지분을 통한 간접 노출"},
+  "005930": {"tracks": ["dram", "nand", "hbm"], "note": "DS부문 기준 — 파운드리·모바일 등 비메모리 사업이 함께 있음"},
+  "MU": {"tracks": ["dram", "nand", "hbm"], "note": "FQ4-26 매출 D램 73% · 낸드 26%"}
+ },
+ "upcoming": [
+  {"date": "2026-11-16", "what": "삼성전자·SK하이닉스 3Q 분기보고서 (법정기한)", "check": "체크리스트 4·5 — 재고-매출 갭, 재고 구성"},
+  {"date": "2026-11-21", "what": "관세청 11/1~20 수출", "check": "반도체 +331% 지속 여부"},
+  {"date": "2026-11-30", "what": "11월 D램·낸드 고정거래가", "check": "현물 하락이 고정가로 번졌는지 — 심리성/수급성 판별"},
+  {"date": "2026-12-01", "what": "산업통상부 11월 수출", "check": "레이어 4 월간 확정"},
+  {"date": "2026-12-10", "what": "TSMC 11월 매출", "check": "10월 사상 최대의 지속, YoY 가속 여부"},
+  {"date": "2026-12-23", "what": "마이크론 FQ1-27 실적 (미확정)", "check": "DIO 120일 하회 · GM 86.25% 방어"}
+ ]
+}

@@ -673,6 +673,181 @@ def render_inventory_panel(trend, checks: list) -> str:
     )
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# 사이클 국면 (2026-11-16) — cycle_phase.json 의 판정 기록을 그립니다
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# 색으로 좋고 나쁨을 말하지 않습니다. ①② 는 테두리만, ③ 은 남색(주의해서 볼
+# 국면), ④ 는 '지금' 색입니다 — 내 종목 표의 '지금 · 이번 주' 칩과 같은 위계라
+# 처음 보는 사람도 읽는 순서가 같습니다.
+
+def _phase_cls(phase: int) -> str:
+    return f"p{phase}" if phase in (1, 2, 3, 4) else "p0"
+
+
+def _md(d: dt.date | None) -> str:
+    return f"{d.month}/{d.day}" if d else "—"
+
+
+def phase_chips_html(phase, symbol: str, today: dt.date | None = None) -> str:
+    """종목 이름 아래 한 줄 — 이 종목이 걸린 트랙들의 국면. 없으면 빈 문자열.
+
+    휴대폰 표 칸이 좁아 트랙 이름은 줄임말(HBM · D램 · 낸드)로 씁니다. 판정이
+    14일보다 오래되면 '판정 N일 전' 을 덧붙여 묵은 판정임을 드러냅니다.
+    """
+    if phase is None or not getattr(phase, "ok", False):
+        return ""
+    tracks = phase.tracks_for(symbol)
+    if not tracks:
+        return ""
+    today = today or dt.date.today()
+    exp = phase.exposure.get(symbol)
+    tip_bits = [f"{t.name} {t.glyph} {t.label}" for t in tracks]
+    if exp is not None and exp.note:
+        tip_bits.append(exp.note)
+    tip_bits.append(f"판정 {phase.as_of.isoformat()}")
+    chips = "".join(
+        f'<b class="cyc-chip {_phase_cls(t.phase)}">{_esc(t.abbr)} {_esc(t.short)}</b>'
+        for t in tracks)
+    via = (f'<b class="cyc-via">{_esc(exp.via)} 경유</b>'
+           if exp is not None and exp.via else "")
+    stale = (f'<b class="cyc-stale">판정 {phase.age_days(today)}일 전</b>'
+             if phase.is_stale(today) else "")
+    return (f'<div class="hd-cyc" title="{_esc(" · ".join(tip_bits))}">'
+            f"{chips}{via}{stale}</div>")
+
+
+def render_phase_board(phase, today: dt.date | None = None, checks: dict | None = None) -> str:
+    """사이클 탭 맨 위 — 4트랙 국면 + 상태 + 레이어 1 가격 한 줄."""
+    if phase is None:
+        return ""
+    if not getattr(phase, "ok", False):
+        return (f'<div class="dash-phase err"><b>국면 기록을 읽지 못했습니다.</b> '
+                f"{_esc(phase.error or '원인 불명')}</div>")
+    today = today or dt.date.today()
+    checks = checks or {}
+    main = phase.main_track
+    status = phase.status
+    status_cls = {"유지": "hold", "전환 감시": "watch", "재판정 필요": "rejudge"}.get(status, "hold")
+    n_total = len(phase.checklist)
+
+    head_name = (f"{_esc(main.name)} {_esc(main.glyph)} {_esc(main.label)}"
+                 if main is not None else "")
+    head = (f'<div class="ph-head"><span class="ph-title">{head_name}</span>'
+            f'<span class="ph-status {status_cls}">{_esc(status)}</span>'
+            f'<span class="ph-lit">점등 {phase.lit_count}/{n_total}</span></div>')
+
+    alerts = []
+    age = phase.age_days(today)
+    if phase.is_stale(today):
+        alerts.append(f"판정이 {age}일 전 기준입니다 — 점검이 필요합니다.")
+    diff = [n for n, c in checks.items() if c.agrees is False]
+    if diff:
+        alerts.append("공시 자동 판정이 기록과 다른 항목: "
+                      + ", ".join(f"{n}번" for n in diff)
+                      + " — 새 공시가 반영됐을 수 있습니다. 국면을 다시 점검하십시오.")
+    if status == "재판정 필요":
+        alerts.append("점등 3개 이상에 재고(레이어 2) 항목이 포함됐습니다 — §5 규칙상 재판정 대상입니다.")
+    alert_html = "".join(f'<div class="ph-alert">{_esc(a)}</div>' for a in alerts)
+
+    cards = []
+    for t in phase.tracks:
+        mark = (f'<span class="ph-mark">{_esc(status)}</span>'
+                if t.key == phase.checklist_track and status != "유지" else "")
+        cards.append(
+            f'<div class="ph-track {_phase_cls(t.phase)}">'
+            f'<div class="ph-tname">{_esc(t.name)}</div>'
+            f'<div class="ph-tphase">{_esc(t.glyph)} <span>{_esc(t.label)}</span>{mark}</div>'
+            f'<div class="ph-why">{clamp(_esc(t.why), limit=56)}</div></div>')
+
+    # 레이어 1 — 현물-고정 스프레드. 오래된 입력은 회색 + 갱신 필요.
+    p = phase.prices
+    sp, rsp, d5 = phase.spread, phase.ref_spread, phase.ddr5_change_pct
+    p_age = phase.price_age_days(today)
+    price_bits = []
+    if sp is not None:
+        ref = f" ({_md(p.ref_date)} {rsp:+.1f}%)" if rsp is not None else ""
+        price_bits.append(f"DDR4 8Gb 현물-고정 스프레드 <b>{sp:+.1f}%</b>{ref}")
+    if p.ddr5_16gb_spot is not None:
+        chg = f" · {_md(p.ref_date)} 대비 {d5:+.1f}%" if d5 is not None else ""
+        price_bits.append(f"DDR5 16Gb 현물 ${p.ddr5_16gb_spot:.2f}{chg}")
+    price_html = ""
+    if price_bits:
+        stale = phase.price_stale(today)
+        when = (f"현물 {_md(p.spot_date)} · 고정 {_esc(p.contract_month)}"
+                + (f" · {p_age}일 전 값" if p_age is not None else ""))
+        tail = (f'<span class="ph-old">{when} — 갱신 필요</span>' if stale
+                else f'<span class="ph-when">{when}</span>')
+        price_html = (f'<div class="ph-price{" stale" if stale else ""}">'
+                      f'<span class="ph-layer">레이어 1</span>{" · ".join(price_bits)} {tail}</div>')
+
+    foot = (f'<div class="ph-foot">판정 기준 {phase.as_of.isoformat()}'
+            + (f" ({age}일 전)" if age is not None else "")
+            + " · 사람이 내린 판정 기록입니다 — 화면은 계산하지 않고 보여주기만 합니다."
+            + (f" 원본: {_esc(phase.source)}" if phase.source else "") + "</div>")
+    overall = (f'<div class="ph-overall">{clamp(_esc(phase.overall), limit=90)}</div>'
+               if phase.overall else "")
+    return (f'<div class="dash-phase">{head}{alert_html}{overall}'
+            f'<div class="ph-grid">{"".join(cards)}</div>{price_html}{foot}</div>')
+
+
+def render_phase_checklist(phase, today: dt.date | None = None,
+                           checks: dict | None = None) -> str:
+    """체크리스트 10개 — 기록 vs 공시 자동, 그리고 다음 확인일."""
+    if phase is None or not getattr(phase, "ok", False) or not phase.checklist:
+        return ""
+    today = today or dt.date.today()
+    checks = checks or {}
+    mark = {"lit": "●", "unlit": "○", "unknown": "—"}
+
+    def cell(state: str) -> str:
+        return (f'<span class="cl-st {state}">{mark.get(state, "—")} '
+                f"{_esc({'lit': '점등', 'unlit': '미점등'}.get(state, '판정 불가'))}</span>")
+
+    rows = []
+    for c in phase.checklist:
+        auto = checks.get(c.n)
+        if auto is not None:
+            auto_html = cell(auto.state) + f'<div class="cl-sub">{_esc(auto.detail)}</div>'
+        elif c.auto:
+            auto_html = '<span class="cl-na">공시 대기</span>'
+        else:
+            auto_html = '<span class="cl-na">수동</span>'
+        nxt = ""
+        if c.next:
+            try:
+                nd = dt.date.fromisoformat(c.next[:10])
+                nxt = f' · 다음 확인 {_md(nd)}' + (" (오늘)" if nd == today else "")
+            except ValueError:
+                nxt = f" · 다음 확인 {_esc(c.next)}"
+        diff = auto is not None and auto.agrees is False
+        rows.append(
+            f'<tr class="{"diff" if diff else ""}">'
+            f'<td class="cl-n">{c.n}</td>'
+            f'<td class="cl-item"><b>{_esc(c.label)}</b>'
+            f'<div class="cl-sub">레이어 {_esc(c.layer)} · {_esc(c.detail)}{nxt}</div>'
+            + ('<div class="cl-diff">기록과 다름</div>' if diff else "")
+            + f"</td><td>{cell(c.state)}</td><td>{auto_html}</td></tr>")
+
+    up = phase.upcoming_from(today)
+    up_html = ""
+    if up:
+        items = "".join(
+            f'<li><b>{_md(u.date)}</b>{" (오늘)" if u.date == today else ""} '
+            f"{_esc(u.what)}" + (f' <span>— {_esc(u.check)}</span>' if u.check else "")
+            + "</li>" for u in up)
+        up_html = f'<div class="cl-up-t">다음 데이터</div><ul class="cl-up">{items}</ul>'
+
+    return ('<div class="dash-phase-cl"><table><thead><tr><th></th><th>항목</th>'
+            f"<th>기록 {_md(phase.as_of)}</th><th>공시 자동</th></tr></thead>"
+            f"<tbody>{''.join(rows)}</tbody></table>"
+            '<div class="cl-rule">3개 이상 점등이면 재판정. 단 레이어 1(가격) · 3 · 4 만으로는 '
+            "국면을 바꾸지 않고 '전환 감시' 로 둡니다 — 재고(레이어 2) 점등이 함께 있어야 "
+            "재판정입니다. 공시 자동 칸은 판정된 회사가 2곳 이상일 때만 결론을 내고, 2곳 "
+            "이상 점등이면 점등입니다. 자동 값은 기록을 덮어쓰지 않고 대조만 합니다.</div>"
+            f"{up_html}</div>")
+
+
 def render_signal_card(sig, headlines: list | None = None) -> str:
     """변화 감지 신호 하나를 카드로 그립니다."""
     icon = _SIGNAL_ICON.get(sig.kind, "•")
@@ -3332,8 +3507,13 @@ def chart_badges(row, limit: int = 3) -> str:
     return " · ".join(bits[:limit + 1])
 
 
-def render_holdings_table(rows, chart_rows: dict | None = None) -> str:
+def render_holdings_table(rows, chart_rows: dict | None = None, *,
+                          phase=None, today: dt.date | None = None) -> str:
     """보유·관심 종목을 한 표로. rows: [(Instrument, Quote|None, 신호목록)].
+
+    phase(cycle_phase.Phase)를 주면 메모리 종목 이름 아래에 트랙별 국면 칩을
+    붙입니다 (2026-11-16 사용자: "사이클 국면까지 표시"). 판정 기록에 노출
+    트랙이 적힌 종목만 — 나머지 종목은 그대로입니다.
 
     전에는 종목마다 큰 카드(이름·거래소·상태 배지·회색 상자 안 가격·등락)
     가 네 칸 격자로 놓였습니다. 7종목이면 화면 두 장이고 종목끼리 등락을
@@ -3374,8 +3554,9 @@ def render_holdings_table(rows, chart_rows: dict | None = None) -> str:
         if chart_rows is not None:
             cb = chart_badges(chart_rows.get(inst.symbol))
             chart = f"<td class='hd-chart'>{_esc(cb) or '—'}</td>"
+        cyc = phase_chips_html(phase, inst.symbol, today) if phase is not None else ""
         body.append(
-            f"<tr><td class='hd-name'>{name}<span>{_esc(inst.symbol)}</span></td>"
+            f"<tr><td class='hd-name'>{name}<span>{_esc(inst.symbol)}</span>{cyc}</td>"
             f"<td class='hd-num'>{_esc(price)}</td>"
             f"<td class='hd-num {cls}'>{chg}{ext}</td>"
             f"{chart}<td class='hd-sigs'>{badges}</td></tr>")

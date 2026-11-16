@@ -3057,6 +3057,64 @@ def _query_hint(query: str) -> str:
     return " + ".join(parts)
 
 
+def _tri_when(h) -> str:
+    """'11/16 11:20' (한국 시각). 시각을 모르면 날짜만."""
+    ts = getattr(h, "ts", 0.0) or 0.0
+    if ts:
+        k = dt.datetime.fromtimestamp(ts, dt.timezone(dt.timedelta(hours=9)))
+        return k.strftime("%m/%d %H:%M")
+    pub = getattr(h, "published", "") or ""
+    return f"{pub[5:7]}/{pub[8:10]}" if len(pub) >= 10 else ""
+
+
+def _tri_link(h) -> str:
+    url = getattr(h, "url", "") or ""
+    title = _esc(getattr(h, "title", "") or "")
+    return (f'<a class="dash-inline-link" href="{_esc(url)}" target="_blank" '
+            f'rel="noopener noreferrer">{title}</a>' if url.startswith("http") else title)
+
+
+def render_news_triage(must, worth, labels: dict, *, compact: bool = False) -> str:
+    """오늘 꼭 읽기(카드) → 볼 만함(목록). must · worth = news.Picked 목록 (11/16).
+
+    줄마다 출처(매체 · 한국 시각 · 섹터)와 '왜 골랐나' 꼬리표. compact 는 요약 탭용 —
+    꼭 읽기만, 비면 한 줄.
+    """
+    def meta(h) -> str:
+        bits = [getattr(h, "source", "") or "", _tri_when(h),
+                labels.get(getattr(h, "sector", ""), "")]
+        return " · ".join(_esc(b) for b in bits if b)
+
+    def chips(tags) -> str:
+        return "".join(
+            f'<span class="dash-tri-tag{" mine" if t.startswith("내 종목") else ""}">'
+            f"{_esc(t)}</span>" for t in tags)
+
+    parts = []
+    if must:
+        cards = "".join(
+            '<li class="dash-tri-card">'
+            f'<div class="dash-tri-title">{_tri_link(p.head)}</div>'
+            f'<div class="dash-tri-meta">{meta(p.head)}</div>'
+            f'<div class="dash-tri-tags">{chips(p.tags)}</div></li>'
+            for p in must)
+        head = "" if compact else '<div class="dash-tri-h">① 오늘 꼭 읽기</div>'
+        parts.append(f'{head}<ol class="dash-tri-must">{cards}</ol>')
+    else:
+        parts.append('<div class="dash-tri-empty">오늘 꼭 읽을 만한 사건 기사가 '
+                     '아직 없습니다 (사건 종류 · 내 종목 기준).</div>')
+    if worth and not compact:
+        rows = "".join(
+            f"<li>{_tri_link(p.head)} "
+            f'<span class="dash-tri-wmeta">{meta(p.head)}</span>'
+            + (f' <span class="dash-tri-tags">{chips(p.tags)}</span>' if p.tags else "")
+            + "</li>"
+            for p in worth)
+        parts.append('<div class="dash-tri-h">② 볼 만함</div>'
+                     f'<ul class="dash-tri-worth">{rows}</ul>')
+    return f'<div class="dash-tri">{"".join(parts)}</div>'
+
+
 def render_sector_news(sectors, headlines: dict, errors: dict) -> str:
     """섹터별 뉴스 — 섹터당 몇 줄씩, 한 화면에."""
     blocks = []

@@ -119,6 +119,7 @@
  "dash-inline-link": [
   "_bf_inline",
   "_safe_inline",
+  "_tri_link",
   "render_analysis_header",
   "render_analysis_sources",
   "render_briefing_head",

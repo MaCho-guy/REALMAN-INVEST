@@ -203,7 +203,7 @@ called.clear()
 t0 = time.perf_counter()
 ns["_prefetch"]("summary", "kr", False, log)
 wall = time.perf_counter() - t0
-check("요약의 12가지를 동시에 (0.2초×12 → 0.6초 안)", wall < 0.6 and len(called) == 12,
+check("요약의 13가지를 동시에 (0.2초×13 → 0.6초 안, 11/16 섹터 뉴스 추가)", wall < 0.6 and len(called) == 13,
       f"{wall:.2f}s, {len(called)}건")
 called.clear()
 ns["_prefetch"]("summary", "kr", True, perf.RunLog())
@@ -212,7 +212,7 @@ check("데모 모드에서는 받지 않는다", called == [])
 ns["load_macro"] = lambda *a: 1 / 0
 called.clear()
 ns["_prefetch"]("summary", "kr", False, perf.RunLog())
-check("하나가 터져도 나머지는 받아 둔다", len(called) == 11, str(called))
+check("하나가 터져도 나머지는 받아 둔다", len(called) == 12, str(called))
 
 print("\n=== 느린 하나가 첫 화면을 붙잡지 않는다 ===")
 import threading as _th  # noqa: E402

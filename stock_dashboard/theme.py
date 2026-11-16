@@ -2695,6 +2695,39 @@ def build_rules() -> str:
     .dash-skill-btn.ghost {{ grid-column: 1 / -1; }}
   }}
 
+  /* ── 오늘 꼭 읽을 뉴스 (11/16) ─────────────────────────────────────── */
+  .dash-tri {{ margin: var(--sp-2) 0 var(--sp-3); }}
+  .dash-tri-h {{
+    font-size: var(--fs-3); font-weight: 700; color: var(--dash-ink);
+    margin: var(--sp-3) 0 var(--sp-2);
+  }}
+  .dash-tri-must {{
+    list-style: none; margin: 0; padding: 0;
+    display: grid; gap: var(--sp-2);
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  }}
+  .dash-tri-card {{
+    border: 1px solid var(--dash-border); border-radius: var(--r-card);
+    background: var(--dash-surface); padding: 10px 12px;
+  }}
+  .dash-tri-title {{
+    font-size: var(--fs-4); font-weight: 650; color: var(--dash-ink); line-height: 1.45;
+  }}
+  .dash-tri-meta {{ font-size: var(--fs-1); color: var(--dash-ink-muted); margin-top: 3px; }}
+  .dash-tri-tags {{ display: inline-flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }}
+  .dash-tri-tag {{
+    font-size: var(--fs-1); color: var(--dash-ink-2);
+    border: 1px solid var(--dash-divider); border-radius: var(--r-pill); padding: 0 7px;
+    white-space: nowrap;
+  }}
+  .dash-tri-tag.mine {{ font-weight: 700; color: var(--dash-ink); border-color: var(--dash-ink-muted); }}
+  .dash-tri-worth {{ margin: 0; padding-left: 16px; }}
+  .dash-tri-worth li {{
+    font-size: var(--fs-3); color: var(--dash-ink-2); margin-bottom: 6px; line-height: 1.5;
+  }}
+  .dash-tri-worth .dash-tri-tags {{ margin-top: 0; }}
+  .dash-tri-wmeta {{ font-size: var(--fs-1); color: var(--dash-ink-muted); white-space: nowrap; }}
+  .dash-tri-empty {{ font-size: var(--fs-2); color: var(--dash-ink-muted); }}
   /* ── 섹터별 뉴스 ──────────────────────────────────────────────────── */
   .dash-sectors {{
     display: grid; gap: var(--sp-3);

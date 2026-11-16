@@ -38,6 +38,11 @@ class Headline:
     #: 같은 사건(또는 아주 가까운 소식)으로 묶인 **다른** 매체 수. 섹터 뉴스
     #: 순위(rank_stories)에서만 채웁니다. 0 이면 표시하지 않습니다.
     more: int = 0
+    #: 섹터 뉴스 순위에서만 채움 (11/16 '오늘 꼭 읽기'): 섹터 키 · 묶음 점수 ·
+    #: 같은 제목 무리 중 가장 최근 발행 시각(epoch 초, 모르면 0).
+    sector: str = ""
+    score: float = 0.0
+    ts: float = 0.0
 
     @property
     def days_ago(self) -> int | None:
@@ -288,10 +293,19 @@ class _Sig:
     bi: set
     words: list
     nums: set
+    day: str = ""          # 한국 날짜 (모르면 빈 값)
 
 
-def _sig(title: str) -> _Sig:
-    return _Sig(_bigrams(title), _words(title), _numbers(title))
+_KST = dt.timezone(dt.timedelta(hours=9))
+
+
+def _sig(title: str, when: dt.datetime | None = None) -> _Sig:
+    day = when.astimezone(_KST).date().isoformat() if when else ""
+    return _Sig(_bigrams(title), _words(title), _numbers(title), day)
+
+
+def _int_part(n: str) -> str:
+    return n.split(".")[0]
 
 
 def near_same(a: _Sig, b: _Sig) -> bool:
@@ -313,6 +327,11 @@ def same_story(a: _Sig, b: _Sig) -> bool:
     shared = _shared_words(a.words, b.words)
     if (a.nums & b.nums) and shared >= 2:
         return True                      # 같은 숫자(1330.7원) + 낱말 둘
+    # 같은 날 + 숫자 앞자리 같음 + 낱말 하나 (사용자 선택 A, 11/16) —
+    # "1330.7원 마감" 과 "1330원대 마감" 이 같은 날 두 줄 나왔던 것
+    if (a.day and a.day == b.day and shared >= 1
+            and {_int_part(x) for x in a.nums} & {_int_part(x) for x in b.nums}):
+        return True
     return shared >= 3                   # 낱말 셋 (조사 떼고, 포함 허용)
 
 
@@ -332,7 +351,7 @@ def rank_stories(items: list[tuple[dt.datetime | None, Headline]], limit: int, *
     rows = sorted(items, key=lambda x: x[0] or _MIN_UTC, reverse=True)
     clusters: list[list[tuple[dt.datetime | None, Headline, _Sig]]] = []
     for when, h in rows:
-        sig = _sig(h.title)
+        sig = _sig(h.title, when)
         # 묶음의 앞 3건과만 비교 — 끝없이 이어 붙어 다른 사건까지 삼키는 것을 막습니다
         home = next((c for c in clusters if any(same_story(x[2], sig) for x in c[:3])), None)
         if home is None:
@@ -356,7 +375,9 @@ def rank_stories(items: list[tuple[dt.datetime | None, Headline]], limit: int, *
             score -= _SCORE_OFF
         if avoid and any(w in rep.title for w in avoid):
             score -= _SCORE_OFF
-        scored.append((score, rep_w or _MIN_UTC, dataclasses.replace(rep, more=len(outlets) - 1)))
+        scored.append((score, rep_w or _MIN_UTC,
+                       dataclasses.replace(rep, more=len(outlets) - 1, score=round(score, 3),
+                                           ts=latest.timestamp() if latest else 0.0)))
     scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
     return [h for _s, _w, h in scored[:limit]]
 
@@ -459,7 +480,104 @@ def fetch_sector_news(sectors, *, limit: int = 3, max_days: int = 7, rank: bool 
             errors[key] = f"{type(exc).__name__}: {exc}"
             continue
         if items:
-            out[key] = items
+            out[key] = [dataclasses.replace(h, sector=key) if rank else h for h in items]
         else:
             errors[key] = f"최근 {max_days}일 기사가 없습니다."
     return out, errors
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 오늘 꼭 읽기 — 섹터를 넘어 중요도 순 (2026-11-16)
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# 사용자: "일일이 읽어보기 힘든데 중요도 순으로 나눠서 오늘 꼭 읽어봐야 할 것들".
+# 기준은 사용자가 고른 두 가지 — **사건 종류**와 **내 종목**. 그 위에 원래
+# 섹터 순위 점수(보도 매체 수 · 주요 매체 · 나이 · 섹터 낱말)를 그대로 씁니다.
+#   중요도 = 섹터 점수 + 사건 종류 가점 + 내 종목 가점 − 가벼운 기사 감점
+#            − '목표가만' 감점
+# 꼭 읽기 = 사건 종류나 내 종목에 걸리고, 가벼운 기사가 아니고, 기간 안이고,
+#           중요도 문턱 이상인 것 중 위에서부터 (섹터 넘어 같은 사건은 한 줄).
+# 볼 만함 = 그다음. 기간이 조금 더 깁니다. 월요일은 주말만큼 기간을 늘립니다.
+# AI 요약은 쓰지 않습니다 (사용자 선택 — 이유 꼬리표만).
+
+@dataclass
+class Picked:
+    head: Headline
+    tags: list            # 화면 꼬리표 (사건 종류 · 내 종목 이름 · 같은 제목 N곳)
+    importance: float
+
+
+def _kinds_of(title: str, kinds) -> list[str]:
+    return [name for name, words in kinds if any(w in title for w in words)]
+
+
+def _mine_in(title: str, mine: dict) -> list[str]:
+    """제목에 든 내 종목 이름. mine = {표시 이름: (찾을 낱말, …)}."""
+    return [name for name, words in mine.items() if any(w and w in title for w in words)]
+
+
+def _is_light(title: str, light) -> bool:
+    t = title.strip()
+    if any(w in t for w in light):
+        return True
+    return t.endswith("?") and "다고" in t       # "…덜어준다고?" 같은 해설
+
+
+def triage(pool: dict, *, kinds, light=(), target_words=(), mine=None,
+           now: dt.datetime | None = None, rules: dict | None = None
+           ) -> tuple[list[Picked], list[Picked]]:
+    """pool = {섹터: [Headline(score · ts 채워진)]} → (꼭 읽기, 볼 만함).
+
+    rules 키: kind_bonus · mine_bonus · light_penalty · target_penalty ·
+    must_min · worth_min · must_n · worth_n · must_hours · worth_hours ·
+    weekend_hours (월요일엔 must/worth 기간에 더함, 일요일엔 절반).
+    """
+    r = {"kind_bonus": 1.0, "mine_bonus": 1.5, "light_penalty": 1.5,
+         "target_penalty": 0.7, "must_min": 2.5, "worth_min": 1.2,
+         "must_n": 5, "worth_n": 6, "must_hours": 36, "worth_hours": 72,
+         "weekend_hours": 48}
+    r.update(rules or {})
+    now = now or dt.datetime.now(dt.timezone.utc)
+    wd = now.astimezone(_KST).weekday()             # 0 = 월
+    extra = r["weekend_hours"] if wd == 0 else r["weekend_hours"] / 2 if wd == 6 else 0
+    must_h, worth_h = r["must_hours"] + extra, r["worth_hours"] + extra
+    mine = mine or {}
+
+    cands = []
+    for _sector, heads in (pool or {}).items():
+        for h in heads or []:
+            t = getattr(h, "title", "") or ""
+            ts = getattr(h, "ts", 0.0) or 0.0
+            hours = (now.timestamp() - ts) / 3600 if ts else 999.0
+            kinds_hit = _kinds_of(t, kinds)
+            mine_hit = _mine_in(t, mine)
+            light_hit = _is_light(t, light)
+            target_only = (not kinds_hit) and any(w in t for w in target_words)
+            imp = float(getattr(h, "score", 0.0) or 0.0)
+            imp += r["kind_bonus"] if kinds_hit else 0.0
+            imp += r["mine_bonus"] if mine_hit else 0.0
+            imp -= r["light_penalty"] if light_hit else 0.0
+            imp -= r["target_penalty"] if target_only else 0.0
+            tags = [f"내 종목 {n}" for n in mine_hit[:2]] + kinds_hit[:2]
+            if (getattr(h, "more", 0) or 0) >= 2:
+                tags.append(f"같은 제목 {h.more + 1}곳")
+            cands.append((imp, hours, bool(kinds_hit or mine_hit), light_hit, h, tags))
+    cands.sort(key=lambda x: (x[0], -x[1]), reverse=True)
+
+    must: list[Picked] = []
+    worth: list[Picked] = []
+    taken: list[_Sig] = []
+    for imp, hours, eventful, light_hit, h, tags in cands:
+        sg = _sig(h.title)
+        if any(same_story(x, sg) for x in taken):
+            continue                                 # 다른 섹터에 같은 사건
+        if (len(must) < r["must_n"] and eventful and not light_hit
+                and hours <= must_h and imp >= r["must_min"]):
+            must.append(Picked(h, tags, round(imp, 2)))
+        elif (len(worth) < r["worth_n"] and not light_hit
+              and hours <= worth_h and imp >= r["worth_min"]):
+            worth.append(Picked(h, tags, round(imp, 2)))
+        else:
+            continue
+        taken.append(sg)
+    return must, worth

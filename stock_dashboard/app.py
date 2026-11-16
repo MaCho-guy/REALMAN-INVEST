@@ -1059,15 +1059,19 @@ def load_kr_macro(use_demo: bool, key_fp: str = ""):
     ]
 
 
-@swr.cached(1_800)
+@swr.cached(1_800, version=1)
 def load_sector_news(use_demo: bool):
-    """섹터별 헤드라인. 30분 캐시 — 뉴스는 보조입니다."""
+    """섹터별 헤드라인. 30분 캐시 — 뉴스는 보조입니다.
+
+    섹터마다 SECTOR_NEWS_POOL(8)개 묶음을 순위대로 돌려줍니다 (11/16). 섹터 칸은
+    앞 SECTOR_NEWS_PER(3)개만 보이고, 나머지는 '오늘 꼭 읽기' 판정 후보입니다.
+    """
     if use_demo:
         return demo_mod.demo_sector_news(config.KR_SECTORS)
     try:
         # 11/13 '읽을만한 정보로': 최신순 → 사건별 순위 (sources/news.rank_stories)
         return news.fetch_sector_news(config.KR_SECTORS,
-                                      limit=config.SECTOR_NEWS_PER,
+                                      limit=config.SECTOR_NEWS_POOL,
                                       max_days=config.SECTOR_NEWS_DAYS,
                                       rank=True,
                                       must=config.SECTOR_NEWS_MUST,
@@ -1075,6 +1079,46 @@ def load_sector_news(use_demo: bool):
                                       tier=config.NEWS_TIER_SOURCES)
     except Exception as exc:  # noqa: BLE001
         return {}, {"_": f"{type(exc).__name__}: {exc}"}
+
+
+def _news_mine(use_demo: bool) -> dict[str, tuple[str, ...]]:
+    """'내 종목' 이름표 — 보유(Secrets) + 관심종목. {표시 이름: (제목에서 찾을 낱말, …)}.
+
+    미국 종목은 한국 매체가 쓰는 이름(config.NEWS_NAME_KO)으로 찾고, 모르는
+    종목은 뺍니다 (영문 티커로 찾으면 엉뚱한 기사에 걸림). ETF 도 뺍니다.
+    이 이름표는 화면에만 쓰고 어디에도 저장하지 않습니다.
+    """
+    names: list[str] = []
+    kr_names = _kr_name_map()
+    try:
+        positions, _bad, _src = portfolio.load(use_demo)
+    except Exception:  # noqa: BLE001
+        positions = []
+    for p in positions:
+        nm = (kr_names.get(p.symbol) if p.market == "kr"
+              else config.NEWS_NAME_KO.get(p.symbol, ""))
+        names.append(nm or "")
+    for inst in config.SECTION_WATCHLIST.instruments:
+        names.append(inst.name if inst.source == "naver"
+                     else config.NEWS_NAME_KO.get(inst.symbol, ""))
+    out: dict[str, tuple[str, ...]] = {}
+    for nm in names:
+        nm = (nm or "").strip()
+        if len(nm) < 2 or "ETF" in nm or nm in out:
+            continue
+        out[nm] = (nm, *config.NEWS_NAME_ALIASES.get(nm, ()))
+    return out
+
+
+def _news_triage(sector_news: dict, use_demo: bool):
+    """섹터 뉴스 → (꼭 읽기, 볼 만함). 실패하면 빈 둘 — 뉴스는 보조입니다."""
+    try:
+        return news.triage(sector_news or {}, kinds=config.NEWS_EVENT_KINDS,
+                           light=config.NEWS_LIGHT_WORDS,
+                           target_words=config.NEWS_TARGET_WORDS,
+                           mine=_news_mine(use_demo), rules=config.NEWS_TRIAGE_RULES)
+    except Exception:  # noqa: BLE001
+        return [], []
 
 
 def _filings_ok(value) -> bool:
@@ -1556,6 +1600,7 @@ def render_summary_tab(data: dict[str, dict[str, Quote]], fx,
             st.markdown(ui.render_candidate_cards(picks, 3, compact=True),
                         unsafe_allow_html=True)
 
+    _render_news_must(use_demo)
     _render_upcoming(data, use_demo, market)
     _render_daily_briefs(use_demo, market)
 
@@ -3644,6 +3689,27 @@ def render_calendar_tab(data, use_demo: bool, *, market: str = "kr") -> None:
                     unsafe_allow_html=True)
 
 
+def _render_news_must(use_demo: bool) -> None:
+    """요약 — 오늘 꼭 읽을 뉴스 (11/16). 기다리지 않습니다: 아직 없으면 한 줄만."""
+    try:
+        got = (load_sector_news(use_demo) if use_demo
+               else _soft(load_sector_news, use_demo, default=None))
+        if got is None:
+            st.markdown(ui.render_section_head("오늘 꼭 읽을 뉴스", "받는 중", None),
+                        unsafe_allow_html=True)
+            return
+        must, worth = _news_triage(got[0], use_demo)
+        st.markdown(ui.render_section_head(
+            "오늘 꼭 읽을 뉴스",
+            f"사건 종류 · 내 종목 기준 · 볼 만함 {len(worth)}건은 한국 › 뉴스", len(must)),
+            unsafe_allow_html=True)
+        labels = {k: lbl for k, lbl, _q in config.KR_SECTORS}
+        st.markdown(ui.render_news_triage(must, [], labels, compact=True),
+                    unsafe_allow_html=True)
+    except Exception:  # noqa: BLE001 - 요약은 이것 때문에 깨지면 안 됩니다
+        return
+
+
 def _render_daily_briefs(use_demo: bool, market: str) -> None:
     """전일 장 브리핑 — 고른 시장이 먼저, 다른 시장이 그다음.
 
@@ -4371,17 +4437,29 @@ def _flows_korea(use_demo: bool) -> None:
         unsafe_allow_html=True,
     )
     sector_news, sector_errors = load_sector_news(use_demo)
-    # 꼭 보여야 하는 출처 · 규칙 (footnote 는 기본으로 숨으므로 legend 로)
+    # 11/16 '중요도 순으로 오늘 꼭 읽을 것': 꼭 읽기 → 볼 만함 → 섹터별 전체(접는 칸)
+    must, worth = _news_triage(sector_news, use_demo)
+    labels = {k: lbl for k, lbl, _q in config.KR_SECTORS}
     st.markdown(
         ui.render_legend(
-            f"구글 뉴스 · 최근 {config.SECTOR_NEWS_DAYS}일 · 30분마다 새로 · "
-            "같은 사건은 한 줄로 묶고(<b>관련 N곳</b>) 보도 많은 순 · 주요 매체 우선"),
+            "구글 뉴스 · 30분마다 새로 · 중요도 = 사건 종류(실적 · 수주 · 규제 · 금리 · "
+            "가격 급변 …) + <b>내 종목</b>(보유 · 관심) + 보도 매체 수 · 새로움 · "
+            "칼럼 · 행사 기사는 뺌 · 꼬리표가 고른 이유"),
         unsafe_allow_html=True,
     )
-    st.markdown(
-        ui.render_sector_news(config.KR_SECTORS, sector_news, sector_errors),
-        unsafe_allow_html=True,
-    )
+    st.markdown(ui.render_news_triage(must, worth, labels), unsafe_allow_html=True)
+    with st.expander(f"섹터별 전체 보기 — 섹터당 {config.SECTOR_NEWS_PER}건 · 최근 "
+                     f"{config.SECTOR_NEWS_DAYS}일"):
+        st.markdown(
+            ui.render_legend(
+                "같은 사건은 한 줄로 묶고(<b>관련 N곳</b>) 보도 많은 순 · 주요 매체 우선"),
+            unsafe_allow_html=True,
+        )
+        shown = {k: v[:config.SECTOR_NEWS_PER] for k, v in (sector_news or {}).items()}
+        st.markdown(
+            ui.render_sector_news(config.KR_SECTORS, shown, sector_errors),
+            unsafe_allow_html=True,
+        )
 
     _render_market_filings(use_demo)
 
@@ -6492,6 +6570,7 @@ def _section_jobs(section: str, market: str, use_demo: bool) -> dict:
             "전일 브리핑 (한국)": lambda: load_daily_brief("kr", use_demo),
             "전일 브리핑 (미국)": lambda: load_daily_brief("us", use_demo),
             "마감 기사": lambda: load_close_headlines(use_demo),
+            "섹터 뉴스": lambda: load_sector_news(use_demo),
             "시황 리포트": lambda: load_research("market", use_demo),
             "발표 일정": lambda: load_release_dates(use_demo, ffp),
         })

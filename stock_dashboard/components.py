@@ -951,7 +951,8 @@ def render_cycle_backtest(result) -> str:
             f"<td>{sc.lit_share:.0f}%<div class=\"cl-sub\">{sc.lit_quarters}/{sc.total}</div></td>"
             f'<td class="bt-pk">{" ".join(bits)}{med_txt}</td>'
             f"<td>{sc.early_alarms}/{sc.expansion_quarters}</td></tr>")
-    cyc = " · ".join(f"{c.trough[:7]} 저점 ${c.trough_rev:,.0f}M → {c.peak[:7]} 피크 ${c.peak_rev:,.0f}M"
+    money = getattr(result, "money", lambda v: f"${v:,.0f}M")
+    cyc = " · ".join(f"{c.trough[:7]} 저점 {money(c.trough_rev)} → {c.peak[:7]} 피크 {money(c.peak_rev)}"
                      for c in result.cycles)
     return ('<div class="dash-bt">'
             f'<div class="bt-head">{_esc(result.company)} {_esc(result.span)} · 분기 {len(result.quarters)}개 · '
@@ -964,7 +965,7 @@ def render_cycle_backtest(result) -> str:
             "적을수록 덜 시끄러운 규칙입니다. 배경색은 현행 체크리스트 규칙 (11/16 부터 재고 점등 = ③·④ 동시).<br>"
             f"<b>사이클</b> — {_esc(cyc)}<br>"
             "<b>한계</b> — 가격(레이어 1) · 완제품 비중(5번)은 과거 자료가 없어 재현하지 않았습니다. "
-            "피크 4번뿐인 표본이라 경향이지 통계적 결론이 아닙니다. 분기 일수는 91.25일로 고정 "
+            f"피크 {len(result.cycles)}번뿐인 표본이라 경향이지 통계적 결론이 아닙니다. 분기 일수는 91.25일로 고정 "
             "(원자료에 구간 일수 없음).<br>"
             f"<b>자료</b> — {_esc(result.source)}</div></div>")
 

@@ -121,10 +121,17 @@ class Result:
     cycles: list[Cycle]
     scores: list[RuleScore]
     error: str = ""
+    #: 금액 단위 — "USD_M"(백만 달러, 번들 MU 이력) 또는 "KRW"(원, DART)
+    unit: str = "USD_M"
 
     @property
     def ok(self) -> bool:
         return not self.error and bool(self.scores)
+
+    def money(self, v: float) -> str:
+        if getattr(self, "unit", "USD_M") == "KRW":
+            return f"{v / 1e12:,.1f}조원"
+        return f"${v:,.0f}M"
 
     @property
     def span(self) -> str:
@@ -250,7 +257,7 @@ def score(quarters: list[Q], cycles: list[Cycle], rule: Rule,
 
 
 def run(quarters: list[Q], *, company: str = "Micron", source: str = "",
-        rising_min: int = 2) -> Result:
+        rising_min: int = 2, unit: str = "USD_M") -> Result:
     if len(quarters) < 12:
         return Result(company, source, quarters, [], [],
                       error=f"분기가 {len(quarters)}개뿐이라 사이클을 찾을 수 없습니다 (12개 이상 필요)")
@@ -259,7 +266,7 @@ def run(quarters: list[Q], *, company: str = "Micron", source: str = "",
     if not cycles:
         return Result(company, source, quarters, [], [], error="매출 사이클(저점→피크)을 찾지 못했습니다")
     scores = [score(quarters, cycles, r, rising_min) for r in RULES]
-    return Result(company, source, quarters, cycles, scores)
+    return Result(company, source, quarters, cycles, scores, unit=unit)
 
 
 def run_file(path: str = DATA_FILE, *, rising_min: int = 2) -> Result:

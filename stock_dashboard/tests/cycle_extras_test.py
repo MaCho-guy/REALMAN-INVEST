@@ -103,6 +103,9 @@ check("화면: 피크 대비 부호 표기 (+2 지연 · −1 선행)", '<span c
 short = bt.run(res.quarters[:8])
 check("분기가 부족하면 오류로 담음", not short.ok and "12개" in short.error)
 check("파일이 없으면 오류로 담음", not bt.run_file("nope.csv").ok)
+check("화면: 달러 단위 · 피크 개수", "$8,440M" in html and "피크 4번뿐" in html)
+kr_res = bt.run(res.quarters, company="SK하이닉스", unit="KRW")
+check("원화 결과는 조원으로", kr_res.money(13_811_001_000_000) == "13.8조원")
 
 # ──────────────────────────────────────────────────────────────────────────────
 print("── 하이퍼스케일러 CapEx")

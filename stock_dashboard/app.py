@@ -451,7 +451,7 @@ def load_track_inventory(use_demo: bool) -> tuple[dict[str, dict], dict[str, str
     return groups, errors
 
 
-@swr.cached(7 * 86_400, stale=30 * 86_400, keep=lambda v: bool(v and v[0]))
+@swr.cached(7 * 86_400, stale=30 * 86_400, keep=lambda v: bool(v and v[0]), version=1)
 def load_kr_backtest(use_demo: bool, key_fp: str = "", latest_marker: str = ""):
     """국내 2사 백테스트 — DART 2015년 1분기부터 최신 분기까지 (회사당 약 47회 호출).
 
@@ -485,7 +485,7 @@ def load_kr_backtest(use_demo: bool, key_fp: str = "", latest_marker: str = ""):
         latest = trend.latest.label if trend.latest else ""
         src = (f"DART 전체 재무제표(연결) {len(collected)}개 보고서 · 최신 {latest}. "
                "4분기 = 사업보고서 연간 − 3분기 누적(계산).")
-        res = cycle_backtest.run(qs, company=inst.name, source=src)
+        res = cycle_backtest.run(qs, company=inst.name, source=src, unit="KRW")
         results[inst.symbol] = res
         if warns:
             errors[inst.symbol] = f"{len(warns)}건 경고 — {warns[0]}"

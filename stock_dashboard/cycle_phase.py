@@ -38,6 +38,15 @@ STALE_PHASE_DAYS = 14
 STALE_PRICE_DAYS = 7
 #: §5 — 이 개수 이상 점등이면 재판정 대상.
 WATCH_MIN_LIT = 3
+#: 체크리스트 한 항목의 근거가 이 일수보다 오래되면 '재확인' (2026-11-16).
+#: 판정 전체(14일)보다 길게 둡니다 — 분기 공시 항목은 한 달 넘게 안 바뀌는 게 정상.
+EVIDENCE_STALE_DAYS = 30
+
+#: 근거 강도 — 점등 항목에만 씁니다. 개수만 세면 11/13 처럼 "4개 그대로인데
+#: 근거가 강해졌다" 가 화면에 안 보여서 추가했습니다.
+STRENGTH_LABEL = {1: "약", 2: "중", 3: "강"}
+STRENGTH_RULE = {1: "간접 · 조짐 (전망, 해석)", 2: "한 출처로 확인 (수치 또는 원문)",
+                 3: "여러 출처 · 실적으로 확인"}
 
 PHASE_GLYPH = {1: "①", 2: "②", 3: "③", 4: "④"}
 PHASE_NAME = {1: "회복기", 2: "확장기", 3: "피크·둔화", 4: "하강기"}
@@ -76,6 +85,28 @@ class CheckRow:
     detail: str = ""
     auto: str = ""
     next: str = ""
+    #: 근거일 — 점등이면 근거 자료의 날짜, 아니면 미점등을 마지막으로 확인한 날
+    evidence_date: dt.date | None = None
+    #: 근거 강도 1~3 (점등일 때만, 아니면 0)
+    strength: int = 0
+
+    def evidence_age(self, today: dt.date) -> int | None:
+        return (today - self.evidence_date).days if self.evidence_date else None
+
+    def evidence_stale(self, today: dt.date) -> bool:
+        age = self.evidence_age(today)
+        return age is None or age > EVIDENCE_STALE_DAYS
+
+
+@dataclass(frozen=True)
+class HistoryEntry:
+    """판정 이력 한 줄. 나중에 실제 국면과 대조해 판정 품질을 재려고 쌓습니다."""
+
+    as_of: dt.date
+    phases: dict           # 트랙 key → short ("②후반")
+    lit: int
+    status: str
+    note: str = ""
 
 
 @dataclass(frozen=True)
@@ -126,6 +157,7 @@ class Phase:
     prices: Prices = field(default_factory=Prices)
     exposure: dict[str, Exposure] = field(default_factory=dict)
     upcoming: list[Upcoming] = field(default_factory=list)
+    history: list[HistoryEntry] = field(default_factory=list)
     error: str = ""
 
     # ── 기본 ────────────────────────────────────────────────────────────
@@ -207,6 +239,44 @@ class Phase:
             return []
         return [t for t in (self.track(k) for k in exp.tracks) if t is not None]
 
+    # ── 근거 · 이력 ────────────────────────────────────────────────────
+    def stale_evidence(self, today: dt.date) -> list[int]:
+        """근거가 EVIDENCE_STALE_DAYS 보다 오래된 항목 번호."""
+        return [c.n for c in self.checklist if c.evidence_stale(today)]
+
+    @property
+    def strength_counts(self) -> dict[int, int]:
+        out = {1: 0, 2: 0, 3: 0}
+        for c in self.checklist:
+            if c.state == "lit" and c.strength in out:
+                out[c.strength] += 1
+        return out
+
+    def history_gap(self) -> str:
+        """이력 마지막 줄이 현재 기록과 다르면 사유. 같으면 "".
+
+        기록만 고치고 이력에 안 적으면 나중에 '그때 뭐라고 판정했나' 를 잃습니다.
+        """
+        if not self.history:
+            return "판정 이력이 비어 있습니다"
+        last = self.history[-1]
+        if last.as_of != self.as_of:
+            return f"이력 마지막({_md_plain(last.as_of)})이 판정일({_md_plain(self.as_of)})과 다릅니다"
+        now = {t.key: t.short for t in self.tracks}
+        diff = [k for k, v in now.items() if last.phases.get(k) != v]
+        if diff:
+            return f"이력의 국면이 기록과 다릅니다 ({', '.join(diff)})"
+        if last.lit != self.lit_count:
+            return f"이력 점등 {last.lit} ≠ 기록 점등 {self.lit_count}"
+        return ""
+
+    def changes_at(self, i: int) -> set[str]:
+        """이력 i 번째 줄에서 직전 줄 대비 국면이 바뀐 트랙 key."""
+        if i <= 0 or i >= len(self.history):
+            return set()
+        a, b = self.history[i - 1].phases, self.history[i].phases
+        return {k for k in b if a.get(k) != b.get(k)}
+
     def upcoming_from(self, today: dt.date) -> list[Upcoming]:
         return sorted((u for u in self.upcoming if u.date >= today), key=lambda u: u.date)
 
@@ -214,6 +284,10 @@ class Phase:
 # ──────────────────────────────────────────────────────────────────────────────
 # 읽기
 # ──────────────────────────────────────────────────────────────────────────────
+
+def _md_plain(d: dt.date | None) -> str:
+    return f"{d.month}/{d.day}" if d else "?"
+
 
 def _date(value) -> dt.date | None:
     if not value:
@@ -264,10 +338,19 @@ def parse(data: dict) -> Phase:
         auto = str(c.get("auto") or "")
         if auto and auto not in AUTO_INDEX:
             raise ValueError(f"checklist[{i}].auto={auto!r} — {', '.join(AUTO_INDEX)} 만 씁니다")
+        try:
+            strength = int(c.get("strength") or 0)
+        except (TypeError, ValueError):
+            raise ValueError(f"checklist[{i}].strength 가 숫자가 아닙니다") from None
+        if state == "lit" and strength not in STRENGTH_LABEL:
+            raise ValueError(f"checklist[{i}] 점등인데 strength={strength} — 1~3 을 적습니다")
+        if state != "lit" and strength:
+            raise ValueError(f"checklist[{i}] 점등이 아닌데 strength={strength} — 0 이어야 합니다")
         checklist.append(CheckRow(
             n=int(c.get("n") or i + 1), label=str(c.get("label") or ""),
             layer=str(c.get("layer") or ""), state=state,
-            detail=str(c.get("detail") or ""), auto=auto, next=str(c.get("next") or "")))
+            detail=str(c.get("detail") or ""), auto=auto, next=str(c.get("next") or ""),
+            evidence_date=_date(c.get("evidence_date")), strength=strength))
 
     p = data.get("prices") or {}
     prices = Prices(
@@ -294,6 +377,20 @@ def parse(data: dict) -> Phase:
                          check=str(u.get("check") or ""))
                 for u in (data.get("upcoming") or []) if u.get("date")]
 
+    history: list[HistoryEntry] = []
+    for i, h in enumerate(data.get("history") or []):
+        hd = _date(h.get("as_of"))
+        if hd is None:
+            raise ValueError(f"history[{i}].as_of 가 없습니다")
+        ph = {str(k): str(v) for k, v in (h.get("phases") or {}).items()}
+        unknown = [k for k in ph if k not in keys]
+        if unknown:
+            raise ValueError(f"history[{i}] 에 없는 트랙: {', '.join(unknown)}")
+        history.append(HistoryEntry(as_of=hd, phases=ph, lit=int(h.get("lit") or 0),
+                                    status=str(h.get("status") or ""),
+                                    note=str(h.get("note") or "")))
+    history.sort(key=lambda h: h.as_of)
+
     track_key = str(data.get("checklist_track") or "dram")
     if track_key not in keys:
         raise ValueError(f"checklist_track={track_key!r} 트랙이 없습니다")
@@ -301,7 +398,7 @@ def parse(data: dict) -> Phase:
     return Phase(as_of=as_of, source=str(data.get("source") or ""),
                  overall=str(data.get("overall") or ""), checklist_track=track_key,
                  tracks=tracks, checklist=checklist, prices=prices,
-                 exposure=exposure, upcoming=upcoming)
+                 exposure=exposure, upcoming=upcoming, history=history)
 
 
 def load(path: str) -> Phase:
@@ -370,3 +467,84 @@ def cross_check(phase: Phase, trends: dict) -> dict[int, AutoCheck]:
 def disagreements(checks: dict[int, AutoCheck]) -> list[int]:
     """기록과 공시 자동 판정이 다른 항목 번호."""
     return sorted(n for n, c in checks.items() if c.agrees is False)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 트랙별 재고 — 낸드 · 레거시에도 레이어 2 (2026-11-16)
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# 체크리스트 자동 대조는 D램 트랙(메모리 3사)만 합니다. 낸드 ③ · 레거시 ① 판정은
+# 그동안 가격 · 뉴스로만 내려졌습니다. 같은 재고 계산(cycle.checklist)을 트랙
+# 대표 기업에 돌려 트랙 카드 옆에 붙입니다. **판정을 바꾸지 않고 참고로만 둡니다**
+# — 낸드 대표가 SanDisk 한 곳뿐이라 '2곳 이상' 규칙을 못 채우기 때문입니다.
+
+@dataclass(frozen=True)
+class CompanyInv:
+    symbol: str
+    name: str
+    period: str             # 기준 분기 종료일
+    dio: float | None
+    dio_change: float | None
+    rising: int
+    gap: float | None
+    i3: bool | None         # DIO 2분기 연속 상승
+    i4: bool | None         # 재고-매출 갭 > 0
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class TrackInv:
+    track: str
+    rows: list
+
+    @property
+    def decided(self) -> list:
+        return [r for r in self.rows if not r.error and r.i3 is not None]
+
+    def count(self, attr: str) -> tuple[int, int]:
+        d = [r for r in self.rows if not r.error and getattr(r, attr) is not None]
+        return sum(1 for r in d if getattr(r, attr)), len(d)
+
+    @property
+    def both(self) -> tuple[int, int]:
+        d = [r for r in self.rows if not r.error and r.i3 is not None and r.i4 is not None]
+        return sum(1 for r in d if r.i3 and r.i4), len(d)
+
+    @property
+    def summary(self) -> str:
+        if not self.decided:
+            return "재고 공시 대기"
+        a, n = self.count("i3")
+        b, m = self.count("i4")
+        return f"DIO 2분기↑ {a}/{n} · 재고>매출 {b}/{m}"
+
+
+def track_inventory(groups: dict, errors: dict | None = None) -> dict[str, TrackInv]:
+    """{트랙 key: {티커: InventoryTrend}} → {트랙 key: TrackInv}."""
+    import cycle  # 무거운 의존은 쓸 때만
+
+    errors = errors or {}
+    out: dict[str, TrackInv] = {}
+    for track, trends in groups.items():
+        rows = []
+        for sym, trend in trends.items():
+            if trend is None or not getattr(trend, "quarters", None):
+                rows.append(CompanyInv(sym, sym, "", None, None, 0, None, None, None,
+                                       error=errors.get(sym, "수집되지 않음")))
+                continue
+            try:
+                items = cycle.checklist(trend)
+            except Exception as exc:  # noqa: BLE001
+                rows.append(CompanyInv(sym, trend.corp_name, "", None, None, 0, None, None,
+                                       None, error=str(exc)))
+                continue
+            latest = trend.latest
+            rows.append(CompanyInv(
+                symbol=sym, name=trend.corp_name,
+                period=(latest.period_end or latest.label) if latest else "",
+                dio=latest.dio if latest else None,
+                dio_change=trend.dio_qoq_change, rising=trend.dio_rising_quarters,
+                gap=trend.inventory_revenue_gap,
+                i3=items[0].lit, i4=items[1].lit))
+        out[track] = TrackInv(track=track, rows=rows)
+    return out

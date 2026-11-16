@@ -400,12 +400,14 @@ def build_trend_from_xbrl(
 
     분기 구간만 씁니다 — 연간 구간을 섞으면 DIO 기간이 어긋납니다.
     """
-    from sources.edgar_xbrl import align_instant_to_duration
+    from sources.edgar_xbrl import align_instant_to_duration, derive_quarters
 
     trend = InventoryTrend(corp_name=corp_name, stock_code=ticker,
                            errors=list(errors or []))
 
-    cos_quarters = [f for f in cost_of_sales if f.is_quarterly]
+    # 4분기 3개월 값은 10-K 에 없어 누적 차분으로 만듭니다 (2026-11-16). 직접 보고된
+    # 분기가 있으면 그걸 우선합니다 — derive_quarters 설명 참고.
+    cos_quarters = derive_quarters(cost_of_sales)
     if not cos_quarters:
         trend.errors.append(
             "분기 구간의 매출원가를 찾지 못했습니다 "
@@ -413,7 +415,7 @@ def build_trend_from_xbrl(
         )
         return trend
 
-    rev_by_period = {(f.start, f.end): f for f in revenue if f.is_quarterly}
+    rev_by_period = {f.end: f for f in derive_quarters(revenue)}
     pairs = align_instant_to_duration(
         [f for f in inventory if f.is_instant], cos_quarters)
 
@@ -422,7 +424,7 @@ def build_trend_from_xbrl(
     pairs = pairs[:quarters]
 
     for inv_fact, cos_fact in pairs:
-        rev_fact = rev_by_period.get((cos_fact.start, cos_fact.end))
+        rev_fact = rev_by_period.get(cos_fact.end)
         days = cos_fact.duration_days or 91
 
         metrics = QuarterMetrics(

@@ -160,6 +160,18 @@ CYCLE_US_TICKERS: tuple[str, ...] = ("MU",)
 #: XBRL 에서 수집할 분기 수
 CYCLE_XBRL_QUARTERS = 6
 
+#: 트랙별 재고 지표 (2026-11-16) — 메모리 3사 말고 낸드 · 레거시 트랙 대표 기업.
+#: 판정에는 쓰지 않고 트랙 카드 옆 참고로만 붙입니다 (cycle_phase.track_inventory).
+#: SanDisk(SNDK) 는 2025년 2월 분사라 분기 이력이 짧습니다.
+CYCLE_TRACK_TICKERS: dict[str, tuple[str, ...]] = {
+    "nand": ("SNDK",),
+    "legacy": ("TXN", "ADI", "MCHP"),
+}
+CYCLE_TRACK_NAMES: dict[str, str] = {
+    "SNDK": "SanDisk", "TXN": "Texas Instruments", "ADI": "Analog Devices",
+    "MCHP": "Microchip",
+}
+
 #: 수집할 분기 수 (뒤로 몇 분기까지). 밴드를 만들려면 최소 3개는 필요합니다.
 CYCLE_QUARTERS_BACK = 5
 

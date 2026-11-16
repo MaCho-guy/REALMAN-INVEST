@@ -253,3 +253,51 @@ def align_instant_to_duration(
             pairs.append((inst, dur))
 
     return pairs
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 누적(YTD) 구간에서 분기 구간 뽑기 — 2026-11-16
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# 왜 필요한가:
+#
+#   · 현금흐름표는 10-Q 에 **누적**으로만 실립니다 (2분기 10-Q = 6개월치). 그래서
+#     설비투자(CapEx) 는 분기 구간 값이 거의 없습니다.
+#   · 손익계산서도 **4분기 3개월 값은 10-K 에 없습니다** — 연간만 실립니다. 분기
+#     구간만 쓰면 4분기가 빠져 DIO 시계열이 3분기 → 다음 해 1분기로 건너뜁니다.
+#
+#   같은 회계연도 시작일(start)을 가진 누적값을 종료일 순으로 놓고 차분하면
+#   분기가 나옵니다:  6개월 − 3개월 = 2분기,  9개월 − 6개월 = 3분기,  12개월 − 9개월 = 4분기.
+
+def derive_quarters(facts: list[Fact]) -> list[Fact]:
+    """구간값 목록 → 분기 구간 목록 (직접 보고된 분기 + 누적 차분으로 만든 분기).
+
+    같은 종료일의 분기가 직접 보고돼 있으면 그걸 씁니다 (차분은 반올림이 섞임).
+    차분한 Fact 는 form 에 '(차분)' 을 붙이고, start 는 앞 누적 종료일 다음 날입니다.
+    """
+    durations = [f for f in facts if f.start]
+    direct = {f.end: f for f in durations if f.is_quarterly}
+    out: dict[str, Fact] = dict(direct)
+
+    by_start: dict[str, list[Fact]] = {}
+    for f in durations:
+        by_start.setdefault(f.start, []).append(f)
+
+    for start, group in by_start.items():
+        group = sorted(group, key=lambda f: f.end)
+        for prev, cur in zip(group, group[1:]):
+            if cur.end in out:
+                continue
+            try:
+                gap = (dt.date.fromisoformat(cur.end) - dt.date.fromisoformat(prev.end)).days
+                q_start = (dt.date.fromisoformat(prev.end) + dt.timedelta(days=1)).isoformat()
+            except ValueError:
+                continue
+            if not (QUARTER_MIN_DAYS <= gap <= QUARTER_MAX_DAYS):
+                continue
+            out[cur.end] = Fact(
+                start=q_start, end=cur.end, val=cur.val - prev.val,
+                form=f"{cur.form} (차분)", fy=cur.fy,
+                fp="Q4" if cur.fp == "FY" else cur.fp,
+                filed=max(cur.filed, prev.filed), accn=cur.accn, tag=cur.tag)
+    return sorted(out.values(), key=lambda f: f.end)

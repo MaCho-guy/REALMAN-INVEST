@@ -143,7 +143,9 @@ import analysis_store
 import components as ui
 import config
 import cycle
+import cycle_backtest
 import cycle_phase
+import hyperscaler_capex
 import buffett
 import buffett_kr
 import demo as demo_mod
@@ -179,6 +181,12 @@ def load_phase() -> "cycle_phase.Phase":
     매번 읽어도 1ms 안쪽이고, 캐시하면 파일을 고쳐 올린 뒤에도 옛 판정이
     남습니다. 파일이 없거나 깨져도 던지지 않습니다 (Phase.error)."""
     return cycle_phase.load(PHASE_PATH)
+
+
+@swr.cached(86_400, disk=False)
+def load_backtest():
+    """체크리스트 백테스트 — 번들한 MU 분기 이력 (과거 자료라 바뀌지 않음)."""
+    return cycle_backtest.run_file(os.path.join(BASE_DIR, cycle_backtest.DATA_FILE))
 
 
 def _today_kst() -> dt.date:
@@ -370,7 +378,13 @@ def load_us_inventory_trends(use_demo: bool) -> tuple[dict[str, object], dict[st
     if use_demo:
         return demo_mod.demo_us_inventory_trends(), {}
 
-    tickers = list(config.CYCLE_US_TICKERS)
+    return _fetch_us_trends(list(config.CYCLE_US_TICKERS))
+
+
+def _fetch_us_trends(tickers: list[str], names: dict | None = None,
+                     quarters: int | None = None) -> tuple[dict[str, object], dict[str, str]]:
+    """티커 목록 → EDGAR XBRL 재고 추세. 메모리 3사 · 트랙별 재고가 같이 씁니다."""
+    names = names or {}
     if not tickers:
         return {}, {}
 
@@ -406,17 +420,51 @@ def load_us_inventory_trends(use_demo: bool) -> tuple[dict[str, object], dict[st
             )
             continue
 
-        name = next((i.name for i in config.SECTION_WATCHLIST.instruments
-                     if i.symbol == ticker), ticker)
+        name = names.get(ticker) or next(
+            (i.name for i in config.SECTION_WATCHLIST.instruments if i.symbol == ticker), ticker)
         trends[ticker] = cycle.build_trend_from_xbrl(
             name, ticker,
             collected["inventory"], collected["cost_of_sales"],
             collected.get("revenue") or [],
-            quarters=config.CYCLE_XBRL_QUARTERS,
+            quarters=quarters or config.CYCLE_XBRL_QUARTERS,
             errors=warnings,
         )
 
     return trends, errors
+
+
+@swr.cached(config.DART_FINANCIALS_CACHE_TTL_SEC, stale=14 * 86_400)
+def load_track_inventory(use_demo: bool) -> tuple[dict[str, dict], dict[str, str]]:
+    """트랙별 재고 (낸드 · 레거시) — {트랙: {티커: 추세 또는 None}}, {티커: 오류}.
+
+    데모에서는 비웁니다 — 가짜 재고로 트랙 카드에 신호를 붙이면 오해를 부릅니다.
+    """
+    if use_demo:
+        return {}, {}
+    groups: dict[str, dict] = {}
+    errors: dict[str, str] = {}
+    for track, tickers in config.CYCLE_TRACK_TICKERS.items():
+        trends, errs = _fetch_us_trends(list(tickers), config.CYCLE_TRACK_NAMES)
+        groups[track] = {t: trends.get(t) for t in tickers}
+        errors.update(errs)
+    return groups, errors
+
+
+@swr.cached(86_400, stale=14 * 86_400)
+def load_hyperscaler_capex(use_demo: bool):
+    """하이퍼스케일러 4사 설비투자 — 분기 공시라 하루 캐시면 충분합니다."""
+    if use_demo:
+        return None, "데모 모드에서는 받지 않습니다"
+    try:
+        ticker_map = edgar.fetch_ticker_map(config.EDGAR_USER_AGENT)
+    except Exception as exc:  # noqa: BLE001
+        return None, f"CIK 매핑 실패: {exc}"
+    try:
+        table = hyperscaler_capex.fetch(config.EDGAR_USER_AGENT, ticker_map,
+                                        config.EDGAR_CIK_OVERRIDES)
+    except Exception as exc:  # noqa: BLE001
+        return None, f"수집 실패: {exc}"
+    return table, ""
 
 
 @swr.cached(config.DART_FINANCIALS_CACHE_TTL_SEC, stale=14 * 86_400)
@@ -5456,6 +5504,8 @@ FETCH_LABELS = {
     "load_corp_codes": "DART 고유번호",
     "load_kr_companies": "기업 개황",
     "load_inventory_trends": "국내 재고", "load_us_inventory_trends": "미국 재고",
+    "load_track_inventory": "트랙별 재고", "load_hyperscaler_capex": "하이퍼스케일러 CapEx",
+    "load_backtest": "사이클 백테스트",
     "load_screens": "미국 재무 심사", "load_kr_screens": "국내 재무 심사",
     "load_kr_value_rows": "국내 가치 지표", "load_kr_vol_profiles": "국내 변동성",
     "load_kr_flows": "수급", "load_kr_quarters": "분기 실적",
@@ -5724,14 +5774,19 @@ def render_signals_tab(data: dict[str, dict[str, Quote]], use_demo: bool,
     )
 
 
-def _render_phase(phase, trends: dict) -> None:
-    """국면 보드 + 체크리스트(접힘). 데모에서는 trends={} 로 대조를 끕니다 —
-    가짜 재고 숫자로 대조하면 '기록과 다름' 이 거짓으로 뜹니다."""
+def _render_phase(phase, trends: dict, track_groups: dict | None = None,
+                  track_errors: dict | None = None) -> None:
+    """국면 보드 + 체크리스트 · 이력 · 백테스트 · 트랙별 재고(접힘). 데모에서는
+    trends={} 로 대조를 끕니다 — 가짜 재고 숫자로 대조하면 '기록과 다름' 이 거짓으로 뜹니다."""
     today = _today_kst()
     try:
         checks = cycle_phase.cross_check(phase, trends)
     except Exception:  # noqa: BLE001 - 대조가 실패해도 판정 기록은 보여줍니다
         checks = {}
+    try:
+        track_inv = cycle_phase.track_inventory(track_groups or {}, track_errors)
+    except Exception:  # noqa: BLE001
+        track_inv = {}
     st.markdown(
         ui.render_section_head(
             "사이클 국면",
@@ -5739,7 +5794,7 @@ def _render_phase(phase, trends: dict) -> None:
             None),
         unsafe_allow_html=True,
     )
-    st.markdown(ui.render_phase_board(phase, today, checks), unsafe_allow_html=True)
+    st.markdown(ui.render_phase_board(phase, today, checks, track_inv), unsafe_allow_html=True)
     if getattr(phase, "ok", False):
         n_auto = sum(1 for c in checks.values() if c.state != "unknown")
         diff = len(cycle_phase.disagreements(checks))
@@ -5749,6 +5804,16 @@ def _render_phase(phase, trends: dict) -> None:
         with st.expander(label, expanded=bool(diff)):
             st.markdown(ui.render_phase_checklist(phase, today, checks),
                         unsafe_allow_html=True)
+        if phase.history:
+            with st.expander(f"판정 이력 {len(phase.history)}건 — 최근 "
+                             f"{phase.history[-1].as_of:%m/%d}", expanded=False):
+                st.markdown(ui.render_phase_history(phase), unsafe_allow_html=True)
+    if track_inv:
+        with st.expander("트랙별 재고 — 낸드 · 레거시 대표 기업 (참고)", expanded=False):
+            st.markdown(ui.render_track_inventory(track_inv, phase), unsafe_allow_html=True)
+    bt = load_backtest()
+    with st.expander("체크리스트 백테스트 — 재고 규칙이 과거 피크에서 언제 켜졌나", expanded=False):
+        st.markdown(ui.render_cycle_backtest(bt), unsafe_allow_html=True)
 
 
 def render_cycle_tab(use_demo: bool, *, market: str = "all") -> None:
@@ -5796,8 +5861,10 @@ def render_cycle_tab(use_demo: bool, *, market: str = "all") -> None:
         use_demo, dart.key_fingerprint())
     us_trends, us_errors = load_us_inventory_trends(use_demo)
 
+    track_groups, track_errors = load_track_inventory(use_demo)
     with phase_box:
-        _render_phase(phase, {} if use_demo else {**us_trends, **kr_trends})
+        _render_phase(phase, {} if use_demo else {**us_trends, **kr_trends},
+                      track_groups, track_errors)
 
     # 잠정실적 레이더 — 재고 지표는 정식 분기보고서가 있어야 계산되는데,
     # 영업(잠정)실적은 그보다 2주쯤 먼저 나옵니다. 그 사이 기간에 메모리
@@ -5841,6 +5908,17 @@ def render_cycle_tab(use_demo: bool, *, market: str = "all") -> None:
         _exp, _exp_err = load_kr_exports(use_demo)
         st.markdown(ui.render_kr_exports(_exp, error=_exp_err),
                     unsafe_allow_html=True)
+
+    # 하이퍼스케일러 CapEx — 레이어 4, HBM 수요의 상류 (2026-11-16)
+    _cx, _cx_err = load_hyperscaler_capex(use_demo)
+    st.markdown(
+        ui.render_section_head(
+            "하이퍼스케일러 CapEx (레이어 4)",
+            "Microsoft · Alphabet · Amazon · Meta 유형자산 취득 — SEC EDGAR XBRL, 분기",
+            None),
+        unsafe_allow_html=True,
+    )
+    st.markdown(ui.render_capex(_cx, _cx_err), unsafe_allow_html=True)
     st.markdown(
         ui.render_footnote(
             "<b>공시 안의 숫자를 읽어오지 않습니다.</b> 공정공시 본문 표는 "

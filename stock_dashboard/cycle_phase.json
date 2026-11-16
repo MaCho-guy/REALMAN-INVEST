@@ -59,7 +59,9 @@
    "label": "현물-고정 스프레드 축소 또는 역전",
    "layer": "1",
    "state": "lit",
-   "detail": "DDR4 8Gb 스프레드 +70.3%(11/3) → +62.6%(11/12) · 5거래일 연속 축소, 역전은 아님"
+   "detail": "DDR4 8Gb 스프레드 +70.3%(11/3) → +62.6%(11/12) · 5거래일 연속 축소, 역전은 아님",
+   "evidence_date": "2026-11-12",
+   "strength": 2
   },
   {
    "n": 2,
@@ -67,7 +69,9 @@
    "layer": "1",
    "state": "lit",
    "detail": "PC DRAM 고정가 4Q26 +13~18% 전망, 'increases slowing from the previous quarter'(TrendForce)",
-   "next": "2026-11-30"
+   "next": "2026-11-30",
+   "evidence_date": "2026-11-11",
+   "strength": 2
   },
   {
    "n": 3,
@@ -76,7 +80,9 @@
    "state": "unlit",
    "auto": "dio_rising",
    "detail": "MU DIO 129일(+9일) — 1분기 상승. 한국 2사는 3Q 분기보고서로 갱신",
-   "next": "2026-11-16"
+   "next": "2026-11-16",
+   "evidence_date": "2026-11-13",
+   "strength": 0
   },
   {
    "n": 4,
@@ -85,7 +91,9 @@
    "state": "unlit",
    "auto": "inv_gap",
    "detail": "삼성전자 3Q26 −13.0%p (재고 +0.8% vs 매출 +13.9%)",
-   "next": "2026-11-16"
+   "next": "2026-11-16",
+   "evidence_date": "2026-11-13",
+   "strength": 0
   },
   {
    "n": 5,
@@ -94,42 +102,54 @@
    "state": "unknown",
    "auto": "finished_jump",
    "detail": "메모리 3사 자사 재고 구성은 분기보고서 주석에만 있음 — 세트업체·유통 재고 증가는 8번으로 계상",
-   "next": "2026-11-16"
+   "next": "2026-11-16",
+   "evidence_date": "2026-11-13",
+   "strength": 0
   },
   {
    "n": 6,
    "label": "CapEx 가이던스 급증 발표",
    "layer": "3",
    "state": "lit",
-   "detail": "AMAT 장비 매출 내 메모리 비중 34% → 42%(Q4 FY26) · 삼성 반도체 76.8조 · MU FY27 상반기 약 $25bn"
+   "detail": "AMAT 장비 매출 내 메모리 비중 34% → 42%(Q4 FY26) · 삼성 반도체 76.8조 · MU FY27 상반기 약 $25bn",
+   "evidence_date": "2026-11-12",
+   "strength": 3
   },
   {
    "n": 7,
    "label": "신규 팹 양산 개시 시점 도달",
    "layer": "3",
    "state": "unlit",
-   "detail": "주요 신규 대형 팹 가동은 2028년 (카운터포인트)"
+   "detail": "주요 신규 대형 팹 가동은 2028년 (카운터포인트)",
+   "evidence_date": "2026-11-11",
+   "strength": 0
   },
   {
    "n": 8,
    "label": "전방 수요 파괴",
    "layer": "4",
    "state": "lit",
-   "detail": "노트북 출하 3Q26 QoQ −15.8% · PC OEM 4Q26~1Q27 메모리 구매 조정 · 리볼 메모리 2027 7~9%(TrendForce)"
+   "detail": "노트북 출하 3Q26 QoQ −15.8% · PC OEM 4Q26~1Q27 메모리 구매 조정 · 리볼 메모리 2027 7~9%(TrendForce)",
+   "evidence_date": "2026-11-11",
+   "strength": 2
   },
   {
    "n": 9,
    "label": "경영진 어조 변화",
    "layer": "2·3",
    "state": "unlit",
-   "detail": "메모리 3사 어닝콜 기준 'sold out' 유지 — 'digestion' · 'normalization' 미등장 (다음: MU 12월)"
+   "detail": "메모리 3사 어닝콜 기준 'sold out' 유지 — 'digestion' · 'normalization' 미등장 (다음: MU 12월)",
+   "evidence_date": "2026-11-12",
+   "strength": 0
   },
   {
    "n": 10,
    "label": "비트 공급 > 수요 전환",
    "layer": "3",
    "state": "unlit",
-   "detail": "D램 전체 2027 −1~−5%p(부족) · 낸드 +5~9%p 과잉, PC DRAM은 2027 공급 축소 계획 — 낸드 트랙에 반영"
+   "detail": "D램 전체 2027 −1~−5%p(부족) · 낸드 +5~9%p 과잉, PC DRAM은 2027 공급 축소 계획 — 낸드 트랙에 반영",
+   "evidence_date": "2026-11-11",
+   "strength": 0
   }
  ],
  "exposure": {
@@ -203,5 +223,56 @@
    "what": "마이크론 FQ1-27 실적 (미확정)",
    "check": "DIO 120일 하회 · GM 86.25% 방어 · 경영진 어조(9번)"
   }
- ]
+ ],
+ "history": [
+  {
+   "as_of": "2026-11-05",
+   "phases": {
+    "hbm": "②중반",
+    "dram": "②후반",
+    "nand": "③진입",
+    "legacy": "①→②"
+   },
+   "lit": 3,
+   "status": "전환 감시",
+   "note": "최초 판정 — 2·6·8 점등, 10번은 낸드만 해당"
+  },
+  {
+   "as_of": "2026-11-07",
+   "phases": {
+    "hbm": "②중반",
+    "dram": "②후반",
+    "nand": "③진입",
+    "legacy": "①→②"
+   },
+   "lit": 4,
+   "status": "전환 감시",
+   "note": "1번 점등 — DDR4 8Gb 현물 3거래일 연속 −2.2%"
+  },
+  {
+   "as_of": "2026-11-11",
+   "phases": {
+    "hbm": "②중반",
+    "dram": "②후반",
+    "nand": "③진입",
+    "legacy": "①→②"
+   },
+   "lit": 4,
+   "status": "전환 감시",
+   "note": "1번을 '확산 중단'으로 적음 → 11/13 정정 (DDR5만 본 판정)"
+  },
+  {
+   "as_of": "2026-11-13",
+   "phases": {
+    "hbm": "②중반",
+    "dram": "②후반",
+    "nand": "③진입",
+    "legacy": "①→②"
+   },
+   "lit": 4,
+   "status": "전환 감시",
+   "note": "1번 축소 지속(+62.6%)으로 정정 · 2·6·8 근거 강화(TrendForce · AMAT)"
+  }
+ ],
+ "_strength_rule": "strength: 점등 항목만 1~3 (1 약=간접·조짐 / 2 중=한 출처로 확인 / 3 강=여러 출처·실적). evidence_date: 점등이면 근거 자료 날짜, 아니면 마지막 확인일. 판정을 바꾸면 history 에 한 줄 추가."
 }

@@ -717,8 +717,19 @@ def phase_chips_html(phase, symbol: str, today: dt.date | None = None) -> str:
             f"{chips}{via}{stale}</div>")
 
 
-def render_phase_board(phase, today: dt.date | None = None, checks: dict | None = None) -> str:
-    """사이클 탭 맨 위 — 4트랙 국면 + 상태 + 레이어 1 가격 한 줄."""
+def _strength_dots(n: int) -> str:
+    if not n:
+        return ""
+    return (f'<span class="cl-str s{n}" title="근거 강도">{"●" * n}{"○" * (3 - n)} '
+            f"{_esc({1: '약', 2: '중', 3: '강'}.get(n, ''))}</span>")
+
+
+def render_phase_board(phase, today: dt.date | None = None, checks: dict | None = None,
+                       track_inv: dict | None = None) -> str:
+    """사이클 탭 맨 위 — 4트랙 국면 + 상태 + 레이어 1 가격 한 줄.
+
+    track_inv: {트랙 key: cycle_phase.TrackInv} — 낸드 · 레거시 카드에 재고 한 줄.
+    """
     if phase is None:
         return ""
     if not getattr(phase, "ok", False):
@@ -733,9 +744,12 @@ def render_phase_board(phase, today: dt.date | None = None, checks: dict | None 
 
     head_name = (f"{_esc(main.name)} {_esc(main.glyph)} {_esc(main.label)}"
                  if main is not None else "")
+    sc = phase.strength_counts
+    str_txt = " · ".join(f"{lbl} {sc[k]}" for k, lbl in ((3, "강"), (2, "중"), (1, "약")) if sc.get(k))
     head = (f'<div class="ph-head"><span class="ph-title">{head_name}</span>'
             f'<span class="ph-status {status_cls}">{_esc(status)}</span>'
-            f'<span class="ph-lit">점등 {phase.lit_count}/{n_total}</span></div>')
+            f'<span class="ph-lit">점등 {phase.lit_count}/{n_total}'
+            + (f' <em>({_esc(str_txt)})</em>' if str_txt else "") + "</span></div>")
 
     alerts = []
     age = phase.age_days(today)
@@ -748,6 +762,13 @@ def render_phase_board(phase, today: dt.date | None = None, checks: dict | None 
                       + " — 새 공시가 반영됐을 수 있습니다. 국면을 다시 점검하십시오.")
     if status == "재판정 필요":
         alerts.append("점등 3개 이상에 재고(레이어 2) 항목이 포함됐습니다 — §5 규칙상 재판정 대상입니다.")
+    old = phase.stale_evidence(today)
+    if old:
+        alerts.append("근거가 30일 넘은 항목: " + ", ".join(f"{n}번" for n in old)
+                      + " — 다시 확인하십시오.")
+    gap_msg = phase.history_gap()
+    if gap_msg:
+        alerts.append(f"판정 이력 — {gap_msg}. 기록을 고치면 이력에도 한 줄 적어야 합니다.")
     alert_html = "".join(f'<div class="ph-alert">{_esc(a)}</div>' for a in alerts)
 
     cards = []
@@ -758,7 +779,8 @@ def render_phase_board(phase, today: dt.date | None = None, checks: dict | None 
             f'<div class="ph-track {_phase_cls(t.phase)}">'
             f'<div class="ph-tname">{_esc(t.name)}</div>'
             f'<div class="ph-tphase">{_esc(t.glyph)} <span>{_esc(t.label)}</span>{mark}</div>'
-            f'<div class="ph-why">{clamp(_esc(t.why), limit=56)}</div></div>')
+            f'<div class="ph-why">{clamp(_esc(t.why), limit=56)}</div>'
+            + _track_inv_line((track_inv or {}).get(t.key)) + "</div>")
 
     # 레이어 1 — 현물-고정 스프레드. 오래된 입력은 회색 + 갱신 필요.
     p = phase.prices
@@ -791,6 +813,16 @@ def render_phase_board(phase, today: dt.date | None = None, checks: dict | None 
             f'<div class="ph-grid">{"".join(cards)}</div>{price_html}{foot}</div>')
 
 
+def _track_inv_line(ti) -> str:
+    if ti is None or not getattr(ti, "rows", None):
+        return ""
+    names = "·".join(r.symbol for r in ti.rows)
+    a, n = ti.both
+    hot = " hot" if n and a else ""
+    return (f'<div class="ph-inv{hot}"><span>재고</span> {_esc(ti.summary)} '
+            f'<em>{_esc(names)}</em></div>')
+
+
 def render_phase_checklist(phase, today: dt.date | None = None,
                            checks: dict | None = None) -> str:
     """체크리스트 10개 — 기록 vs 공시 자동, 그리고 다음 확인일."""
@@ -821,11 +853,21 @@ def render_phase_checklist(phase, today: dt.date | None = None,
             except ValueError:
                 nxt = f" · 다음 확인 {_esc(c.next)}"
         diff = auto is not None and auto.agrees is False
+        ev = ""
+        if c.evidence_date:
+            ev_age = c.evidence_age(today)
+            ev_word = "근거" if c.state == "lit" else "확인"
+            ev_cls = "cl-ev old" if c.evidence_stale(today) else "cl-ev"
+            ev = (f'<div class="{ev_cls}">{ev_word} {_md(c.evidence_date)} ({ev_age}일 전)'
+                  + (" — 재확인" if c.evidence_stale(today) else "")
+                  + f" {_strength_dots(c.strength)}</div>")
+        else:
+            ev = '<div class="cl-ev old">근거일 없음 — 재확인</div>'
         rows.append(
             f'<tr class="{"diff" if diff else ""}">'
             f'<td class="cl-n">{c.n}</td>'
             f'<td class="cl-item"><b>{_esc(c.label)}</b>'
-            f'<div class="cl-sub">레이어 {_esc(c.layer)} · {_esc(c.detail)}{nxt}</div>'
+            f'<div class="cl-sub">레이어 {_esc(c.layer)} · {_esc(c.detail)}{nxt}</div>{ev}'
             + ('<div class="cl-diff">기록과 다름</div>' if diff else "")
             + f"</td><td>{cell(c.state)}</td><td>{auto_html}</td></tr>")
 
@@ -844,8 +886,165 @@ def render_phase_checklist(phase, today: dt.date | None = None,
             '<div class="cl-rule">3개 이상 점등이면 재판정. 단 레이어 1(가격) · 3 · 4 만으로는 '
             "국면을 바꾸지 않고 '전환 감시' 로 둡니다 — 재고(레이어 2) 점등이 함께 있어야 "
             "재판정입니다. 공시 자동 칸은 판정된 회사가 2곳 이상일 때만 결론을 내고, 2곳 "
-            "이상 점등이면 점등입니다. 자동 값은 기록을 덮어쓰지 않고 대조만 합니다.</div>"
+            "이상 점등이면 점등입니다. 자동 값은 기록을 덮어쓰지 않고 대조만 합니다. "
+            "근거 강도 — 약: 간접 · 조짐(전망, 해석) / 중: 한 출처로 확인 / 강: 여러 출처 · "
+            "실적으로 확인. 근거가 30일을 넘으면 회색으로 바뀝니다.</div>"
             f"{up_html}</div>")
+
+
+def render_phase_history(phase) -> str:
+    """판정 이력 — 날짜별 4트랙 국면 · 점등 · 상태. 직전 줄 대비 바뀐 칸은 굵게."""
+    if phase is None or not getattr(phase, "ok", False) or not phase.history:
+        return ""
+    keys = [t.key for t in phase.tracks]
+    head = "".join(f"<th>{_esc(t.abbr)}</th>" for t in phase.tracks)
+    rows = []
+    for i in range(len(phase.history) - 1, -1, -1):
+        h = phase.history[i]
+        changed = phase.changes_at(i)
+        cells = "".join(
+            f'<td class="{"chg" if k in changed else ""}">{_esc(h.phases.get(k, "—"))}</td>'
+            for k in keys)
+        st_cls = {"유지": "hold", "전환 감시": "watch", "재판정 필요": "rejudge"}.get(h.status, "")
+        rows.append(
+            f'<tr><td class="hi-d">{_md(h.as_of)}</td>{cells}<td>{h.lit}</td>'
+            f'<td><span class="hi-st {st_cls}">{_esc(h.status)}</span></td></tr>'
+            + (f'<tr class="hi-note"><td></td><td colspan="{len(keys) + 2}">{_esc(h.note)}</td></tr>'
+               if h.note else ""))
+    return ('<div class="dash-phase-hist"><table><thead><tr><th>판정일</th>'
+            f"{head}<th>점등</th><th>상태</th></tr></thead><tbody>{''.join(rows)}</tbody></table>"
+            '<div class="cl-rule">최신이 위. 직전 판정에서 바뀐 국면은 굵게 표시합니다. 이 이력을 '
+            "나중에 실제 국면(매출 · 마진이 꺾인 시점)과 대조하면 판정이 얼마나 일찍 · 늦게 "
+            "맞았는지 잴 수 있습니다.</div></div>")
+
+
+def _lead_txt(v) -> str:
+    if v is None:
+        return "—"
+    if v == 0:
+        return "피크 분기"
+    return f"{abs(v)}분기 {'선행' if v < 0 else '지연'}"
+
+
+def render_cycle_backtest(result) -> str:
+    """체크리스트 백테스트 — 재고 규칙별 점등 비율 · 피크 대비 첫 점등 · 확장기 오경보."""
+    if result is None:
+        return ""
+    if not getattr(result, "ok", False):
+        return f'<div class="dash-bt err">백테스트를 돌리지 못했습니다 — {_esc(result.error)}</div>'
+    peak_years = " · ".join(f"{c.peak[2:4]}" for c in result.cycles)
+    rows = []
+    for sc in result.scores:
+        cur = sc.rule.key in ("i3", "i4", "any")
+        bits = []
+        for v in sc.first_vs_peak:
+            cls = "lead" if (v is not None and v < 0) else "lag" if (v is not None and v > 0) else ""
+            txt = "—" if v is None else ("0" if v == 0 else f"{v:+d}")
+            bits.append(f'<span class="{cls}">{txt}</span>')
+        med = sc.median_lead
+        med_txt = "" if med is None else f'<div class="cl-sub">중앙 {_esc(_lead_txt(med if med != int(med) else int(med)))}</div>'
+        rows.append(
+            f'<tr class="{"cur" if cur else ""}"><td class="bt-r"><b>{_esc(sc.rule.label)}</b>'
+            f'<div class="cl-sub">{_esc(sc.rule.note)}</div></td>'
+            f"<td>{sc.lit_share:.0f}%<div class=\"cl-sub\">{sc.lit_quarters}/{sc.total}</div></td>"
+            f'<td class="bt-pk">{" ".join(bits)}{med_txt}</td>'
+            f"<td>{sc.early_alarms}/{sc.expansion_quarters}</td></tr>")
+    cyc = " · ".join(f"{c.trough[:7]} 저점 ${c.trough_rev:,.0f}M → {c.peak[:7]} 피크 ${c.peak_rev:,.0f}M"
+                     for c in result.cycles)
+    return ('<div class="dash-bt">'
+            f'<div class="bt-head">{_esc(result.company)} {_esc(result.span)} · 분기 {len(result.quarters)}개 · '
+            f"매출 사이클 {len(result.cycles)}번</div>"
+            '<div class="bt-scroll"><table><thead><tr><th>규칙</th><th>점등</th>'
+            f"<th>피크 대비<br>({_esc(peak_years)}년)</th><th>오경보</th></tr></thead>"
+            f"<tbody>{''.join(rows)}</tbody></table></div>"
+            f'<div class="cl-rule"><b>읽는 법</b> — 피크 대비는 매출 피크 분기 대비 처음 켜진 분기 '
+            "(±4분기 안, <b>−1 = 1분기 먼저</b>, +2 = 2분기 늦게). 오경보는 매출 저점 다음부터 피크 3분기 전까지 켜진 분기 수 — "
+            "적을수록 덜 시끄러운 규칙입니다. 굵은 배경은 현행 체크리스트 규칙.<br>"
+            f"<b>사이클</b> — {_esc(cyc)}<br>"
+            "<b>한계</b> — 가격(레이어 1) · 완제품 비중(5번)은 과거 자료가 없어 재현하지 않았습니다. "
+            "피크 4번뿐인 표본이라 경향이지 통계적 결론이 아닙니다. 분기 일수는 91.25일로 고정 "
+            "(원자료에 구간 일수 없음).<br>"
+            f"<b>자료</b> — {_esc(result.source)}</div></div>")
+
+
+def render_capex(table, error: str = "") -> str:
+    """하이퍼스케일러 4사 설비투자 — 달력 분기별 회사 · 합계 · 전년동기 대비."""
+    if table is None or not getattr(table, "ok", False):
+        msg = error or "값이 없습니다"
+        return f'<div class="dash-capex err">하이퍼스케일러 CapEx — {_esc(msg)}</div>'
+    qs = table.quarters
+    head = "".join(f"<th>{_esc(q[2:])}</th>" for q in qs)
+    rows = []
+    for c in table.companies:
+        if c.error:
+            rows.append(f'<tr><td class="cx-n">{_esc(c.name)}</td>'
+                        f'<td colspan="{len(qs)}" class="cl-na">{_esc(c.error)}</td></tr>')
+            continue
+        cells = []
+        for q in qs:
+            v = c.by_quarter.get(q)
+            mark = "*" if q in c.derived else ""
+            cells.append(f"<td>{'—' if v is None else f'{v / 1000:,.1f}{mark}'}</td>")
+        rows.append(f'<tr><td class="cx-n">{_esc(c.name)}</td>{"".join(cells)}</tr>')
+    tot = []
+    yoy = []
+    for q in qs:
+        t = table.total(q)
+        y = table.yoy(q)
+        tot.append(f"<td><b>{'—' if t is None else f'{t / 1000:,.1f}'}</b></td>")
+        yoy.append(f'<td class="{"up" if (y or 0) > 0 else "dn" if y is not None else ""}">'
+                   f"{'—' if y is None else f'{y:+.0f}%'}</td>")
+    rows.append(f'<tr class="cx-tot"><td class="cx-n">4사 합계</td>{"".join(tot)}</tr>')
+    rows.append(f'<tr class="cx-yoy"><td class="cx-n">합계 전년비</td>{"".join(yoy)}</tr>')
+    latest = table.latest_full
+    lead = ""
+    if latest:
+        t, y = table.total(latest), table.yoy(latest)
+        lead = (f'<div class="bt-head">{_esc(latest)} 4사 합계 ${t / 1000:,.1f}B'
+                + (f" · 전년동기 대비 {y:+.0f}%" if y is not None else "") + "</div>")
+    tags = " · ".join(f"{c.symbol} {c.tag}" for c in table.companies if c.tag)
+    return ('<div class="dash-capex">' + lead
+            + '<div class="bt-scroll"><table><thead><tr><th>십억 달러</th>'
+            f"{head}</tr></thead><tbody>{''.join(rows)}</tbody></table></div>"
+            '<div class="cl-rule">SEC EDGAR XBRL 현금흐름표의 유형자산 취득(현금 지출). 10-Q 는 '
+            "누적으로만 실려 분기 값은 누적 차분으로 만들었고, <b>*</b> 표시가 차분한 값입니다. "
+            "회계연도가 달라도(MSFT 6월 결산) 분기 말일이 달력 분기 말이라 달력 분기로 맞췄습니다. "
+            "<b>금융리스로 들인 설비는 빠져 있어 회사가 발표하는 'CapEx' 와 다를 수 있습니다.</b> "
+            "네 회사 값이 다 있을 때만 합계를 냅니다."
+            + (f"<br>태그: {_esc(tags)}" if tags else "") + "</div></div>")
+
+
+def render_track_inventory(track_inv: dict, phase=None) -> str:
+    """트랙별 재고 — 낸드 · 레거시 대표 기업의 DIO · 갭. 판정은 바꾸지 않는 참고 표."""
+    if not track_inv:
+        return ""
+    names = {t.key: t.name for t in (phase.tracks if phase is not None and getattr(phase, "ok", False) else [])}
+    blocks = []
+    for key, ti in track_inv.items():
+        rows = []
+        for r in ti.rows:
+            if r.error:
+                rows.append(f'<tr><td class="cx-n">{_esc(r.name)}</td>'
+                            f'<td colspan="4" class="cl-na">{_esc(r.error)}</td></tr>')
+                continue
+            dio = "—" if r.dio is None else f"{r.dio:.0f}일"
+            chg = "" if r.dio_change is None else f' <span class="cl-sub">({r.dio_change:+.0f})</span>'
+            gap = "—" if r.gap is None else f"{r.gap:+.1f}%p"
+
+            def flag(v):
+                return "—" if v is None else ("● 점등" if v else "○")
+            rows.append(f'<tr><td class="cx-n">{_esc(r.name)}<div class="cl-sub">{_esc(r.period)}</div></td>'
+                        f"<td>{dio}{chg}</td><td>{flag(r.i3)}<div class=\"cl-sub\">연속 {r.rising}</div></td>"
+                        f"<td>{gap}</td><td>{flag(r.i4)}</td></tr>")
+        blocks.append(
+            f'<div class="ti-t">{_esc(names.get(key, key))} — {_esc(ti.summary)}</div>'
+            '<table><thead><tr><th>기업</th><th>DIO</th><th>DIO 2분기↑</th><th>재고−매출</th>'
+            f"<th>갭&gt;0</th></tr></thead><tbody>{''.join(rows)}</tbody></table>")
+    return ('<div class="dash-trackinv">' + "".join(blocks)
+            + '<div class="cl-rule">메모리 3사와 같은 계산(DIO · 재고-매출 증가율 갭, 직전 분기 대비)을 '
+            "트랙 대표 기업에 적용했습니다. <b>국면 판정은 바꾸지 않는 참고 표입니다</b> — 낸드는 "
+            "SanDisk 한 곳뿐이라 '2곳 이상' 규칙을 채우지 못합니다. 4분기는 10-K 연간에서 3분기 누적을 "
+            "빼서 만듭니다.</div></div>")
 
 
 def render_signal_card(sig, headlines: list | None = None) -> str:

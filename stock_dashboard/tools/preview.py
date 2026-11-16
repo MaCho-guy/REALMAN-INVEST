@@ -421,6 +421,17 @@ def _phase_block(trends: dict) -> str:
             '<details class="pv-fold"><summary>'
             f"전환 체크리스트 10개 — 점등 {phase.lit_count} (앱에서는 접혀 있습니다)"
             "</summary>" + ui.render_phase_checklist(phase, today, checks) + "</details>")
+        if phase.history:
+            parts.append('<details class="pv-fold"><summary>'
+                         f"판정 이력 {len(phase.history)}건</summary>"
+                         + ui.render_phase_history(phase) + "</details>")
+    import os as _os
+
+    import cycle_backtest
+    root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    parts.append('<details class="pv-fold"><summary>체크리스트 백테스트</summary>'
+                 + ui.render_cycle_backtest(cycle_backtest.run_file(
+                     _os.path.join(root, cycle_backtest.DATA_FILE))) + "</details>")
     return "".join(parts)
 
 

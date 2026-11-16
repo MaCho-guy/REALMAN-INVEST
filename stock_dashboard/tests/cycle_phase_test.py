@@ -47,6 +47,8 @@ def with_states(states: dict[int, str]) -> cp.Phase:
     for c in data["checklist"]:
         if c["n"] in states:
             c["state"] = states[c["n"]]
+            # 강도는 점등 항목만 1~3 (2026-11-16 형식 검사)
+            c["strength"] = (c.get("strength") or 1) if c["state"] == "lit" else 0
     return cp.parse(data)
 
 

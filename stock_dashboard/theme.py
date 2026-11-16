@@ -1870,6 +1870,59 @@ def build_rules() -> str:
                             color: var(--dash-ink-2); }}
   .dash-phase-cl ul.cl-up {{ margin: 4px 0 0; padding-left: 18px; font-size: var(--fs-3); }}
   .dash-phase-cl ul.cl-up li span {{ color: var(--dash-ink-muted); font-size: var(--fs-2); }}
+  /* 근거 날짜 · 강도 (2026-11-16) */
+  .dash-phase-cl .cl-ev {{ font-size: var(--fs-1); color: var(--dash-ink-2); margin-top: 3px; }}
+  .dash-phase-cl .cl-ev.old {{ color: var(--dash-ink-muted); font-style: italic; }}
+  .dash-phase-cl .cl-str {{ margin-left: 4px; letter-spacing: 1px; color: var(--dash-accent);
+                            white-space: nowrap; font-style: normal; }}
+  .dash-phase .ph-lit em {{ font-style: normal; color: var(--dash-ink-muted); font-weight: 500; }}
+  .dash-phase .ph-inv {{ margin-top: 6px; padding-top: 5px; border-top: 1px dashed var(--dash-divider);
+                         font-size: var(--fs-1); color: var(--dash-ink-2); line-height: 1.35; }}
+  .dash-phase .ph-inv span {{ font-weight: 700; color: var(--dash-ink-muted); margin-right: 2px; }}
+  .dash-phase .ph-inv em {{ font-style: normal; color: var(--dash-ink-muted); }}
+  .dash-phase .ph-inv.hot {{ color: var(--dash-up); }}
+
+  /* 판정 이력 · 백테스트 · 하이퍼스케일러 CapEx · 트랙별 재고 — 같은 표 모양 */
+  .dash-phase-hist, .dash-bt, .dash-capex, .dash-trackinv {{ margin: var(--sp-2) 0 var(--sp-3); }}
+  .dash-phase-hist table, .dash-bt table, .dash-capex table, .dash-trackinv table {{
+      width: 100%; border-collapse: collapse; font-size: var(--fs-3); }}
+  .dash-phase-hist th, .dash-bt th, .dash-capex th, .dash-trackinv th {{
+      font-size: var(--fs-1); color: var(--dash-ink-muted); font-weight: 600; text-align: left;
+      padding: 4px 6px; border-bottom: 1px solid var(--dash-border); white-space: nowrap; }}
+  .dash-phase-hist td, .dash-bt td, .dash-capex td, .dash-trackinv td {{
+      padding: 5px 6px; vertical-align: top; border-bottom: 1px solid var(--dash-divider); }}
+  .dash-bt .bt-scroll, .dash-capex .bt-scroll {{ overflow-x: auto; -webkit-overflow-scrolling: touch; }}
+  .dash-bt .bt-head, .dash-capex .bt-head {{ font-size: var(--fs-3); font-weight: 700;
+      color: var(--dash-ink); margin-bottom: 4px; }}
+  .dash-phase-hist .cl-rule, .dash-bt .cl-rule, .dash-capex .cl-rule, .dash-trackinv .cl-rule {{
+      margin-top: var(--sp-2); font-size: var(--fs-2); color: var(--dash-ink-muted); line-height: 1.5; }}
+  .dash-bt .cl-sub, .dash-capex .cl-sub, .dash-trackinv .cl-sub {{
+      font-size: var(--fs-1); color: var(--dash-ink-muted); margin-top: 1px; }}
+  .dash-capex .cl-na, .dash-trackinv .cl-na {{ font-size: var(--fs-2); color: var(--dash-ink-muted); }}
+  .dash-phase-hist td.chg {{ font-weight: 800; color: var(--dash-accent); }}
+  .dash-phase-hist td.hi-d {{ white-space: nowrap; color: var(--dash-ink-2); font-weight: 650; }}
+  .dash-phase-hist tr.hi-note td {{ font-size: var(--fs-1); color: var(--dash-ink-muted);
+      border-bottom: 1px solid var(--dash-divider); padding-top: 0; }}
+  .dash-phase-hist .hi-st {{ white-space: nowrap; font-size: var(--fs-2); font-weight: 650; }}
+  .dash-phase-hist .hi-st.watch {{ color: var(--dash-accent); }}
+  .dash-phase-hist .hi-st.rejudge {{ color: var(--dash-up); }}
+  .dash-bt td.bt-r {{ min-width: 150px; }}
+  .dash-bt tr.cur td {{ background: color-mix(in srgb, var(--dash-accent) 6%, transparent); }}
+  .dash-bt .bt-pk span {{ display: inline-block; min-width: 18px; font-variant-numeric: tabular-nums; }}
+  .dash-bt .bt-pk span.lead {{ color: var(--dash-accent); font-weight: 750; }}
+  .dash-bt .bt-pk span.lag {{ color: var(--dash-up); font-weight: 650; }}
+  .dash-phase-hist td {{ white-space: nowrap; }}
+  .dash-phase-hist tr.hi-note td {{ white-space: normal; }}
+  .dash-bt td, .dash-capex td {{ white-space: nowrap; }}
+  .dash-bt td.bt-r {{ white-space: normal; }}
+  .dash-capex td.cx-n, .dash-trackinv td.cx-n {{ font-weight: 650; white-space: nowrap; }}
+  .dash-capex tr.cx-tot td {{ border-top: 1px solid var(--dash-border); }}
+  .dash-capex tr.cx-yoy td {{ font-size: var(--fs-2); }}
+  .dash-capex td.up {{ color: var(--dash-up); }}
+  .dash-capex td.dn {{ color: var(--dash-down); }}
+  .dash-trackinv .ti-t {{ font-size: var(--fs-3); font-weight: 700; margin: var(--sp-2) 0 2px; }}
+  .dash-bt.err, .dash-capex.err {{ font-size: var(--fs-2); color: var(--dash-ink-muted); }}
+
   @media (max-width: 640px) {{
     .dash-phase .ph-grid {{ grid-template-columns: 1fr 1fr; }}
     .dash-phase-cl td.cl-item .cl-sub {{ font-size: var(--fs-1); }}

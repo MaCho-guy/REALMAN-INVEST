@@ -361,10 +361,21 @@ def rank_stories(items: list[tuple[dt.datetime | None, Headline]], limit: int, *
 
     scored = []
     for c in clusters:
-        rep_w, rep, rep_sig = sorted(
-            c, key=lambda x: (_is_tier(x[1].source, tier), x[0] or _MIN_UTC), reverse=True)[0]
-        # 보도 수 = 대표 제목과 거의 같은 제목을 낸 매체 (묶음 전체가 아님)
-        close = [(w, h) for w, h, sg in c if sg is rep_sig or near_same(sg, rep_sig)]
+        # 대표 = 묶음 안에서 **가장 많은 매체가 쓴 제목** → 주요 매체 → 최신 (11/16).
+        # 전에는 주요 매체 · 최신만 봐서, 34곳이 "삼성SDI, 수조원대 美 ESS용 배터리 수주"
+        # 라고 쓴 사건의 대표가 1곳짜리 "…'수조원 잭팟'…" 이 되어 보도 수 1 · 사건 종류
+        # 없음으로 꼭 읽기에서 빠졌습니다 (11/16 12:30 실화면).
+        def _group(m):
+            return [(w, h) for w, h, sg in c if sg is m[2] or near_same(sg, m[2])]
+
+        def _rank(m):
+            return (len({h.source or h.title for _w, h in _group(m)}),
+                    _is_tier(m[1].source, tier), m[0] or _MIN_UTC)
+
+        typical = max(c, key=_rank)
+        close = _group(typical)
+        # 같은 무리 안에서는 주요 매체 · 최신 기사를 링크로 씁니다
+        rep_w, rep = max(close, key=lambda x: (_is_tier(x[1].source, tier), x[0] or _MIN_UTC))
         outlets = {h.source or h.title for _w, h in close}
         latest = max((w for w, _h in close if w), default=None)
         age = (now - latest).total_seconds() / 86400 if latest else 7.0

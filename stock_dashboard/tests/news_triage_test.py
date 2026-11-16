@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 import os
 import sys
@@ -145,6 +146,23 @@ news._rss_body = lambda q, d: ("<item><title>삼성SDI 수주 - 연합뉴스</ti
 out, _err = news.fetch_sector_news([("battery", "2차전지", "q")], rank=True, max_days=7)
 news._rss_body = _orig
 check("fetch_sector_news: sector 키를 채움", out["battery"][0].sector == "battery", str(out))
+
+
+# ── 7-b. 대표 제목 = 가장 많은 매체가 쓴 제목 (11/16 12:30 실화면 — SDI 빠짐) ─────
+base = UTC_NOW - dt.timedelta(hours=1)
+rows = [(base - dt.timedelta(minutes=i), Headline("삼성SDI, 수조원대 美 ESS용 배터리 수주", f"https://x/{i}",
+                                                 src, "2026-11-16"))
+        for i, src in enumerate(["헤럴드경제", "매체A", "매체B", "매체C", "매체D"])]
+rows.append((UTC_NOW - dt.timedelta(minutes=5),
+             Headline("삼성SDI, 美 블랙록 계열사서 '수조원 잭팟'…ESS 날개 달았다", "https://x/bw",
+                      "비즈워치", "2026-11-16")))
+got = news.rank_stories(rows, 3, now=UTC_NOW, tier=config.NEWS_TIER_SOURCES)
+check("한 사건으로 묶임", len(got) == 1, str([g.title for g in got]))
+check("대표 = 5곳이 쓴 제목 (주요 매체 · 최신인 1곳짜리가 아님)", "수주" in got[0].title, got[0].title)
+check("보도 수 = 그 무리의 다른 매체 4곳", got[0].more == 4, f"more={got[0].more}")
+check("링크는 그 무리의 주요 매체", got[0].source == "헤럴드경제", got[0].source)
+m, _w = run({"battery": [dataclasses.replace(got[0], sector="battery")]}, now=NOW)
+check("→ 꼭 읽기에 들어감", len(m) == 1 and "수주 · 계약" in m[0].tags, str(m))
 
 # ── 8. 화면 ────────────────────────────────────────────────────────────────
 import components as ui  # noqa: E402

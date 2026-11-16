@@ -2773,7 +2773,10 @@ def build_rules() -> str:
     overflow: hidden; color: var(--dash-ink); text-decoration: none;
     font-size: var(--fs-3); font-weight: 550; line-height: 1.4;
   }}
-  a.dash-sector-t:hover {{ text-decoration: underline; }}
+  /* 스트림릿의 '.st-emotion-cache-… a' (밑줄 · 링크색)보다 앞서야 해서 한 단계 더 구체적으로
+     (11/16 실제 앱에서 밑줄이 남아 있던 것) */
+  .dash-sector a.dash-sector-t {{ text-decoration: none; color: var(--dash-ink); }}
+  .dash-sector a.dash-sector-t:hover {{ text-decoration: underline; }}
   .dash-sector-m {{ font-size: var(--fs-1); color: var(--dash-ink-muted); margin-top: 1px; }}
   .dash-sector-empty {{
     font-size: var(--fs-2); color: var(--dash-ink-muted);

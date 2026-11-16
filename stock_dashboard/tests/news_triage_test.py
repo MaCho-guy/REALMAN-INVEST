@@ -261,6 +261,8 @@ check("불릿 없는 목록 · 제목 칸 · 메타 줄", 'class="dash-sector-li
 check("밑줄 링크 클래스(dash-inline-link) 안 씀", "dash-inline-link" not in html)
 check("머리 한 줄(이름 · 검색어)", "dash-sector-head" in html)
 theme_src = open("theme.py", encoding="utf-8").read()
+check("밑줄 없앰이 스트림릿 링크 규칙(클래스 + a)보다 구체적",
+      ".dash-sector a.dash-sector-t {{ text-decoration: none" in theme_src)
 check("제목 최대 2줄", "-webkit-line-clamp: 2" in theme_src[theme_src.index(".dash-sector-t {{"):][:300])
 
 print()

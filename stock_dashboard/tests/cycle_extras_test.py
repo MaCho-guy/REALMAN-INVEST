@@ -196,7 +196,7 @@ check("이력 변화 감지 — 마지막 줄에서 dram 바뀜", pc.changes_at(
 b = ui.render_phase_board(ph, day, {})
 check("보드: 점등 강도 요약 (강 1 · 중 3)", "강 1 · 중 3" in b, b[b.find("ph-lit"):b.find("ph-lit") + 80])
 cl = ui.render_phase_checklist(ph, day, {})
-check("체크리스트: 근거 날짜 · 강도 점", "근거 11/12" in cl and "●●●" in cl and "확인 11/13" in cl)
+check("체크리스트: 근거 날짜 · 강도 점", "근거 11/12" in cl and "●●●" in cl and "확인 11/16" in cl)
 check("체크리스트: 강도 정의 문구", "여러 출처" in cl)
 cl_old = ui.render_phase_checklist(ph, far, {})
 check("오래되면 '재확인'", "재확인" in cl_old and "cl-ev old" in cl_old)

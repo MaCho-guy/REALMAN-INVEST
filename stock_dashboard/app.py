@@ -1110,13 +1110,34 @@ def _news_mine(use_demo: bool) -> dict[str, tuple[str, ...]]:
     return out
 
 
+def _news_upcoming(use_demo: bool) -> list[tuple[str, tuple[str, ...]]]:
+    """며칠 안 일정 → [(꼬리표 '금통위 D-2', 찾을 낱말)] (11/16 제안 2).
+
+    주요 일정 탭과 같은 목록(공식 표 + FRED 발표일, 기다리지 않음). 실패하면 빈 목록.
+    """
+    try:
+        events, _w, today = _calendar_events(None, use_demo,
+                                             days=config.NEWS_SCHEDULE_DAYS, soft=True)
+    except Exception:  # noqa: BLE001
+        return []
+    out = []
+    for e in events:
+        for key, words in config.NEWS_SCHEDULE_WORDS.items():
+            if key in e.title:
+                out.append((f"{key} {calendar_events.d_day(e, today)}", words))
+                break
+    return out
+
+
 def _news_triage(sector_news: dict, use_demo: bool):
     """섹터 뉴스 → (꼭 읽기, 볼 만함). 실패하면 빈 둘 — 뉴스는 보조입니다."""
     try:
         return news.triage(sector_news or {}, kinds=config.NEWS_EVENT_KINDS,
                            light=config.NEWS_LIGHT_WORDS,
                            target_words=config.NEWS_TARGET_WORDS,
-                           mine=_news_mine(use_demo), rules=config.NEWS_TRIAGE_RULES)
+                           mine=_news_mine(use_demo), upcoming=_news_upcoming(use_demo),
+                           amount_rules=config.NEWS_AMOUNT_RULES,
+                           rules=config.NEWS_TRIAGE_RULES)
     except Exception:  # noqa: BLE001
         return [], []
 
@@ -4443,8 +4464,8 @@ def _flows_korea(use_demo: bool) -> None:
     st.markdown(
         ui.render_legend(
             "구글 뉴스 · 30분마다 새로 · 중요도 = 사건 종류(실적 · 수주 · 규제 · 금리 · "
-            "가격 급변 …) + <b>내 종목</b>(보유 · 관심) + 보도 매체 수 · 새로움 · "
-            "칼럼 · 행사 기사는 뺌 · 꼬리표가 고른 이유"),
+            "가격 급변 …) + <b>내 종목</b>(보유 · 관심) + 금액 규모 + 3일 안 일정 + "
+            "보도 매체 수 · 새로움 · 칼럼 · 행사 기사는 뺌 · 꼬리표가 고른 이유"),
         unsafe_allow_html=True,
     )
     st.markdown(ui.render_news_triage(must, worth, labels), unsafe_allow_html=True)
@@ -4452,12 +4473,20 @@ def _flows_korea(use_demo: bool) -> None:
                      f"{config.SECTOR_NEWS_DAYS}일"):
         st.markdown(
             ui.render_legend(
-                "같은 사건은 한 줄로 묶고(<b>관련 N곳</b>) 보도 많은 순 · 주요 매체 우선"),
+                "위 ①②에 나온 기사와 칼럼 · 행사는 빼고 섹터 순위대로 · "
+                "같은 사건은 한 줄(<b>관련 N곳</b>)"),
             unsafe_allow_html=True,
         )
-        shown = {k: v[:config.SECTOR_NEWS_PER] for k, v in (sector_news or {}).items()}
+        # 11/16 '중복 · 가벼운 기사 빼기': 위 ①② 에 나온 사건 · 칼럼 · 행사는 빼고 다음 순위로
+        shown = news.rest_by_sector(sector_news or {}, must + worth,
+                                    light=config.NEWS_LIGHT_WORDS,
+                                    per=config.SECTOR_NEWS_PER)
+        errs = dict(sector_errors or {})
+        for k, v in shown.items():
+            if not v and (sector_news or {}).get(k):
+                errs[k] = "이 섹터 기사는 위 ① 꼭 읽기 · ② 볼 만함에 있습니다."
         st.markdown(
-            ui.render_sector_news(config.KR_SECTORS, shown, sector_errors),
+            ui.render_sector_news(config.KR_SECTORS, shown, errs),
             unsafe_allow_html=True,
         )
 

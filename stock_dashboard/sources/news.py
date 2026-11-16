@@ -527,6 +527,35 @@ def _mine_in(title: str, mine: dict) -> list[str]:
     return [name for name, words in mine.items() if any(w and w in title for w in words)]
 
 
+#: 제목 속 금액 → 억 원. "수조" 처럼 숫자 없는 말은 보수적으로 (11/16 제안 1).
+_VAGUE_AMOUNT = (("수십조", 100_000), ("수조", 20_000), ("수천억", 2_000), ("수백억", 200))
+_USD_KRW = 1_350        # 억 달러 → 억 원 어림 (순위 가중에만 씀, 화면 숫자 아님)
+
+
+def amount_eok(title: str) -> float | None:
+    """제목에서 가장 큰 금액(억 원). 없으면 None.
+
+    '2조 5천억' · '1.5조' · '3천억' · '200억원대' · '166억달러' · '수조원' 을 읽습니다.
+    순위 가중용 어림값이라 정밀하지 않아도 됩니다 — 화면에는 문턱 꼬리표만 씁니다.
+    """
+    t = re.sub(r"(\d),(\d)", r"\1\2", title or "")
+    vals: list[float] = []
+    for word, v in _VAGUE_AMOUNT:
+        if word in t:
+            vals.append(v)
+            t = t.replace(word, " ")
+    for m in re.finditer(r"(\d+(?:\.\d+)?)\s*조(?:\s*(\d+)\s*천)?(?:\s*(\d+)\s*억)?\s*(달러)?", t):
+        v = float(m.group(1)) * 10_000 + float(m.group(2) or 0) * 1_000 + float(m.group(3) or 0)
+        vals.append(v * (_USD_KRW if m.group(4) else 1))
+    t2 = re.sub(r"\d+(?:\.\d+)?\s*조(?:\s*\d+\s*천)?(?:\s*\d+\s*억)?", " ", t)
+    for m in re.finditer(r"(\d+(?:\.\d+)?)\s*천\s*억\s*(달러)?", t2):
+        vals.append(float(m.group(1)) * 1_000 * (_USD_KRW if m.group(2) else 1))
+    t3 = re.sub(r"\d+(?:\.\d+)?\s*천\s*억", " ", t2)
+    for m in re.finditer(r"(\d+(?:\.\d+)?)\s*억\s*(달러)?", t3):
+        vals.append(float(m.group(1)) * (_USD_KRW if m.group(2) else 1))
+    return max(vals) if vals else None
+
+
 def _is_light(title: str, light) -> bool:
     t = title.strip()
     if any(w in t for w in light):
@@ -535,18 +564,26 @@ def _is_light(title: str, light) -> bool:
 
 
 def triage(pool: dict, *, kinds, light=(), target_words=(), mine=None,
-           now: dt.datetime | None = None, rules: dict | None = None
-           ) -> tuple[list[Picked], list[Picked]]:
+           upcoming=(), amount_rules=(), now: dt.datetime | None = None,
+           rules: dict | None = None) -> tuple[list[Picked], list[Picked]]:
     """pool = {섹터: [Headline(score · ts 채워진)]} → (꼭 읽기, 볼 만함).
 
     rules 키: kind_bonus · mine_bonus · light_penalty · target_penalty ·
     must_min · worth_min · must_n · worth_n · must_hours · worth_hours ·
-    weekend_hours (월요일엔 must/worth 기간에 더함, 일요일엔 절반).
+    weekend_hours (월요일엔 must/worth 기간에 더함, 일요일엔 절반) ·
+    schedule_bonus · small_deal_eok · small_deal_penalty.
+
+    upcoming = [(꼬리표 글, (제목에서 찾을 낱말, …))] — 며칠 안 일정(금통위 D-2 …).
+      제목이 그 낱말에 걸리면 가점 + 꼬리표 (11/16 제안 2). 이 함수는 날짜를
+      모릅니다 — 고르는 쪽(app)이 기간 안 일정만 넘깁니다.
+    amount_rules = [(억 원 이상, 가점, 꼬리표)] 큰 것부터 — 사건 종류가 걸린 제목의
+      금액(amount_eok)에만 (제안 1). 수주 · 계약인데 small_deal_eok 미만이면 감점.
     """
     r = {"kind_bonus": 1.0, "mine_bonus": 1.5, "light_penalty": 1.5,
          "target_penalty": 0.7, "must_min": 2.5, "worth_min": 1.2,
          "must_n": 5, "worth_n": 6, "must_hours": 36, "worth_hours": 72,
-         "weekend_hours": 48}
+         "weekend_hours": 48, "schedule_bonus": 0.8, "small_deal_eok": 300,
+         "small_deal_penalty": 0.3}
     r.update(rules or {})
     now = now or dt.datetime.now(dt.timezone.utc)
     wd = now.astimezone(_KST).weekday()             # 0 = 월
@@ -569,10 +606,25 @@ def triage(pool: dict, *, kinds, light=(), target_words=(), mine=None,
             imp += r["mine_bonus"] if mine_hit else 0.0
             imp -= r["light_penalty"] if light_hit else 0.0
             imp -= r["target_penalty"] if target_only else 0.0
-            tags = [f"내 종목 {n}" for n in mine_hit[:2]] + kinds_hit[:2]
+            sched = [lbl for lbl, words in upcoming if any(w in t for w in words)]
+            imp += r["schedule_bonus"] if sched else 0.0
+            amount_tag = ""
+            if kinds_hit:
+                amt = amount_eok(t)
+                if amt is not None:
+                    for floor, bonus, tag in amount_rules:
+                        if amt >= floor:
+                            imp += bonus
+                            amount_tag = tag
+                            break
+                    else:
+                        if "수주 · 계약" in kinds_hit and amt < r["small_deal_eok"]:
+                            imp -= r["small_deal_penalty"]
+            tags = ([f"내 종목 {n}" for n in mine_hit[:2]] + kinds_hit[:2]
+                    + ([amount_tag] if amount_tag else []) + sched[:1])
             if (getattr(h, "more", 0) or 0) >= 2:
                 tags.append(f"같은 제목 {h.more + 1}곳")
-            cands.append((imp, hours, bool(kinds_hit or mine_hit), light_hit, h, tags))
+            cands.append((imp, hours, bool(kinds_hit or mine_hit or sched), light_hit, h, tags))
     cands.sort(key=lambda x: (x[0], -x[1]), reverse=True)
 
     must: list[Picked] = []
@@ -592,3 +644,28 @@ def triage(pool: dict, *, kinds, light=(), target_words=(), mine=None,
             continue
         taken.append(sg)
     return must, worth
+
+
+def rest_by_sector(pool: dict, picked, *, light=(), per: int = 3) -> dict:
+    """섹터 칸에 보일 기사 — 꼭 읽기 · 볼 만함에 이미 나온 사건과 가벼운 기사를
+    빼고 다음 순위로 채워 섹터마다 per 건 (11/16 사용자 선택 '중복 · 가벼운 기사 빼기').
+
+    섹터를 넘어 같은 사건도 한 번만 (앞 섹터 순서 기준). 비는 섹터는 빈 목록.
+    """
+    taken = [_sig(getattr(p, "head", p).title) for p in (picked or [])]
+    out: dict = {}
+    for key, heads in (pool or {}).items():
+        keep = []
+        for h in heads or []:
+            if len(keep) >= per:
+                break
+            t = getattr(h, "title", "") or ""
+            if _is_light(t, light):
+                continue
+            sg = _sig(t)
+            if any(same_story(x, sg) for x in taken):
+                continue
+            keep.append(h)
+            taken.append(sg)
+        out[key] = keep
+    return out

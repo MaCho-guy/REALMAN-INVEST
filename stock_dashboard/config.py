@@ -1773,11 +1773,31 @@ NEWS_NAME_ALIASES: dict[str, tuple[str, ...]] = {
     "SK하이닉스": ("하이닉스",),
     "현대차": ("현대자동차",),
 }
+#: 금액 가중 (11/16 제안 1, 사용자 승인) — 사건 종류가 걸린 제목의 금액(억 원).
+#: (이상, 가점, 꼬리표) 큰 것부터. 수주 · 계약인데 300억 미만이면 −0.3 (NEWS_TRIAGE_RULES).
+NEWS_AMOUNT_RULES: tuple[tuple[float, float, str], ...] = (
+    (10_000, 1.0, "1조원 이상"),
+    (1_000, 0.5, "1천억 이상"),
+)
+#: 일정 가점 (11/16 제안 2, 사용자 승인) — 며칠 안 일정이면 그 주제 기사에 가점.
+#: 일정 이름(calendar_events.Event.title 에 든 말) → 제목에서 찾을 낱말.
+NEWS_SCHEDULE_DAYS = 3
+NEWS_SCHEDULE_WORDS: dict[str, tuple[str, ...]] = {
+    "금통위": ("금통위", "기준금리", "한은", "한국은행"),
+    "FOMC": ("FOMC", "연준", "파월"),
+    "CPI": ("CPI", "소비자물가"),
+    "고용": ("고용지표", "비농업", "실업률"),
+    "PPI": ("PPI", "생산자물가"),
+    "PCE": ("PCE",),
+    "GDP": ("GDP",),
+}
+
 #: 판정 문턱 (news.triage). 11/16 12시 실제 묶음 219개로 맞춤.
 NEWS_TRIAGE_RULES: dict[str, float] = {
     "kind_bonus": 1.0, "mine_bonus": 1.5, "light_penalty": 1.5, "target_penalty": 0.7,
     "must_min": 2.5, "worth_min": 1.2, "must_n": 5, "worth_n": 6,
     "must_hours": 36, "worth_hours": 72, "weekend_hours": 48,
+    "schedule_bonus": 0.8, "small_deal_eok": 300, "small_deal_penalty": 0.3,
 }
 
 #: 주요 매체 — 대표 기사로 먼저 고르고 점수를 조금 더 줍니다. 이름의 **일부**만

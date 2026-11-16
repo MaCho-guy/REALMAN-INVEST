@@ -182,13 +182,86 @@ check("링크는 http 만", "javascript:" not in ui.render_news_triage(
 # ── 9. 연결 ────────────────────────────────────────────────────────────────
 app_src = open("app.py", encoding="utf-8").read()
 check("섹터 뉴스는 후보 8개를 받음", "limit=config.SECTOR_NEWS_POOL" in app_src)
-check("섹터 칸에는 3개만", "v[:config.SECTOR_NEWS_PER]" in app_src)
+check("섹터 칸 = rest_by_sector(①② 빼고 3개)", "news.rest_by_sector(sector_news or {}, must + worth" in app_src
+      and "per=config.SECTOR_NEWS_PER" in app_src)
+check("triage 에 일정 · 금액 넘김", "upcoming=_news_upcoming(use_demo)" in app_src
+      and "amount_rules=config.NEWS_AMOUNT_RULES" in app_src)
 check("뉴스 탭: 꼭 읽기 → 섹터별 전체(접는 칸)", app_src.index("ui.render_news_triage(must, worth, labels)")
       < app_src.index('st.expander(f"섹터별 전체 보기'))
 check("요약 탭에 꼭 읽기", "_render_news_must(use_demo)" in app_src)
 check("요약은 기다리지 않음 (_soft)", "_soft(load_sector_news, use_demo, default=None)" in app_src)
 check("요약 화면 미리 받기에 섹터 뉴스", '"섹터 뉴스": lambda: load_sector_news(use_demo)' in app_src)
 check("캐시 버전 올림 (모양 바뀜)", "@swr.cached(1_800, version=1)\ndef load_sector_news" in app_src)
+
+# ── 10. 금액 가중 (제안 1) ─────────────────────────────────────────────────
+for t, want in [("삼성SDI, 수조원대 美 ESS용 배터리 수주", 20_000), ("엠플러스 200억원대 장비 수주", 200),
+                ("대한조선, 2,498억 규모 수주", 2_498), ("현대차, 2조 5천억 투자", 25_000),
+                ("3천억 규모 계약", 3_000), ("반도체 수출 166억달러", 166 * 1_350),
+                ("환율 1,336.7원 마감", None), ("국고채 담합 1.6조 과징금", 16_000)]:
+    got = news.amount_eok(t)
+    check(f"금액 읽기: {t}", got == want, f"{got} ≠ {want}")
+AR = config.NEWS_AMOUNT_RULES
+big = h("○○중공업, 1.2조원 규모 LNG선 수주", "ship", 2.0, 2)
+mid = h("○○중공업, 2천억원 규모 LNG선 수주", "ship", 2.0, 2)
+small = h("○○테크, 120억원 규모 장비 수주", "ship", 2.0, 2)
+none_ = h("○○중공업, LNG선 수주", "ship", 2.0, 2)
+imps = {}
+for x in (big, mid, small, none_):
+    m, w = news.triage({"ship": [x]}, kinds=config.NEWS_EVENT_KINDS, mine={}, amount_rules=AR,
+                       now=NOW, rules=config.NEWS_TRIAGE_RULES)
+    imps[x.title] = (m + w)[0].importance if m + w else None
+check("금액 순서: 1조↑ > 1천억↑ > 금액 없음 > 300억 미만",
+      imps[big.title] > imps[mid.title] > imps[none_.title] > imps[small.title], str(imps))
+m, _ = news.triage({"ship": [big]}, kinds=config.NEWS_EVENT_KINDS, mine={}, amount_rules=AR,
+                   now=NOW, rules=config.NEWS_TRIAGE_RULES)
+check("꼬리표 '1조원 이상'", "1조원 이상" in m[0].tags, str(m[0].tags))
+m, w = news.triage({"x": [h("외국인 8.5조 순매수", "x", 2.0, 2)]}, kinds=config.NEWS_EVENT_KINDS,
+                   mine={}, amount_rules=AR, now=NOW, rules=config.NEWS_TRIAGE_RULES)
+check("사건 종류 없는 제목엔 금액 가점 없음", all("1조원 이상" not in p.tags for p in m + w))
+
+# ── 11. 일정 가점 (제안 2) ─────────────────────────────────────────────────
+UP = [("금통위 D-2", config.NEWS_SCHEDULE_WORDS["금통위"])]
+rate = h("한은, 기준금리 인상 여부 주목", "rates", 1.4, 3)
+m0, w0 = news.triage({"rates": [rate]}, kinds=config.NEWS_EVENT_KINDS, mine={}, now=NOW,
+                     rules=config.NEWS_TRIAGE_RULES)
+m1, w1 = news.triage({"rates": [rate]}, kinds=config.NEWS_EVENT_KINDS, mine={}, upcoming=UP,
+                     now=NOW, rules=config.NEWS_TRIAGE_RULES)
+i0 = (m0 + w0)[0].importance
+i1 = (m1 + w1)[0].importance
+check("3일 안 일정 주제면 +0.8", abs(i1 - i0 - 0.8) < 1e-6, f"{i0} → {i1}")
+check("꼬리표 '금통위 D-2'", "금통위 D-2" in (m1 + w1)[0].tags, str((m1 + w1)[0].tags))
+check("일정만 걸려도 꼭 읽기 후보(사건으로 침)", len(m1) == 1 or i1 < config.NEWS_TRIAGE_RULES["must_min"])
+check("일정 이름표에 금통위 · FOMC · CPI", {"금통위", "FOMC", "CPI"} <= set(config.NEWS_SCHEDULE_WORDS))
+check("일정 기간 3일", config.NEWS_SCHEDULE_DAYS == 3)
+
+# ── 12. 섹터 칸 — ①② 와 가벼운 기사 빼고 다음 순위로 ──────────────────────
+pool = {"semi": [h("삼성전자, 3분기 영업이익 12조…메모리 회복", "semi", 3, 1),
+                 h("[사설] 반도체 편중 그늘", "semi", 2.9, 1),
+                 h("SK하이닉스 HBM4 양산", "semi", 2.8, 1),
+                 h("낸드 가격 반등 조짐", "semi", 2.7, 1),
+                 h("D램 재고 감소", "semi", 2.6, 1)],
+        "fx": [h("삼성전자 3분기 영업이익 12조, 메모리 회복 뚜렷", "fx", 2.0, 1),
+               h("환율 1330원 마감", "fx", 1.9, 1)]}
+picked = [news.Picked(pool["semi"][0], [], 4.0)]
+rest = news.rest_by_sector(pool, picked, light=config.NEWS_LIGHT_WORDS, per=3)
+rt = [x.title for x in rest["semi"]]
+check("①② 기사 빠짐 · 사설 빠짐 · 다음 순위로 3건",
+      rt == ["SK하이닉스 HBM4 양산", "낸드 가격 반등 조짐", "D램 재고 감소"], str(rt))
+check("다른 섹터의 같은 사건도 빠짐", [x.title for x in rest["fx"]] == ["환율 1330원 마감"],
+      str([x.title for x in rest["fx"]]))
+rest2 = news.rest_by_sector({"x": [pool["semi"][0]]}, picked, per=3)
+check("다 빠지면 빈 목록", rest2["x"] == [])
+check("앱: 빈 섹터엔 '위 ①②에 있습니다'", "위 ① 꼭 읽기 · ② 볼 만함에 있습니다" in app_src)
+
+# ── 13. 섹터 카드 모양 ─────────────────────────────────────────────────────
+html = ui.render_sector_news([("fx", "환율", "원달러 환율 (마감 OR 전망)")],
+                             {"fx": [Headline("환율 1330원 마감", "https://x", "뉴스1", "2026-11-12", more=2)]}, {})
+check("불릿 없는 목록 · 제목 칸 · 메타 줄", 'class="dash-sector-list"' in html
+      and 'class="dash-sector-t"' in html and 'class="dash-sector-m">뉴스1 · 11/12 · 관련 2곳' in html, html)
+check("밑줄 링크 클래스(dash-inline-link) 안 씀", "dash-inline-link" not in html)
+check("머리 한 줄(이름 · 검색어)", "dash-sector-head" in html)
+theme_src = open("theme.py", encoding="utf-8").read()
+check("제목 최대 2줄", "-webkit-line-clamp: 2" in theme_src[theme_src.index(".dash-sector-t {{"):][:300])
 
 print()
 if FAILS:

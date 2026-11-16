@@ -136,7 +136,6 @@
   "render_premium_pair",
   "render_report_cards",
   "render_research_table",
-  "render_sector_news",
   "render_signal_card"
  ],
  "dash-kv": [
@@ -175,10 +174,6 @@
  "dash-news-head": [
   "render_hit_reasons",
   "render_news_block"
- ],
- "dash-news-meta": [
-  "render_news_block",
-  "render_sector_news"
  ],
  "dash-note": [
   "render_analysis_header",

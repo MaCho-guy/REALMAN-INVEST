@@ -3127,21 +3127,24 @@ def render_sector_news(sectors, headlines: dict, errors: dict) -> str:
                 '<div class="dash-sector-empty">'
                 f'{_esc(errors.get(key) or "헤드라인 없음")}</div></div>')
             continue
+        # 11/16 '카드란 깔끔하게': 불릿 · 밑줄 없이 제목(최대 2줄) → 아래 '매체 · 날짜'
+        # 한 줄, 줄 사이 얇은 선. 위 꼭 읽기 카드와 같은 읽는 순서입니다.
         lis = "".join(
             "<li>"
-            + (f'<a class="dash-inline-link" href="{_esc(h.url)}" '
+            + (f'<a class="dash-sector-t" href="{_esc(h.url)}" '
                f'target="_blank" rel="noopener noreferrer">{_esc(h.title)}</a>'
-               if h.url else _esc(h.title))
-            + (f' <span class="dash-news-meta">{_esc(_news_meta(h))}</span>'
+               if (h.url or "").startswith("http")
+               else f'<span class="dash-sector-t">{_esc(h.title)}</span>')
+            + (f'<div class="dash-sector-m">{_esc(_news_meta(h))}</div>'
                if _news_meta(h) else "")
             + "</li>"
             for h in items
         )
         blocks.append(
             '<div class="dash-sector">'
-            f'<div class="dash-sector-name">{_esc(label)}'
+            f'<div class="dash-sector-name dash-sector-head">{_esc(label)}'
             f'<span class="dash-sector-q">{_esc(_query_hint(query))}</span></div>'
-            f"<ul>{lis}</ul></div>")
+            f'<ul class="dash-sector-list">{lis}</ul></div>')
     return f'<div class="dash-sectors">{"".join(blocks)}</div>'
 
 

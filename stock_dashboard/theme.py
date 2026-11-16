@@ -2754,6 +2754,27 @@ def build_rules() -> str:
     margin-bottom: 5px; line-height: 1.5;
   }}
   .dash-sector li::marker {{ color: var(--dash-ink-muted); }}
+  /* 11/16 섹터 카드 정리 — 머리 한 줄(이름 · 검색어 말줄임) · 제목 2줄 · 메타 한 줄 */
+  .dash-sector-name.dash-sector-head {{
+    flex-direction: row; align-items: baseline; gap: 8px;
+    margin-bottom: 4px; padding-bottom: 6px;
+  }}
+  .dash-sector-head .dash-sector-q {{
+    flex: 1 1 auto; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }}
+  .dash-sector ul.dash-sector-list {{ list-style: none; margin: 0; padding: 0; }}
+  .dash-sector ul.dash-sector-list li {{
+    margin: 0; padding: 7px 0; border-top: 1px solid var(--dash-divider);
+  }}
+  .dash-sector ul.dash-sector-list li:first-child {{ border-top: none; padding-top: 2px; }}
+  .dash-sector-t {{
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden; color: var(--dash-ink); text-decoration: none;
+    font-size: var(--fs-3); font-weight: 550; line-height: 1.4;
+  }}
+  a.dash-sector-t:hover {{ text-decoration: underline; }}
+  .dash-sector-m {{ font-size: var(--fs-1); color: var(--dash-ink-muted); margin-top: 1px; }}
   .dash-sector-empty {{
     font-size: var(--fs-2); color: var(--dash-ink-muted);
   }}

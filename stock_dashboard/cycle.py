@@ -200,7 +200,7 @@ class QuarterMetrics:
 
     @property
     def label(self) -> str:
-        q = {"1Q": "1분기", "2Q": "반기", "3Q": "3분기", "FY": "연간",
+        q = {"1Q": "1분기", "2Q": "반기", "3Q": "3분기", "FY": "연간", "4Q": "4분기",
              "Q1": "1분기", "Q2": "2분기", "Q3": "3분기", "Q4": "4분기"}.get(
             self.quarter, self.quarter)
         return f"{self.year} {q}"
@@ -452,16 +452,44 @@ def build_trend_from_xbrl(
     return trend
 
 
+def _fy_to_q4(fy: QuarterMetrics, q3_accounts: list[Account]) -> QuarterMetrics:
+    """사업보고서(연간) 손익을 4분기 3개월 값으로 바꿉니다 (2026-11-16).
+
+    사업보고서의 매출·매출원가는 **연간**이라, 3분기(3개월) → 연간 → 다음 해 1분기(3개월)를
+    잇대면 재고-매출 증가율 갭이 망가집니다 (1분기 매출이 연간 대비 −75% 로 보여 갭이
+    거짓으로 크게 플러스). 4분기 = 연간 − 3분기 누적(thstrm_add_amount) 으로 만듭니다.
+    3분기 누적이 없으면 연간 그대로 둡니다 (DIO 는 365일로 맞으니 그 값만 씁니다).
+    """
+    cum = {key: pick_amount(find_account(q3_accounts, rule), period="cumulative")
+           for key, rule in RULES.items() if key in ("cost_of_sales", "revenue")}
+    if fy.cost_of_sales is None or cum.get("cost_of_sales") is None:
+        return fy
+    q4 = QuarterMetrics(year=fy.year, quarter="4Q", fs_div=fy.fs_div,
+                        inventory=fy.inventory,
+                        cost_of_sales=fy.cost_of_sales - cum["cost_of_sales"],
+                        revenue=(fy.revenue - cum["revenue"]
+                                 if fy.revenue is not None and cum.get("revenue") is not None else None),
+                        raw_materials=fy.raw_materials, work_in_progress=fy.work_in_progress,
+                        finished_goods=fy.finished_goods, missing=list(fy.missing))
+    if q4.cost_of_sales is None or q4.cost_of_sales <= 0:
+        return fy
+    return q4
+
+
 def build_trend(corp_name: str, stock_code: str,
                 collected: list[tuple[int, str, str, list[Account]]],
                 errors: list[str] | None = None) -> InventoryTrend:
     """수집한 (연도, 분기, fs_div, 계정목록) 들을 추세로 묶습니다."""
     trend = InventoryTrend(corp_name=corp_name, stock_code=stock_code,
                            errors=list(errors or []))
+    q3_accounts = {year: accounts for year, quarter, _fs, accounts in collected if quarter == "3Q"}
     for year, quarter, fs_div, accounts in collected:
-        trend.quarters.append(metrics_from_accounts(accounts, year, quarter, fs_div))
+        m = metrics_from_accounts(accounts, year, quarter, fs_div)
+        if quarter == "FY" and year in q3_accounts:
+            m = _fy_to_q4(m, q3_accounts[year])
+        trend.quarters.append(m)
 
-    order = {"1Q": 1, "2Q": 2, "3Q": 3, "FY": 4}
+    order = {"1Q": 1, "2Q": 2, "3Q": 3, "FY": 4, "4Q": 4}
     trend.quarters.sort(key=lambda q: (q.year, order.get(q.quarter, 0)))
     return trend
 

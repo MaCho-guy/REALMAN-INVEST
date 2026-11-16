@@ -761,7 +761,7 @@ def render_phase_board(phase, today: dt.date | None = None, checks: dict | None 
                       + ", ".join(f"{n}번" for n in diff)
                       + " — 새 공시가 반영됐을 수 있습니다. 국면을 다시 점검하십시오.")
     if status == "재판정 필요":
-        alerts.append("점등 3개 이상에 재고(레이어 2) 항목이 포함됐습니다 — §5 규칙상 재판정 대상입니다.")
+        alerts.append("점등 3개 이상에 재고(레이어 2)가 켜졌습니다(③·④ 동시 또는 ⑤) — §5 규칙상 재판정 대상입니다.")
     old = phase.stale_evidence(today)
     if old:
         alerts.append("근거가 30일 넘은 항목: " + ", ".join(f"{n}번" for n in old)
@@ -884,8 +884,10 @@ def render_phase_checklist(phase, today: dt.date | None = None,
             f"<th>기록 {_md(phase.as_of)}</th><th>공시 자동</th></tr></thead>"
             f"<tbody>{''.join(rows)}</tbody></table>"
             '<div class="cl-rule">3개 이상 점등이면 재판정. 단 레이어 1(가격) · 3 · 4 만으로는 '
-            "국면을 바꾸지 않고 '전환 감시' 로 둡니다 — 재고(레이어 2) 점등이 함께 있어야 "
-            "재판정입니다. 공시 자동 칸은 판정된 회사가 2곳 이상일 때만 결론을 내고, 2곳 "
+            "국면을 바꾸지 않고 '전환 감시' 로 둡니다 — 재고(레이어 2)가 함께 켜져야 "
+            "재판정입니다. <b>재고가 켜졌다 = ③ DIO 연속 상승과 ④ 재고-매출 갭이 동시에 점등, "
+            "또는 ⑤ 완제품 비중 급증</b> (11/16 변경 — 백테스트에서 ③·④ 중 하나만으로는 "
+            "과거 분기의 48% 에서 켜져 거름 역할을 못 함). 공시 자동 칸은 판정된 회사가 2곳 이상일 때만 결론을 내고, 2곳 "
             "이상 점등이면 점등입니다. 자동 값은 기록을 덮어쓰지 않고 대조만 합니다. "
             "근거 강도 — 약: 간접 · 조짐(전망, 해석) / 중: 한 출처로 확인 / 강: 여러 출처 · "
             "실적으로 확인. 근거가 30일을 넘으면 회색으로 바뀝니다.</div>"
@@ -935,7 +937,7 @@ def render_cycle_backtest(result) -> str:
     peak_years = " · ".join(f"{c.peak[2:4]}" for c in result.cycles)
     rows = []
     for sc in result.scores:
-        cur = sc.rule.key in ("i3", "i4", "any")
+        cur = sc.rule.key in ("i3", "i4", "both")
         bits = []
         for v in sc.first_vs_peak:
             cls = "lead" if (v is not None and v < 0) else "lag" if (v is not None and v > 0) else ""
@@ -959,7 +961,7 @@ def render_cycle_backtest(result) -> str:
             f"<tbody>{''.join(rows)}</tbody></table></div>"
             f'<div class="cl-rule"><b>읽는 법</b> — 피크 대비는 매출 피크 분기 대비 처음 켜진 분기 '
             "(±4분기 안, <b>−1 = 1분기 먼저</b>, +2 = 2분기 늦게). 오경보는 매출 저점 다음부터 피크 3분기 전까지 켜진 분기 수 — "
-            "적을수록 덜 시끄러운 규칙입니다. 굵은 배경은 현행 체크리스트 규칙.<br>"
+            "적을수록 덜 시끄러운 규칙입니다. 배경색은 현행 체크리스트 규칙 (11/16 부터 재고 점등 = ③·④ 동시).<br>"
             f"<b>사이클</b> — {_esc(cyc)}<br>"
             "<b>한계</b> — 가격(레이어 1) · 완제품 비중(5번)은 과거 자료가 없어 재현하지 않았습니다. "
             "피크 4번뿐인 표본이라 경향이지 통계적 결론이 아닙니다. 분기 일수는 91.25일로 고정 "
@@ -1012,6 +1014,65 @@ def render_capex(table, error: str = "") -> str:
             "<b>금융리스로 들인 설비는 빠져 있어 회사가 발표하는 'CapEx' 와 다를 수 있습니다.</b> "
             "네 회사 값이 다 있을 때만 합계를 냅니다."
             + (f"<br>태그: {_esc(tags)}" if tags else "") + "</div></div>")
+
+
+def render_customs_unit(series, error: str = "", show: int = 7) -> str:
+    """관세청 메모리 수출 단가 — 레이어 1 의 두 번째 출처. 월별 금액 · 단가 · 변화율."""
+    if series is None or not getattr(series, "ok", False):
+        msg = error or (getattr(series, "error", "") if series is not None else "") or "값이 없습니다"
+        return f'<div class="dash-customs err">메모리 수출 단가 — {_esc(msg)}</div>'
+    months = [m for m in series.months if m.kg > 0][-show:]
+
+    def pct(v):
+        if v is None:
+            return "<td>—</td>"
+        return f'<td class="{"up" if v > 0 else "dn" if v < 0 else ""}">{v:+.1f}%</td>'
+
+    rows = []
+    for m in reversed(months):
+        rows.append(
+            f'<tr><td class="cx-n">{_esc(m.month)}</td>'
+            f"<td>{m.usd / 1e8:,.1f}<div class=\"cl-sub\">{m.kg / 1000:,.0f}t</div></td>"
+            f"<td><b>{m.unit:,.0f}</b></td>"
+            f"{pct(series.change(m.month, 1))}{pct(series.change(m.month, 12))}</tr>")
+    last = series.latest
+    head = ""
+    if last is not None:
+        mo, yo = series.change(last.month, 1), series.change(last.month, 12)
+        head = (f'<div class="bt-head">{_esc(last.month)} 메모리 수출 단가 ${last.unit:,.0f}/kg'
+                + (f" · 전월 대비 {mo:+.1f}%" if mo is not None else "")
+                + (f" · 전년 대비 {yo:+.1f}%" if yo is not None else "") + "</div>")
+    items = ""
+    if last is not None and len(last.by_item) > 1:
+        it_rows = []
+        prev = series.get(shift_month_str(last.month, -12))
+        for hs, (name, usd, kg) in sorted(last.by_item.items(), key=lambda kv: -kv[1][1]):
+            unit = usd / kg if kg else None
+            p = prev.by_item.get(hs) if prev else None
+            yoy = ((unit / (p[1] / p[2]) - 1) * 100) if (unit and p and p[2] and p[1]) else None
+            it_rows.append(f'<tr><td class="cx-n">{_esc(name[:22] or hs)}<div class="cl-sub">{_esc(hs)}</div></td>'
+                           f"<td>{usd / last.usd * 100:.0f}%</td>"
+                           f"<td>{'—' if unit is None else f'{unit:,.0f}'}</td>{pct(yoy)}</tr>")
+        items = ('<div class="ti-t">하위 품목 — ' + _esc(last.month) + "</div><table><thead><tr><th>품목</th>"
+                 "<th>금액 비중</th><th>$/kg</th><th>단가 전년비</th></tr></thead><tbody>"
+                 + "".join(it_rows) + "</tbody></table>")
+    warn = ""
+    if series.warnings:
+        warn = f'<br>수집 메모: {_esc(" / ".join(series.warnings[:4]))}'
+    return ('<div class="dash-customs">' + head
+            + '<table><thead><tr><th>월</th><th>수출액(억$)</th><th>$/kg</th><th>전월</th><th>전년</th>'
+            f"</tr></thead><tbody>{''.join(rows)}</tbody></table>{items}"
+            '<div class="cl-rule">관세청 품목별 수출실적(통관 기준) HS '
+            f"{_esc(series.hs[:4])}.{_esc(series.hs[4:])} 메모리 — 수출금액 ÷ 수출중량. TrendForce 와 "
+            "다른 경로라 레이어 1 의 <b>교차 확인용</b>입니다. <b>제품 구성(HBM 비중 등)이 바뀌면 가격이 "
+            "그대로여도 단가가 움직입니다</b> — 가격 자체가 아니라 방향 확인용. 전월 자료는 매월 15일경 갱신."
+            f"<br>범위: {_esc(series.coverage)}{warn}</div></div>")
+
+
+def shift_month_str(month: str, n: int) -> str:
+    y, m = int(month[:4]), int(month[5:7])
+    idx = y * 12 + (m - 1) + n
+    return f"{idx // 12}-{idx % 12 + 1:02d}"
 
 
 def render_track_inventory(track_inv: dict, phase=None) -> str:

@@ -172,7 +172,7 @@ def _phase_bits(phase, trends: dict, today) -> tuple[str, str, list[str]]:
     details: list[str] = []
     if status == cycle_phase.STATUS_REJUDGE:
         level = "watch"
-        details.append("체크리스트 재판정 대상 (재고 항목 점등 포함)")
+        details.append("체크리스트 재판정 대상 (재고 ③·④ 동시 점등 또는 ⑤)")
     diff = cycle_phase.disagreements(cycle_phase.cross_check(phase, trends or {}))
     if diff:
         level = "watch"

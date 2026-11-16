@@ -1883,13 +1883,13 @@ def build_rules() -> str:
   .dash-phase .ph-inv.hot {{ color: var(--dash-up); }}
 
   /* 판정 이력 · 백테스트 · 하이퍼스케일러 CapEx · 트랙별 재고 — 같은 표 모양 */
-  .dash-phase-hist, .dash-bt, .dash-capex, .dash-trackinv {{ margin: var(--sp-2) 0 var(--sp-3); }}
-  .dash-phase-hist table, .dash-bt table, .dash-capex table, .dash-trackinv table {{
+  .dash-phase-hist, .dash-bt, .dash-capex, .dash-trackinv, .dash-customs {{ margin: var(--sp-2) 0 var(--sp-3); }}
+  .dash-phase-hist table, .dash-bt table, .dash-capex table, .dash-trackinv table, .dash-customs table {{
       width: 100%; border-collapse: collapse; font-size: var(--fs-3); }}
-  .dash-phase-hist th, .dash-bt th, .dash-capex th, .dash-trackinv th {{
+  .dash-phase-hist th, .dash-bt th, .dash-capex th, .dash-trackinv th, .dash-customs th {{
       font-size: var(--fs-1); color: var(--dash-ink-muted); font-weight: 600; text-align: left;
       padding: 4px 6px; border-bottom: 1px solid var(--dash-border); white-space: nowrap; }}
-  .dash-phase-hist td, .dash-bt td, .dash-capex td, .dash-trackinv td {{
+  .dash-phase-hist td, .dash-bt td, .dash-capex td, .dash-trackinv td, .dash-customs td {{
       padding: 5px 6px; vertical-align: top; border-bottom: 1px solid var(--dash-divider); }}
   .dash-bt .bt-scroll, .dash-capex .bt-scroll {{ overflow-x: auto; -webkit-overflow-scrolling: touch; }}
   .dash-bt .bt-head, .dash-capex .bt-head {{ font-size: var(--fs-3); font-weight: 700;
@@ -1921,6 +1921,14 @@ def build_rules() -> str:
   .dash-capex td.up {{ color: var(--dash-up); }}
   .dash-capex td.dn {{ color: var(--dash-down); }}
   .dash-trackinv .ti-t {{ font-size: var(--fs-3); font-weight: 700; margin: var(--sp-2) 0 2px; }}
+  .dash-customs .bt-head {{ font-size: var(--fs-3); font-weight: 700; color: var(--dash-ink); margin-bottom: 4px; }}
+  .dash-customs .cl-rule {{ margin-top: var(--sp-2); font-size: var(--fs-2); color: var(--dash-ink-muted); line-height: 1.5; }}
+  .dash-customs .cl-sub {{ font-size: var(--fs-1); color: var(--dash-ink-muted); margin-top: 1px; }}
+  .dash-customs td.cx-n {{ font-weight: 650; white-space: nowrap; }}
+  .dash-customs td.up {{ color: var(--dash-up); }}
+  .dash-customs td.dn {{ color: var(--dash-down); }}
+  .dash-customs .ti-t {{ font-size: var(--fs-3); font-weight: 700; margin: var(--sp-2) 0 2px; }}
+  .dash-customs.err {{ font-size: var(--fs-2); color: var(--dash-ink-muted); }}
   .dash-bt.err, .dash-capex.err {{ font-size: var(--fs-2); color: var(--dash-ink-muted); }}
 
   @media (max-width: 640px) {{

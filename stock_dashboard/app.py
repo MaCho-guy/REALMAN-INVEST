@@ -146,6 +146,7 @@ import cycle
 import cycle_backtest
 import cycle_phase
 import hyperscaler_capex
+from sources import customs_trade
 import buffett
 import buffett_kr
 import demo as demo_mod
@@ -448,6 +449,57 @@ def load_track_inventory(use_demo: bool) -> tuple[dict[str, dict], dict[str, str
         groups[track] = {t: trends.get(t) for t in tickers}
         errors.update(errs)
     return groups, errors
+
+
+@swr.cached(7 * 86_400, stale=30 * 86_400, keep=lambda v: bool(v and v[0]))
+def load_kr_backtest(use_demo: bool, key_fp: str = "", latest_marker: str = ""):
+    """국내 2사 백테스트 — DART 2015년 1분기부터 최신 분기까지 (회사당 약 47회 호출).
+
+    과거 분기는 바뀌지 않아 일주일 저장합니다. latest_marker 는 재고 지표(5분기)가 찾은
+    최신 분기 — 새 분기보고서가 잡히면 표식이 바뀌어 자동으로 다시 받습니다. 반환: ({종목코드: cycle_backtest.Result}, {종목코드: 오류})
+    """
+    if use_demo:
+        return {}, {"demo": "데모 모드에서는 받지 않습니다"}
+    corp_map, map_err = load_corp_codes()
+    if map_err:
+        return {}, {"DART": map_err}
+    results, errors = {}, {}
+    for inst in config.cycle_instruments():
+        corp = dart.resolve_corp_code(inst.symbol, corp_map, config.DART_CORP_CODE_OVERRIDES)
+        if corp is None:
+            errors[inst.symbol] = "DART 고유번호를 찾지 못했습니다"
+            continue
+        collected, warns = [], []
+        year, quarter = dart.latest_available_quarter()
+        while year >= 2015:
+            try:
+                accounts = dart.fetch_financials(corp, year, quarter, fs_div=config.CYCLE_FS_DIV)
+                if accounts:
+                    collected.append((year, quarter, config.CYCLE_FS_DIV, accounts))
+            except dart.DartError as exc:
+                if "조회된 데이터가 없습니다" not in str(exc):
+                    warns.append(f"{year} {quarter}: {exc}")
+            year, quarter = dart.previous_quarter(year, quarter)
+        trend = cycle.build_trend(inst.name, inst.symbol, collected, warns)
+        qs = cycle_backtest.from_trend(trend)
+        latest = trend.latest.label if trend.latest else ""
+        src = (f"DART 전체 재무제표(연결) {len(collected)}개 보고서 · 최신 {latest}. "
+               "4분기 = 사업보고서 연간 − 3분기 누적(계산).")
+        res = cycle_backtest.run(qs, company=inst.name, source=src)
+        results[inst.symbol] = res
+        if warns:
+            errors[inst.symbol] = f"{len(warns)}건 경고 — {warns[0]}"
+    return results, errors
+
+
+@swr.cached(43_200, stale=14 * 86_400)
+def load_customs_memory(use_demo: bool, key_fp: str):
+    """관세청 메모리(HS 8542.32) 수출 단가 — 월별. key_fp 는 키가 생기거나 바뀌면
+    캐시를 새로 받게 하는 지문입니다 (키 자체는 캐시 키에 넣지 않음)."""
+    if use_demo:
+        return None, "데모 모드에서는 받지 않습니다"
+    series = customs_trade.fetch(_today_kst())
+    return series, series.error
 
 
 @swr.cached(86_400, stale=14 * 86_400)
@@ -5611,8 +5663,8 @@ FETCH_LABELS = {
     "load_corp_codes": "DART 고유번호",
     "load_kr_companies": "기업 개황",
     "load_inventory_trends": "국내 재고", "load_us_inventory_trends": "미국 재고",
-    "load_track_inventory": "트랙별 재고", "load_hyperscaler_capex": "하이퍼스케일러 CapEx",
-    "load_backtest": "사이클 백테스트",
+    "load_track_inventory": "트랙별 재고", "load_customs_memory": "관세청 메모리 수출", "load_hyperscaler_capex": "하이퍼스케일러 CapEx",
+    "load_backtest": "사이클 백테스트", "load_kr_backtest": "국내 백테스트",
     "load_screens": "미국 재무 심사", "load_kr_screens": "국내 재무 심사",
     "load_kr_value_rows": "국내 가치 지표", "load_kr_vol_profiles": "국내 변동성",
     "load_kr_flows": "수급", "load_kr_quarters": "분기 실적",
@@ -5882,7 +5934,7 @@ def render_signals_tab(data: dict[str, dict[str, Quote]], use_demo: bool,
 
 
 def _render_phase(phase, trends: dict, track_groups: dict | None = None,
-                  track_errors: dict | None = None) -> None:
+                  track_errors: dict | None = None, use_demo: bool = False) -> None:
     """국면 보드 + 체크리스트 · 이력 · 백테스트 · 트랙별 재고(접힘). 데모에서는
     trends={} 로 대조를 끕니다 — 가짜 재고 숫자로 대조하면 '기록과 다름' 이 거짓으로 뜹니다."""
     today = _today_kst()
@@ -5919,8 +5971,22 @@ def _render_phase(phase, trends: dict, track_groups: dict | None = None,
         with st.expander("트랙별 재고 — 낸드 · 레거시 대표 기업 (참고)", expanded=False):
             st.markdown(ui.render_track_inventory(track_inv, phase), unsafe_allow_html=True)
     bt = load_backtest()
+    marker = "|".join(f"{k}:{t.latest.label}" for k, t in sorted((trends or {}).items())
+                      if k.isdigit() and getattr(t, "latest", None))
+    kr_bt, kr_bt_err = (({}, {}) if use_demo else
+                        _soft(load_kr_backtest, False, dart.key_fingerprint(), marker,
+                              default=(None, {})))
     with st.expander("체크리스트 백테스트 — 재고 규칙이 과거 피크에서 언제 켜졌나", expanded=False):
         st.markdown(ui.render_cycle_backtest(bt), unsafe_allow_html=True)
+        if kr_bt is None:
+            st.markdown(ui.render_notice(
+                "<b>국내 2사(DART 2015~) 백테스트를 받는 중입니다</b> — 처음 한 번은 1분 안팎 "
+                "걸립니다. 받으면 화면이 자동으로 채워집니다."), unsafe_allow_html=True)
+        else:
+            for code, res in kr_bt.items():
+                st.markdown(ui.render_cycle_backtest(res), unsafe_allow_html=True)
+            for code, err in (kr_bt_err or {}).items():
+                st.caption(f"{code}: {err}")
 
 
 def render_cycle_tab(use_demo: bool, *, market: str = "all") -> None:
@@ -5968,10 +6034,16 @@ def render_cycle_tab(use_demo: bool, *, market: str = "all") -> None:
         use_demo, dart.key_fingerprint())
     us_trends, us_errors = load_us_inventory_trends(use_demo)
 
-    track_groups, track_errors = load_track_inventory(use_demo)
+    track_groups, track_errors = _soft(load_track_inventory, use_demo, default=({}, {}))
     with phase_box:
         _render_phase(phase, {} if use_demo else {**us_trends, **kr_trends},
-                      track_groups, track_errors)
+                      track_groups, track_errors, use_demo)
+        # 레이어 1 두 번째 출처 — 관세청 메모리 수출 단가 (2026-11-16)
+        _cu, _cu_err = _soft(load_customs_memory, use_demo, customs_trade.key_fingerprint(),
+                             default=(None, "받는 중입니다 — 받으면 자동으로 채워집니다"))
+        with st.expander("레이어 1 교차 확인 — 관세청 메모리 수출 단가 ($/kg)",
+                         expanded=False):
+            st.markdown(ui.render_customs_unit(_cu, _cu_err), unsafe_allow_html=True)
 
     # 잠정실적 레이더 — 재고 지표는 정식 분기보고서가 있어야 계산되는데,
     # 영업(잠정)실적은 그보다 2주쯤 먼저 나옵니다. 그 사이 기간에 메모리
@@ -6017,7 +6089,8 @@ def render_cycle_tab(use_demo: bool, *, market: str = "all") -> None:
                     unsafe_allow_html=True)
 
     # 하이퍼스케일러 CapEx — 레이어 4, HBM 수요의 상류 (2026-11-16)
-    _cx, _cx_err = load_hyperscaler_capex(use_demo)
+    _cx, _cx_err = _soft(load_hyperscaler_capex, use_demo,
+                         default=(None, "받는 중입니다 — 받으면 자동으로 채워집니다"))
     st.markdown(
         ui.render_section_head(
             "하이퍼스케일러 CapEx (레이어 4)",

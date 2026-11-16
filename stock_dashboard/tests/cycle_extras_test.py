@@ -90,8 +90,8 @@ check("2018-08 DIO = 3,595 ÷ 3,289 × 91.25 ≈ 99.7일", abs(q18.dio - 3595 / 
       and round(q18.dio, 1) == 99.7)
 check("2018-08 매출총이익률 61.0%", round(q18.gross_margin, 1) == 61.0)
 s_any, s_both, s3 = res.score("any"), res.score("both"), res.score("i3")
-check("현행 '③ 또는 ④' 점등 32/66", (s_any.lit_quarters, s_any.total) == (32, 66))
-check("현행 '③ 또는 ④' 확장기 오경보 6/23", (s_any.early_alarms, s_any.expansion_quarters) == (6, 23))
+check("옛 정의 ③ 또는 ④ 점등 32/66", (s_any.lit_quarters, s_any.total) == (32, 66))
+check("옛 정의 ③ 또는 ④ 확장기 오경보 6/23", (s_any.early_alarms, s_any.expansion_quarters) == (6, 23))
 check("'③ 그리고 ④' 점등 10/66 · 오경보 0", s_both.lit_quarters == 10 and s_both.early_alarms == 0)
 check("'③ 그리고 ④' 피크 대비 [-1, -2, +2, -1]", s_both.first_vs_peak == [-1, -2, 2, -1])
 check("2018 피크에서는 ③이 2분기 지연", s3.first_vs_peak[2] == 2)
@@ -230,6 +230,38 @@ tt = ui.render_track_inventory({"legacy": ti}, ph)
 check("트랙 재고 표: 트랙 이름 · 참고 문구", "레거시" in tt and "참고 표" in tt)
 empty = cp.track_inventory({"nand": {"SNDK": None}}, {})["nand"]
 check("전부 실패면 '재고 공시 대기'", empty.summary == "재고 공시 대기")
+
+print("── 국내(DART) 연간 → 4분기 · 백테스트 입력")
+from sources.dart import Account  # noqa: E402
+
+
+def acc(sj, aid, cur, cum=None):
+    return Account(sj_div=sj, sj_nm="", account_id=aid, account_nm="", thstrm_amount=cur,
+                   thstrm_add_amount=cum, frmtrm_amount=None, bfefrmtrm_amount=None)
+
+
+def accounts(inv, cos, rev, cos_cum=None, rev_cum=None):
+    return [acc("BS", "ifrs-full_Inventories", inv), acc("IS", "ifrs-full_CostOfSales", cos, cos_cum),
+            acc("IS", "ifrs-full_Revenue", rev, rev_cum)]
+
+
+col = [(2025, "1Q", "CFS", accounts(50, 40, 70)), (2025, "2Q", "CFS", accounts(52, 42, 75)),
+       (2025, "3Q", "CFS", accounts(55, 45, 80, cos_cum=127, rev_cum=225)),
+       (2025, "FY", "CFS", accounts(60, 175, 310)), (2026, "1Q", "CFS", accounts(62, 50, 90))]
+kt = cycle.build_trend("SK하이닉스", "000660", col)
+q4 = next(x for x in kt.quarters if x.year == 2025 and x.quarter == "4Q")
+check("연간 → 4분기: 매출원가 175 − 127 = 48", q4.cost_of_sales == 48)
+check("연간 → 4분기: 매출 310 − 225 = 85", q4.revenue == 85)
+check("4분기 DIO 는 91.25일 기준", abs(q4.dio - 60 / 48 * 91.25) < 1e-9)
+check("순서: 3분기 → 4분기 → 다음 해 1분기", [x.quarter for x in kt.quarters][-3:] == ["3Q", "4Q", "1Q"])
+gap = kt.inventory_revenue_gap
+check("1분기 갭 = 재고 +3.3% − 매출 +5.9% (연간과 비교하지 않음)",
+      abs(gap - ((62 / 60 - 1) * 100 - (90 / 85 - 1) * 100)) < 1e-9, f"{gap:.2f}")
+no3q = cycle.build_trend("x", "x", [(2024, "FY", "CFS", accounts(60, 175, 310))])
+check("3분기 누적이 없으면 연간 그대로", no3q.quarters[0].quarter == "FY")
+bq = bt.from_trend(kt)
+check("백테스트 입력: 5분기 · 4분기 말일 12-31", len(bq) == 5 and bq[3].end == "2025-12-31")
+check("연간 그대로 남은 분기는 백테스트에서 뺌", bt.from_trend(no3q) == [])
 
 print()
 if FAILURES:

@@ -196,13 +196,24 @@ class Phase:
 
     @property
     def layer2_lit(self) -> bool:
-        """재고(레이어 2) 항목이 하나라도 점등인가. '2·3' 같은 겸용 항목은 셈하지 않습니다."""
-        return any(c.state == "lit" and c.layer.strip() == "2" for c in self.checklist)
+        """재고(레이어 2)가 '켜졌다' 고 볼 것인가 — ③ DIO 연속 상승과 ④ 재고-매출 갭이
+        **둘 다** 점등이거나, ⑤ 완제품 비중 급증이 점등일 때 (2026-11-16 사용자 결정).
+
+        예전 규칙은 셋 중 하나만 켜져도 인정했습니다. 백테스트(MU 2009~2025, 66분기)에서
+        그 조건은 전체 분기의 48% 에서 성립해 거름 역할을 못 했고(확장기 오경보 6/23),
+        ③·④ 동시는 15% · 오경보 0/23 이었습니다 — claude/사이클-체크리스트-백테스트.md.
+        ⑤ 는 과거 자료가 없어 검증하지 못했지만 '만들어 놓고 못 판 재고' 라 단독으로 둡니다.
+        항목은 번호가 아니라 auto 키로 찾습니다 (번호가 바뀌어도 규칙이 따라가게).
+        """
+        by_auto = {c.auto: c.state == "lit" for c in self.checklist if c.auto}
+        both = by_auto.get("dio_rising", False) and by_auto.get("inv_gap", False)
+        return both or by_auto.get("finished_jump", False)
 
     @property
     def status(self) -> str:
-        """§5 규칙: 3개 이상 점등 → 재판정. 단 레이어 2 점등이 없으면 '전환 감시'
-        로 둡니다 — 가격·수요 신호만으로는 국면을 바꾸지 않는다는 규칙입니다."""
+        """§5 규칙: 3개 이상 점등 → 재판정. 단 재고(레이어 2)가 켜지지 않으면
+        '전환 감시' 로 둡니다 — 가격·수요 신호만으로는 국면을 바꾸지 않는다는 규칙입니다.
+        '재고가 켜졌다' 의 정의는 layer2_lit (③·④ 동시 또는 ⑤)."""
         if self.lit_count < WATCH_MIN_LIT:
             return STATUS_HOLD
         return STATUS_REJUDGE if self.layer2_lit else STATUS_WATCH

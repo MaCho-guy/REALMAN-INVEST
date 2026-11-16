@@ -77,8 +77,8 @@ RULES: tuple[Rule, ...] = (
     Rule("i4", "④ 재고-매출 갭 > 0 (직전 분기)", "현행 체크리스트 4번"),
     Rule("i4x2", "④ 갭 2분기 연속 > 0", "변형 — 한 분기 튐을 거름"),
     Rule("i4y", "④ 갭 > 0 (전년동기)", "변형 — 계절성 제거"),
-    Rule("any", "③ 또는 ④ — 현행 '레이어 2 점등'", "§5 재판정 조건의 재고 부분"),
-    Rule("both", "③ 그리고 ④", "변형 — 두 재고 신호 동시"),
+    Rule("any", "③ 또는 ④", "11/15 까지의 '레이어 2 점등' 정의"),
+    Rule("both", "③ 그리고 ④ — 현행 '레이어 2 점등'", "11/16 부터 §5 재판정 조건의 재고 부분"),
 )
 
 
@@ -271,3 +271,29 @@ def run_file(path: str = DATA_FILE, *, rising_min: int = 2) -> Result:
     except (OSError, ValueError, KeyError) as exc:
         return Result("Micron", "", [], [], [], error=f"{path} 를 읽지 못했습니다 — {exc}")
     return run(quarters, source=source, rising_min=rising_min)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 국내 2사 — DART 분기 재무로 같은 채점 (2026-11-16)
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# DART 전체 재무제표 API 는 2015년 이후만 줍니다. 그래서 피크는 2018 · 2022 두 번이
+# 최대입니다. 삼성전자는 **전사 연결**(스마트폰 · 디스플레이 포함)이라 매출 피크가
+# 메모리 피크와 다를 수 있습니다 — 화면에 적습니다. SK하이닉스가 메모리 단일 사업에
+# 가까운 쪽입니다.
+
+_Q_END = {"1Q": "03-31", "2Q": "06-30", "3Q": "09-30", "4Q": "12-31"}
+
+
+def from_trend(trend) -> list[Q]:
+    """cycle.InventoryTrend(DART 경로) → 백테스트 분기. 연간(FY) 그대로 남은 분기는 뺍니다
+    — 4분기로 못 바꾼 연간 손익은 직전 · 다음 분기와 기간이 달라 갭을 망칩니다."""
+    out: list[Q] = []
+    for q in trend.quarters:
+        end = _Q_END.get(q.quarter)
+        if end is None or not q.inventory or not q.cost_of_sales or not q.revenue:
+            continue
+        out.append(Q(end=f"{q.year}-{end}", inventory=q.inventory,
+                     cost_of_sales=q.cost_of_sales, revenue=q.revenue))
+    out.sort(key=lambda x: x.end)
+    return out

@@ -1064,6 +1064,28 @@ check("빈자리 채움 — 화면 '빈자리 채움 (MM-DD)' · 수집기가 �
       and "paper.refill(pf, day, m, track, _ranked(), n, prices, bench)" in
       pathlib.Path("tools/collect.py").read_text(encoding="utf-8")
       and "<b>빈자리</b>" in app_src)
+# 11/17 저녁 — 판 종목의 멈춘 지수(b == b0) 다시 채우기 · 빈자리 매수 기록
+_pf20 = {"pos": [
+    {"m": "kr", "track": "stable", "t": "S1", "n": "판1", "d0": "2026-11-13 16:44", "p0": 1.0,
+     "p1": 1.0, "d1": "2026-11-17 06:51", "state": "sold", "b0": 100.0, "b": 100.0},
+    {"m": "kr", "track": "stable", "t": "S2", "n": "판2", "d0": "2026-11-13 16:44", "p0": 1.0,
+     "p1": 1.0, "d1": "2026-11-17 15:43", "state": "sold", "b0": 100.0, "b": 95.0},
+    {"m": "kr", "track": "stable", "t": "H1", "n": "보유", "d0": "2026-11-13 16:44", "p0": 1.0,
+     "p": 1.0, "state": "hold", "b0": 100.0, "b": 93.0}], "events": []}
+paper.fill_bench(_pf20, "kr", ["2026-11-13", "2026-11-16", "2026-11-17"], [100.0, 97.0, 94.0])
+_pf20b = {"pos": [{"m": "kr", "track": "stable", "t": "S0", "d0": "2026-11-13 16:44", "p0": 1.0,
+                   "p1": 1.0, "d1": "2026-11-16 06:51", "state": "sold", "b0": 100.0, "b": 100.0}]}
+paper.fill_bench(_pf20b, "kr", ["2026-11-13", "2026-11-16"], [100.0, 97.0])
+check("판 종목의 멈춘 지수(b == b0)를 판 날 종가 지수로 — 이미 맞는 값 · 보유 종목 · 같은 종가 날짜에 사고판 종목(월 06:51 = 금 종가)은 안 건드림",
+      _pf20["pos"][0]["b"] == 97.0 and _pf20["pos"][1]["b"] == 95.0 and _pf20["pos"][2]["b"] == 93.0
+      and abs(paper.bench_ret(_pf20["pos"][0]) + 0.03) < 1e-9
+      and _pf20b["pos"][0]["b"] == 100.0, str([p["b"] for p in _pf20["pos"]]))
+_pf21 = _cp17.deepcopy(_pf18)
+_pf21["events"].insert(0, ["2026-11-13 16:44", "kr", "stable", "A", "buy", "매수 10,000.00 — 등 품질 충족"])
+_ev = ui.render_paper(_pf21, "kr").split("pp-ev")[-1]
+check("기록 — 빈자리 채움 매수는 보이고 첫 매수는 안 보임",
+      "매수 — 빈자리 채움 매수" in _ev and "매수 10,000.00" not in _ev
+      and "논거 변경점 · 매도 · 빈자리 매수 기록" in _ev)
 check("모의 매수 규칙 상자 — 무엇을(후보 상위 그대로) · 얼마나(금액)",
       "<b>무엇을</b>" in app_src and "<b>얼마나</b>" in app_src and "paper.CAPITAL" in app_src)
 check("설명 문구 — 한글을 낱말 중간에서 자르지 않고 넓은 화면에서 64em 까지",

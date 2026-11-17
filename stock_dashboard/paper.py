@@ -377,8 +377,8 @@ def curve(pf: dict, m: str, track: str) -> list:
 def fill_bench(pf: dict, m: str, dates: list, closes: list) -> int:
     """시장 지수를 못 받은 회차에 산 종목(b0 없음)의 b0 를 일봉에서 채움 (11/16).
 
-    매수 시각의 종가 날짜(close_date) 이하 마지막 종가. 판 종목의 b(매도 때 지수)도 없으면
-    매도 날짜로 채움. 시장 상태 묶음(pf["bench"])의 p0 도 없으면 채움. 채운 수."""
+    매수 시각의 종가 날짜(close_date) 이하 마지막 종가. 판 종목의 b(매도 때 지수)가 없거나
+    매수 때 값(b0) 그대로 멈춰 있으면 매도 날짜로 채움(11/17 저녁). 시장 상태 묶음(pf["bench"])의 p0 도 없으면 채움. 채운 수."""
     pairs = [(str(d)[:10], c) for d, c in zip(dates or [], closes or []) if d and c]
     if not pairs:
         return 0
@@ -397,10 +397,15 @@ def fill_bench(pf: dict, m: str, dates: list, closes: list) -> int:
             if v:
                 ps["b0"] = v
                 n += 1
-        if ps.get("state") in ("sold", "void") and not ps.get("b") and ps.get("d1"):
+        if ps.get("state") in ("sold", "void") and ps.get("d1") and (
+                not ps.get("b") or ps.get("b") == ps.get("b0")):
+            # 11/17 저녁(사용자 승인): 지수를 못 받던 11/13 ~ 11/16 오전에 판 종목은 b 가 매수 때
+            # 지수(b0) 그대로 멈춰 '같은 기간 시장 +0.0%' 였음 → 판 회차의 종가 날짜 지수로 다시 채움.
+            # b == b0 인 줄만 고치므로 한 번 고치면 다시 건드리지 않음.
             v = on(ps["d1"])
-            if v:
+            if v and v != ps.get("b"):
                 ps["b"] = v
+                n += 1
         elif ps.get("state") == "hold" and not ps.get("b"):
             ps["b"] = float(pairs[-1][1])
     bm = (pf.get("bench") or {}).get(m)

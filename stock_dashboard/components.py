@@ -5981,15 +5981,18 @@ def render_paper(pf: dict, market: str) -> str:
                + "</div>") if nv is not None else ""
         chart = render_paper_curve(paper.curve(pf, market, track), paper.BENCH[market])
         out.append(head + cum + chart + void_note + f'<div class="pp-list">{"".join(rows)}</div>')
-    ev = [e for e in pf.get("events", []) if e[1] == market and e[4] != "buy"][-10:]
+    # 첫 매수는 종목 카드에 있으니 빼고, 빈자리 채움 매수(11/17 저녁)는 기록에 보임
+    ev = [e for e in pf.get("events", []) if e[1] == market
+          and (e[4] != "buy" or "빈자리" in str(e[5]))][-10:]
     if ev:
         names = {p["t"]: p["n"] for p in pf.get("pos", [])}
-        kind = {"change": "변경", "sell": "매도", "na": "판정 불가", "reset": "규칙 변경"}
+        kind = {"change": "변경", "sell": "매도", "na": "판정 불가", "reset": "규칙 변경",
+                "buy": "매수"}
         items = "".join(
             f'<li><span>{_esc(str(e[0])[5:16])}</span> <b>{_esc(names.get(e[3], e[3]))}</b> '
             f'({"안정형" if e[2] == "stable" else "성장형"}) · {kind.get(e[4], e[4])} — {_esc(e[5])}</li>'
             for e in reversed(ev))
-        out.append(f'<div class="pp-ev"><div class="pp-h"><b>논거 변경점 · 매도 기록</b> (최근 '
+        out.append(f'<div class="pp-ev"><div class="pp-h"><b>논거 변경점 · 매도 · 빈자리 매수 기록</b> (최근 '
                    f'{len(ev)})</div><ul>{items}</ul></div>')
     return f'<div class="dash-paper">{"".join(out)}</div>' if out else ""
 

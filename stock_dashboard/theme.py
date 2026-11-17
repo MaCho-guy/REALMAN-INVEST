@@ -368,7 +368,13 @@ def build_rules() -> str:
     padding: 1px 0 1px var(--sp-3);
     border-left: 2px solid var(--dash-divider);
     font-family: {FONT_STACK};
-    max-width: 78ch;              /* 긴 줄은 눈이 되돌아올 곳을 잃습니다 */
+    /* 긴 줄은 눈이 되돌아올 곳을 잃습니다. ch 는 숫자 '0' 의 폭이라
+       한글(글자 폭 ≈ 1em)로는 78ch 가 약 43자 — 넓은 화면에서도 화면 반쯤에서
+       꺾였습니다. 한글 기준 약 64자로 잡습니다 */
+    max-width: 64em;
+    /* 한글을 낱말 중간에서 자르지 않습니다('등이 / 많은' 이 '등이 많 / 은' 으로
+       꺾이던 것). 아주 긴 영문 · 숫자 덩어리만 어디서든 꺾습니다 */
+    word-break: keep-all; overflow-wrap: anywhere;
   }}
   /* 상태 한 줄(묵은 값 · 받는 중 안내)은 줄 길이를 제한하지 않습니다 —
      넓은 화면에서 한 줄에 들어가는데도 78ch 에서 꺾였습니다 */
@@ -2033,6 +2039,37 @@ def build_rules() -> str:
   .ic-om {{ margin-top: 6px; padding-top: 5px; border-top: 1px dashed var(--dash-divider);
             color: var(--dash-ink-2); font-size: var(--fs-1); font-variant-numeric: tabular-nums;
             overflow-wrap: anywhere; }}
+  /* 품질 깔때기 카드 (11/17) — 후보 카드와 같은 틀. 오른쪽 위 = 후보 관문 결과,
+     아래 = 기준 9개 칩(통과는 옅게, ✗ · ? 는 표시를 붙여 눈에 띄게) */
+  .fn-st.out {{ background: transparent; border: 1px solid var(--dash-divider);
+               color: var(--dash-ink-2); font-weight: 650; white-space: normal; text-align: right; }}
+  .pk-tag.fn-sect {{ background: transparent; border: 1px solid var(--dash-divider);
+                    color: var(--dash-ink-2); font-weight: 600; }}
+  .fn-card .ic-lamps {{ margin-bottom: 8px; }}
+  .fn-crit {{ display: flex; flex-wrap: wrap; gap: 4px; padding-top: 7px;
+             border-top: 1px dashed var(--dash-divider); }}
+  .fn-crit span {{ font-size: var(--fs-1); line-height: 1.5; padding: 0 7px;
+                  border-radius: var(--r-pill); white-space: nowrap; }}
+  .fn-crit .p {{ color: var(--dash-ink-2); background: var(--grp-tint, var(--dash-raised)); }}
+  .fn-crit .f {{ color: #9a5a4a; border: 1px solid #9a5a4a; font-weight: 700; }}
+  .fn-crit .u {{ color: var(--dash-ink-muted); border: 1px dashed var(--dash-ink-muted); }}
+  /* 찾기 › 차트 › 후보 · 내 종목 위치 (11/17) — 묶음마다 한 칸, 종목은 줄마다 구분선 */
+  .dash-cpos {{ display: grid; gap: 10px; margin: 6px 0;
+               grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); align-items: start; }}
+  .cp-grp {{ background: var(--dash-surface); border: 1px solid var(--dash-divider);
+            border-top: 3px solid var(--grp-line, var(--dash-accent));
+            border-radius: var(--r-card); padding: 10px 12px; min-width: 0; }}
+  .cp-h {{ font-size: var(--fs-3); margin-bottom: 4px; }}
+  .cp-h span {{ font-size: var(--fs-1); color: var(--dash-ink-muted); }}
+  .cp-list {{ list-style: none; margin: 0; padding: 0; }}
+  .cp-row {{ padding: 6px 0; border-top: 1px solid var(--dash-divider); }}
+  .cp-row:first-child {{ border-top: 0; }}
+  .cp-nm {{ display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px; }}
+  .cp-nm b {{ font-size: var(--fs-3); }}
+  .cp-v {{ display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 2px;
+          font-size: var(--fs-2); color: var(--dash-ink-2); font-variant-numeric: tabular-nums; }}
+  .cp-st {{ font-size: var(--fs-1); color: var(--dash-ink-muted); margin-top: 1px;
+           word-break: keep-all; overflow-wrap: anywhere; }}
   .ic-out {{ margin: 4px 0 0; padding-left: 1.1em; font-size: var(--fs-2); color: var(--dash-ink-2); }}
   .ic-out li {{ margin: 2px 0; }} .ic-out span {{ color: var(--dash-ink-muted); }}
   /* 모의 매수 실험 (11/13) */
@@ -2375,15 +2412,15 @@ def build_rules() -> str:
   .dash-legend b {{ color: var(--dash-ink); }}
   /* 차트 조건 — 종목의 쪽 (과매도 / 과매수 / 엇갈림) */
   .dash-ctable td.ct-side {{ text-align: center; white-space: nowrap; }}
-  .dash-ctable .ct-sd {{ display: inline-block; font-size: var(--fs-2); font-weight: 700;
+  .dash-ctable .ct-sd, .dash-cpos .ct-sd {{ display: inline-block; font-size: var(--fs-2); font-weight: 700;
     color: var(--dash-ink); border: 1.5px solid var(--dash-ink-2);
     border-radius: var(--r-chip); padding: 0 6px; line-height: 1.5; }}
-  .dash-ctable .ct-sd.ob {{ background: var(--dash-ink); color: var(--dash-surface);
+  .dash-ctable .ct-sd.ob, .dash-cpos .ct-sd.ob {{ background: var(--dash-ink); color: var(--dash-surface);
     border-color: var(--dash-ink); }}
-  .dash-ctable .ct-sd.mixed {{ border-style: dashed; font-weight: 600;
+  .dash-ctable .ct-sd.mixed, .dash-cpos .ct-sd.mixed {{ border-style: dashed; font-weight: 600;
     color: var(--dash-ink-2); }}
-  .dash-ctable .ct-sd.none {{ border: 0; color: var(--dash-ink-muted); font-weight: 400; }}
-  .dash-ctable .ct-sd i {{ font-style: normal; font-weight: 500; margin-left: 4px;
+  .dash-ctable .ct-sd.none, .dash-cpos .ct-sd.none {{ border: 0; color: var(--dash-ink-muted); font-weight: 400; }}
+  .dash-ctable .ct-sd i, .dash-cpos .ct-sd i {{ font-style: normal; font-weight: 500; margin-left: 4px;
     font-size: var(--fs-1); opacity: .8; }}
   /* 기준표 — 이름 · 통과 조건(숫자) · 출처 */
   .dash-criteria {{ background: var(--dash-surface); border: 1px solid var(--dash-border);

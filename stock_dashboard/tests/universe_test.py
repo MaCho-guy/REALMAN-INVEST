@@ -427,6 +427,11 @@ _names = ("_discover_us", "_discover_kr", "_universe_or_none", "_universe_line",
           "_kr_trade_hits", "_when_kst")   # 2026-11-13 거래 스크리너 순위 기준 · 품질 연결
 _fns = [n for n in ast.parse(app_src).body
         if isinstance(n, ast.FunctionDef) and n.name in _names]
+# 11/17 깔때기 카드 설명 상수 — app 을 import 하지 않고 소스에서 값을 꺼냄
+_FUNNEL_LEGEND_SRC = next(
+    ast.literal_eval(n.value) for n in ast.parse(app_src).body
+    if isinstance(n, (ast.Assign, ast.AnnAssign))
+    and getattr((n.targets[0] if isinstance(n, ast.Assign) else n.target), "id", "") == "_FUNNEL_CARD_LEGEND")
 
 
 class _Ctx:
@@ -527,6 +532,7 @@ def run(market, payload, funnel_payload=None, kr_funnel=None, **kw):
     ns = {"st": st, "ui": ui, "config": config, "buffett": buffett, "kr_screen": kr_screen,
           "buffett_kr": _bkr, "funnel": funnel, "chart_signals": chart_signals,
           "integrate": __import__("integrate"),
+          "_FUNNEL_CARD_LEGEND": _FUNNEL_LEGEND_SRC,
           "universe": universe, "dt": dt, "KST": ZoneInfo("Asia/Seoul"),
           "_esc_plain": lambda t: _h.escape(str(t), quote=True),
           "load_universe": load_universe, "_soft_main": soft_main, "load_screens": None,
@@ -547,7 +553,7 @@ def run(market, payload, funnel_payload=None, kr_funnel=None, **kw):
 
 
 st_, html, calls = run("us", us_payload())
-check("파일이 있으면 그 결과로 — 직접 받지 않는다", calls["fallback"] == 0 and "dash-sctable" in html)
+check("파일이 있으면 그 결과로 — 직접 받지 않는다", calls["fallback"] == 0 and "fn-cards" in html)
 check("후보를 어떻게 정했는지 화면에 (꺼도 보이는 줄)",
       'class="dash-legend"' in html and "S&amp;P 500 구성 종목 120 + 나스닥100 에만 있는 종목 1 + 관심종목 1 = 122종목" in html
       and "&amp;amp;" not in html
@@ -557,19 +563,20 @@ check("단계별로 남은 종목 — 후보 → 재무 받음 → 통과", "단
 check("업종별 통과 수", "dash-sectpass" in html and "필수소비재" in html and "유틸리티" in html)
 check("업종을 고를 수 있다 (종목 수와 함께)", st_.sector_opts[0] == "전체 (120)"
       and any(o.startswith("필수소비재 (40)") for o in st_.sector_opts), str(st_.sector_opts))
-tables = [t.split("</table>")[0] for t in html.split('dash-sctable">')[1:]]
+# 11/17 표 → 카드: '표' = 카드 묶음(fn-cards) 하나, 줄 = 카드 한 장
+tables = [t for t in html.split('fn-cards">')[1:]]
 QMIN = config.DISCOVER_QUALITY_MIN
 n_pass = sum(1 for x in us_payload()["screens"]
              if sum(1 for c in x["c"] if c[1] == "pass") >= QMIN)
 check("통과 기본선은 9개 중 7개 (2026-11-12 사용자 지정)", QMIN == 7
       and f"{QMIN}개 이상 통과" in html)
 check("첫 표는 20줄까지 · 나머지는 접어 둠",
-      tables and tables[0].count("</tr>") - 1 == min(n_pass, config.DISCOVER_US_ROWS)
+      tables and tables[0].count('fn-card"') == min(n_pass, config.DISCOVER_US_ROWS)
       and (n_pass <= config.DISCOVER_US_ROWS
            or any(e.startswith("나머지 통과 종목") for e in st_.exp)),
-      f"통과 {n_pass} · 표 {[t.count('</tr>') - 1 for t in tables]}")
-check("순위 + 순위의 근거('판정 n 중 m')가 표에 있다",
-      '<i class="sc-rk">1</i>' in tables[0] and "sc-sub" in tables[0]
+      f"통과 {n_pass} · 카드 {[t.count('fn-card\"') for t in tables]}")
+check("순위 + 순위의 근거('판정 n 중 m')가 카드에 있다",
+      '<span class="pk-n">1</span>' in tables[0] and " 통과 · 미달 " in tables[0]
       and "판정된 기준 중 통과 비율" in html)
 _one = ui.render_screen_table([_mk0], buffett.CRITERIA, rank_from=1)
 import re as _re
@@ -591,11 +598,10 @@ check("자세히 보기는 한 칸 — 종목마다 접는 칸을 늘어놓지 �
       and len(st_.pick_opts) == n_pass
       and not any(" 통과" in e and "/" in e and "·" in e and "나머지" not in e
                   and "보류" not in e and "미달" not in e for e in st_.exp), str(st_.exp))
-check("내 관심종목에 ★", "ct-star" in html)
+check("내 관심종목에 ★", "★ 관심" in html)
 st2, html2, _c = run("us", us_payload(), sector="Utilities")
 check("업종으로 좁히면 그 업종만", "유틸리티" in html2 and "dash-sectpass" not in html2
-      and all("필수소비재" not in t.split("</table>")[0] for t in
-              html2.split('dash-sctable">')[1:]))
+      and all("필수소비재" not in t for t in html2.split('fn-cards">')[1:]))
 st3, html3, _c = run("us", us_payload(), q=9)
 n9 = sum(1 for s in us_payload()["screens"]
          if sum(1 for c in s["c"] if c[1] == "pass") >= 9)
@@ -603,9 +609,9 @@ check("통과 수 기준을 올리면 줄어든다", f">{n9}<" in html3 or "통�
 st4, html4, calls4 = run("us", {})
 check("파일이 없으면 예전 후보로 — 그렇다고 화면에 적는다",
       calls4["fallback"] == 1 and "전수 심사 결과를 아직 받지 못했습니다" in html4
-      and "손으로 고른 후보" in html4 and "dash-sctable" in html4)
+      and "손으로 고른 후보" in html4 and "fn-cards" in html4)
 st5, html5, calls5 = run("us", RuntimeError("timeout"))
-check("파일을 받다 실패해도 화면이 죽지 않는다", calls5["fallback"] == 1 and "dash-sctable" in html5)
+check("파일을 받다 실패해도 화면이 죽지 않는다", calls5["fallback"] == 1 and "fn-cards" in html5)
 
 cands = [(f"{i:05d}0", f"종목{i}") for i in range(160)]
 kr_pay = json.loads(universe.dump({
@@ -775,15 +781,15 @@ stq, hq, _c = run("us", _pay2, funnel_payload=_fpay)
 check("가격 단계는 숫자와 함께 고르는 칸에 있다 · 차트 단계 · 칸은 없다 (11/17 사용자)",
       stq.seg["disc_stage"][1] == ["품질 통과 (3)", "+ 가격 부담 높음 아님 (2)",
                                    "+ 선행 EPS · 실적 추세 = 후보 (2)"]
-      and "요구 성장률" in hq and "<th>차트</th>" not in hq and "과매도" not in hq
+      and "요구 연" in hq and "<th>차트</th>" not in hq and "과매도" not in hq
       and "까지만 인정" in hq and "전 구간에서" in hq and "주식보상비용" in hq)
-check("기본은 품질 통과 전부", hq.count('class="sc-rk"') == 3)
+check("기본은 품질 통과 전부", hq.count('class="pk-n"') == 3)
 stp, hp, _c = run("us", _pay2, funnel_payload=_fpay, choice="p")
-check("가격까지 좁히면 부담 낮은 종목만", hp.count('class="sc-rk"') == 2 and "D1" not in hp.split("dash-sctable")[1])
+check("가격까지 좁히면 부담 낮은 종목만", hp.count('class="pk-n"') == 2 and "D1" not in hp.split("fn-cards")[1])
 stc, hc, _c = run("us", _pay2, funnel_payload=_fpay, choice="c")
-check("예전 '차트' 값이 와도 깨지지 않고 품질 통과 전부", hc.count('class="sc-rk"') == 3)
+check("예전 '차트' 값이 와도 깨지지 않고 품질 통과 전부", hc.count('class="pk-n"') == 3)
 stu3, hu3, _c = run("us", _pay2, funnel_payload=_fpay, url_stage="c")
-check("주소의 예전 stage=c 는 '가격 부담 높음 아님' 으로 연다", hu3.count('class="sc-rk"') == 2
+check("주소의 예전 stage=c 는 '가격 부담 높음 아님' 으로 연다", hu3.count('class="pk-n"') == 2
       and "품질 통과 + 가격 부담 높음 아님" in hu3)
 ste, he, _c = run("us", _pay2, funnel_payload={"made": 1, "rows": [
     {"t": t, "p": dear, "c": {}} for t in ("L1", "L2", "D1")]}, choice="p")
@@ -801,11 +807,11 @@ _picks4 = _ig4.split(_ig4.build(_pay3["screens"], {r["t"]: r for r in _fp4["rows
 check("셋째 단계 = 후보 — 가격 높음(H1) · EPS −5% 이하(E1) · 실적 추세 악화(T1) 빠지고 G1 만, 후보 수와 같다",
       ste4.seg["disc_stage"][1] == ["품질 통과 (4)", "+ 가격 부담 높음 아님 (3)",
                                     "+ 선행 EPS · 실적 추세 = 후보 (1)"]
-      and he4.count('class="sc-rk"') == 1 and "G1" in he4.split("dash-sctable")[1]
+      and he4.count('class="pk-n"') == 1 and "G1" in he4.split("fn-cards")[1]
       and [c.ticker for c in _picks4] == ["G1"], str(ste4.seg.get("disc_stage")))
 stn, hn, _c = run("us", _pay2)
 check("깔때기 파일이 없으면 품질 단계만 — 칸도 단계도 없다",
-      "가격 부담 낮음" not in hn and "요구 성장률" not in hn and hn.count('class="sc-rk"') == 3)
+      "가격 부담 낮음" not in hn and "요구 연" not in hn and hn.count('class="pk-n"') == 3)
 
 print("\n=== 한국 깔때기 — DART 품질 → 가격 → 차트 ===")
 with tempfile.TemporaryDirectory() as out:
@@ -1008,9 +1014,9 @@ check("가격 · 차트 단계는 고르는 칸으로 — 이름표가 보이고
       stq.seg["disc_stage"][2] is None and "바로 바뀝니다" in stq.seg["disc_stage"][0])
 stu, hu, _c = run("us", _pay2, funnel_payload=_fpay, url_stage="p")
 check("주소의 stage=p 로 들어와도 가격 단계 목록이 열린다 (예전 링크 호환 · 11/17 '높음 아님')",
-      hu.count('class="sc-rk"') == 2 and "품질 통과 + 가격 부담 높음 아님" in hu)
+      hu.count('class="pk-n"') == 2 and "품질 통과 + 가격 부담 높음 아님" in hu)
 stu2, hu2, _c = run("us", _pay2, funnel_payload=_fpay, url_stage="zzz")
-check("이상한 stage 값은 무시한다 (품질 단계)", hu2.count('class="sc-rk"') == 3)
+check("이상한 stage 값은 무시한다 (품질 단계)", hu2.count('class="pk-n"') == 3)
 check("깔때기 파일이 없으면 링크도 없다", "fn-link" not in hn)
 check("한국 품질 깔때기도 같다 — 링크 없음 · 고르는 칸에 숫자",
       "fn-link" not in hk and len(stk.seg["disc_kr_stage"][1]) == 3 and "<th>차트</th>" not in hk
@@ -1071,9 +1077,9 @@ with tempfile.TemporaryDirectory() as out:
     check("선행 EPS 를 못 받아도 깔때기의 나머지는 간다 (지난 파일 없음)", fe2["eps"] == 0 and fe2["n"] == 1)
 _fp3 = {"made": 1, "rows": [{"t": "L1", "f": _e, "p": cheap, "c": {"side": "os", "st": {}}}]}
 ste3, he3, _c = run("us", _pay2, funnel_payload=_fp3)
-check("발굴 표 — '선행 EPS 90일' 칸이 맨 앞 (요구 성장률 앞 · 11/17 차트 칸 없음)",
-      he3.index("<th>선행 EPS 90일</th>") < he3.index("<th>요구 성장률</th>") and "<th>차트</th>" not in he3
-      and "▲ +4.8%" in he3 and "향후 12개월 EPS 추정" in he3)
+check("발굴 카드 — 등 순서 품질 → 가격 → 선행 EPS · 차트 없음 (11/17 표 → 카드)",
+      he3.index('ic-l">품질<') < he3.index('ic-l">가격<') < he3.index('ic-l">선행 EPS<')
+      and "<th>차트</th>" not in he3 and "▲ +4.8%" in he3 and "향후 12개월 EPS 추정" in he3)
 _ve = _vd.build(_all9, _run_dcf(2.0e9)); _ve.eps = _e
 _hv = ui.render_verdict(_ve)
 check("밸류에이션 카드 — 판정 줄 맨 앞에 선행 EPS (없으면 그리지 않음)",

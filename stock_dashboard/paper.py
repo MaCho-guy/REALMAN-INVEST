@@ -228,8 +228,12 @@ def _sleeve(pf: dict, m: str, track: str) -> list:
             if p.get("m") == m and p.get("track") == track and p.get("p0")]
 
 
-def nav(pf: dict, m: str, track: str) -> float | None:
-    """묶음의 지금 계좌 가치 (처음 100) — 머리말 '누적수익률 곡선' 규칙대로 pos 를 다시 돌려 셈."""
+def ledger(pf: dict, m: str, track: str) -> tuple[float, dict] | None:
+    """묶음 장부 — (지금 현금, {pf["pos"] 번호: 주수}). 처음 100 기준 (11/17 nav 에서 떼어 냄).
+
+    주수 = 산 때 현금 ÷ 종목 수 ÷ 매수가 (소수 주). 화면은 이 값에 실험 금액 ÷ 100 을
+    곱해 '몇 주 · 얼마' 로 보입니다(CAPITAL) — 계좌 가치(nav)와 같은 계산이라 어긋나지 않음.
+    """
     ps = _sleeve(pf, m, track)
     if not ps:
         return None
@@ -255,9 +259,33 @@ def nav(pf: dict, m: str, track: str) -> float | None:
             units[i] = each / float(by_i[i]["p0"])
         cash = 0.0
     take(None)
-    held = sum(units.get(i, 0.0) * float(p.get("p") or p["p0"]) for i, p in ps
-               if p.get("state") == "hold")
+    return cash, units
+
+
+def nav(pf: dict, m: str, track: str) -> float | None:
+    """묶음의 지금 계좌 가치 (처음 100) — 머리말 '누적수익률 곡선' 규칙대로 pos 를 다시 돌려 셈."""
+    lg = ledger(pf, m, track)
+    if lg is None:
+        return None
+    cash, units = lg
+    pos = pf.get("pos") or []
+    held = sum(units.get(i, 0.0) * float(pos[i].get("p") or pos[i]["p0"])
+               for i, _p in _sleeve(pf, m, track) if pos[i].get("state") == "hold")
     return cash + held
+
+
+#: 화면에 보이는 실험 금액 — 묶음(시장 × 트랙)마다 (11/17 사용자 "몇 주 사서 얼마에 팔았다,
+#: 얼마로 실험한다"). 계산은 처음 100 기준 그대로이고 화면만 이 금액으로 바꿔 보입니다.
+CAPITAL = {"kr": 10_000_000, "us": 10_000}
+
+
+def shares(pf: dict, m: str, track: str) -> dict:
+    """{pf["pos"] 번호: 실험 금액 기준 주수(소수)} — 화면용."""
+    lg = ledger(pf, m, track)
+    if lg is None:
+        return {}
+    k = CAPITAL.get(m, 100) / 100.0
+    return {i: u * k for i, u in lg[1].items()}
 
 
 def close_date(stamp: str, market: str) -> str:

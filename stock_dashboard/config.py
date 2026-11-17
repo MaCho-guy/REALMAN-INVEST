@@ -1121,7 +1121,8 @@ TAB_ORDER: tuple[str, ...] = (
     "holdings",     # 내가 가진 종목 — 변화 감지 + 시세 + 공시 분석
     "picks",        # 후보 — 한국, 품질 · 가격 · 선행 EPS 세 등 + 타이밍 꼬리표 (11/13)
     "basis",        # 근거 — 한국, 한 종목의 9개 기준 · 역DCF · EPS + 품질 깔때기 · 밸류에이션 (11/13)
-    "timing",       # 차트·거래 — 한국, 거래 스크리너 · 차트 조건 전체 목록 (11/13, 참고용)
+    "timing",       # 차트 — 후보 · 내 종목 위치 · 차트 조건 전체 목록 · 전략 실험 (11/13, 참고용 · 11/17 차트만)
+    "screener",     # 거래 스크리너 — 한국만 (11/13 차트·거래 안 → 11/17 사용자 "나눠줘" 로 다시 자기 탭)
     "paper",        # 모의 매수 — 후보 상위를 샀다고 치고 근거가 깨지면 판 기록 (11/13 17:04, 후보 탭에서 뺌)
     "sector_heat",  # 한국 — 섹터 온도 (KODEX 업종 ETF)
     "research",     # 한국 — 증권사 산업분석 리포트 목록 (업종별)
@@ -1156,8 +1157,7 @@ TABS_RETIRED: dict[str, str] = {
     "screen_kr": "발굴 · 국내 → 종목 발굴 탭",
     "diag": "진단 → 화면 위쪽 패널",
     # 2026-11-13 "찾기안들이 너무 복잡하다" → 한국 찾기를 후보 · 근거 · 차트·거래 3칸으로.
-    # 화면 함수(render_screener_tab)는 그대로이고 '차트·거래' 탭 안에서 부릅니다.
-    "screener": "거래 스크리너 → 찾기 › 차트·거래 (11/13)",
+    # 11/17 거래 스크리너는 다시 자기 탭("screener", TAB_ORDER) — 여기서 뺐습니다.
     # 같은 날 미국도 3칸으로 — 화면 함수는 그대로이고 근거 · 차트 탭 안에서 부릅니다.
     "discover": "품질 깔때기 → 찾기 › 근거 (스위치, 11/13)",
     "valuation": "밸류에이션 → 찾기 › 근거 (스위치, 11/13)",
@@ -1200,7 +1200,8 @@ MARKET_TABS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
         ("오늘", ("summary", "holdings")),
         # 2026-11-13: 5칸 → 3칸. 품질 깔때기 · 밸류에이션은 '근거' 안, 거래 스크리너 ·
         # 차트 조건은 '차트·거래' 안 (스위치). 17:04 모의 매수를 탭으로 뺌.
-        ("찾기", ("picks", "basis", "timing", "paper")),
+        # 11/17 사용자 "차트·거래에서 거래 스크리너, 차트조건은 나눠줘" → 차트 · 거래 스크리너 두 칸
+        ("찾기", ("picks", "basis", "timing", "screener", "paper")),
         ("한국 시장", ("sector_heat", "supply", "research", "semi_research",
                    "kr_flows")),
         ("공통", ("briefing", "calendar", "macro", "cycle")),
@@ -1215,11 +1216,11 @@ MARKET_TABS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
 }
 
 #: 한국 찾기를 3칸으로 줄이며(11/13) 옮긴 탭 — 예전 주소(?s=discover 등)로 들어오면 여기로
-KR_TAB_MOVED: dict[str, str] = {"discover": "basis", "valuation": "basis",
-                                "screener": "timing", "chart": "timing"}
-#: 시장별 옮긴 탭 (미국도 11/13 같은 3칸)
-TAB_MOVED: dict[str, dict[str, str]] = {"kr": KR_TAB_MOVED, "us": dict(KR_TAB_MOVED)}
-#: 시장마다 다른 탭 이름 — 미국에는 거래 스크리너가 없어 '차트·거래' 대신 '차트'
+KR_TAB_MOVED: dict[str, str] = {"discover": "basis", "valuation": "basis", "chart": "timing"}
+#: 시장별 옮긴 탭 (미국도 11/13 같은 3칸). 미국에는 거래 스크리너가 없어 예전 주소는 차트로
+TAB_MOVED: dict[str, dict[str, str]] = {"kr": KR_TAB_MOVED,
+                                        "us": {**KR_TAB_MOVED, "screener": "timing"}}
+#: 시장마다 다른 탭 이름 (11/17 부터 한 · 미 모두 '차트' — 거래 스크리너가 따로 나감)
 MARKET_TAB_LABELS: dict[str, dict[str, str]] = {"us": {"timing": "차트"}}
 
 #: 처음 열었을 때의 시장
@@ -1234,7 +1235,7 @@ SPECIAL_TAB_LABELS = {
     "screener": "거래 스크리너",
     "picks": "후보",
     "basis": "근거",
-    "timing": "차트·거래",
+    "timing": "차트",
     "paper": "모의 매수",
     "macro": "매크로",
     "sector_heat": "섹터 온도",

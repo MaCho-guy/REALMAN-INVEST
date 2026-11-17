@@ -73,7 +73,6 @@
   "render_empty_reason",
   "render_footnote",
   "render_inventory_panel",
-  "render_notice",
   "render_portfolio",
   "render_portfolio_setup"
  ],
@@ -181,7 +180,6 @@
  ],
  "dash-notice": [
   "render_empty_reason",
-  "render_notice",
   "render_portfolio",
   "render_portfolio_setup"
  ],
@@ -203,6 +201,7 @@
  ],
  "dash-picks": [
   "render_candidate_cards",
+  "render_funnel_cards",
   "render_pick_cards",
   "render_pick_list"
  ],

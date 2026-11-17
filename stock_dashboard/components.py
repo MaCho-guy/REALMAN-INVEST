@@ -1728,6 +1728,130 @@ def render_screen_table(screens, criteria, *, held=(), sectors: dict | None = No
     )
 
 
+def funnel_gate_status(frow: dict | None, gr: dict | None) -> tuple[str, str]:
+    """품질 통과 종목이 후보 관문 어디서 걸렸나 — (글, 'ok'|'out'). (11/17)
+
+    integrate.build 의 관문과 같은 함수(price_gate_ok · trend_gate_ok)를 씁니다.
+    """
+    import funnel as _fn  # noqa: PLC0415
+    import integrate as _ig  # noqa: PLC0415
+    why = []
+    if not _ig.price_gate_ok(frow):
+        why.append("가격 높음")
+    if _fn.eps_down((frow or {}).get("f")):
+        why.append("EPS 하향")
+    if (gr or {}).get("td"):
+        why.append("실적 추세 악화")
+    return ("후보", "ok") if not why else ("빠짐 · " + " · ".join(why), "out")
+
+
+def _fn_price_lamp(p: dict | None) -> tuple[str, str, str]:
+    import funnel as _fn  # noqa: PLC0415
+    val, note = _fn.price_cells(p)
+    state = _fn.price_state(p)
+    col, word = {"light": ("g", "낮음"), "edge": ("y", "경계"),
+                 "heavy": ("r", "높음")}.get(state, ("-", "—"))
+    # price_cells 의 보조 줄은 '낮음 · …' 처럼 상태로 시작 — 등 옆 낱말과 겹치므로 뗍니다
+    for pre in ("낮음 · ",):
+        note = note[len(pre):] if note.startswith(pre) else note
+    if state == "na":
+        note = "판정 안 함" + (f" · {note}" if note else "")
+        if val not in ("—", "해당 없음"):
+            note = f"요구 {val} · " + note
+    elif val != "—":
+        note = f"요구 {val} · {note}" if note else f"요구 {val}"
+    return col, word, note
+
+
+def _fn_eps_lamp(f: dict | None) -> tuple[str, str, str]:
+    import config as _cfg  # noqa: PLC0415
+    import funnel as _fn  # noqa: PLC0415
+    val, _note = _fn.eps_cells(f)
+    c = (f or {}).get("c90")
+    if c is None:
+        return "-", "없음", "90일 변화 없음(야후 추정 없음)"
+    if c >= 0.005:
+        col, word = "g", "상향"
+    elif c > -0.005:
+        col, word = "y", "보합"
+    else:
+        col, word = ("r" if c <= _cfg.EPS_DOWN_WARN else "y"), "하향"
+    old = _fn.eps_old_note(f)
+    # 카드에서는 추정 EPS 절대값(19,225.07 같은)을 빼고 변화만 — 근거 탭 종목 카드에 있음
+    c30 = (f or {}).get("c30")
+    return col, word, (f"90일 {val}" + (f" · 30일 {c30 * 100:+,.1f}%" if c30 is not None else "")
+                       + old)
+
+
+def render_funnel_cards(screens, criteria, *, rows: dict | None = None,
+                        gr: dict | None = None, held=(), sectors: dict | None = None,
+                        rank_from: int = 1) -> str:
+    """품질 깔때기 목록 — 종목마다 카드 한 장 (11/17 사용자 "카드 형식 깔끔하게").
+
+    전에는 표(render_screen_table)를 좁은 화면에서 칸마다 '머리글 · 값' 으로 풀어
+    카드처럼 보이게 했는데, 칸 이름이 값보다 많고(선행 EPS 90일 · 요구 성장률 ·
+    걸린 기준) 왜 후보가 아닌지도 안 보였습니다. 후보 카드와 같은 모양으로 맞춥니다.
+
+    - 머리: 순위 · 이름 · 코드(★ · 업종) · 오른쪽 = 후보 관문 결과('후보' / '빠짐 · 이유')
+    - 등 3개: 품질(통과 수 / 9) · 가격(역DCF 낮음 · 경계 · 높음) · 선행 EPS 90일
+    - 아래: 기준 9개 칩 — 통과는 옅게, ✗ 미달 · ? 판정 불가는 표시를 붙여 눈에 띄게
+    rows = {티커: 깔때기 줄}, gr = {티커: 성장 지표}. 판정 · 순서는 바꾸지 않습니다.
+    """
+    if not screens:
+        return ""
+    import buffett as _bf  # noqa: PLC0415
+    rows, gr = rows or {}, gr or {}
+    cards = []
+    n = rank_from - 1
+    for s in screens:
+        if not s.ok:
+            continue
+        n += 1
+        t = s.ticker
+        frow = rows.get(t) or {}
+        nm = getattr(s, "name", "") or ""
+        if t.isdigit() and nm:
+            first, second = nm[:22], t
+        else:
+            first, second = t, nm[:22]
+        tags = ('<span class="pk-tag" title="내 관심종목">★ 관심</span>' if t in held else "")
+        sect = (sectors or {}).get(t)
+        if sect:
+            tags += f'<span class="pk-tag fn-sect">{_esc(sect)}</span>'
+        # 깔때기 줄이 없어도(가격 · EPS 계산 범위 밖) 관문 함수 결과 그대로 — 단계 목록과 같게
+        word, kind = funnel_gate_status(frow or None, gr.get(t))
+        badge = (f'<span class="ic-score fn-st {kind}">{_esc(word)}</span>' if rows
+                 else "")  # 깔때기 파일이 통째로 없으면(예시 · 직접 심사) 관문 결과를 안 적음
+        fails = sum(1 for c in s.checks if c.verdict == "fail")
+        unk = sum(1 for c in s.checks if c.verdict == "unknown")
+        q_col = "g" if not fails else "y"
+        q_note = f"판정 {s.known_count} 중 {s.passed_count} 통과 · 미달 {fails}" + (
+            f" · 판정 불가 {unk}" if unk else "")
+        p_col, p_w, p_note = _fn_price_lamp(frow.get("p"))
+        e_col, e_w, e_note = _fn_eps_lamp(frow.get("f"))
+        lamps = [(q_col, "품질", f"{s.passed_count}/{len(s.checks)}", q_note),
+                 (p_col, "가격", p_w, p_note),
+                 (e_col, "선행 EPS", e_w, e_note)]
+        lamp_html = "".join(
+            f'<div class="ic-lamp {col}"><i aria-hidden="true"></i><span class="ic-l">{label}</span>'
+            f'<span class="ic-w">{_esc(w)}</span><span class="ic-note">{_esc(note)}</span></div>'
+            for col, label, w, note in lamps)
+        chips = "".join(
+            f'<span class="{ {"pass": "p", "fail": "f", "unknown": "u"}[c.verdict] }" '
+            f'title="{_esc(c.criterion.name)}">'
+            + ("" if c.verdict == "pass" else f"{_MARK[c.verdict]} ")
+            + f"{_esc(_bf.SHORT_NAMES.get(c.criterion.key, c.criterion.name))}</span>"
+            for c in s.checks)
+        cards.append(
+            f'<div class="pk-card ic-card fn-card"><div class="pk-top"><span class="pk-n">{n}</span>'
+            f'<b title="{_esc(nm)}">{_esc(first)}</b><span class="pk-code">{_esc(second)}</span>{tags}'
+            f'{badge}</div><div class="ic-lamps">{lamp_html}</div>'
+            f'<div class="fn-crit" aria-label="품질 기준 9개">{chips}</div></div>')
+    if not cards:
+        return ""
+    return f'<div class="dash-picks ic-picks fn-cards">{"".join(cards)}</div>'
+
+
 def render_sector_pass(usable, passed, sectors: dict, label=lambda x: x) -> str:
     """업종별로 몇 종목 중 몇 종목이 통과했나 — 통과율 순의 칩 한 줄.
 
@@ -4081,6 +4205,58 @@ def _side_chip(row) -> str:
             f'<i>{count}</i></span>')
 
 
+def _cp_ma(row, attr: str, label: str) -> str:
+    ma = getattr(row, attr, None)
+    if row.price is None or not ma:
+        return ""
+    return f"{label} {'위' if row.price >= ma else '아래'}"
+
+
+def render_chart_position(groups: list) -> str:
+    """찾기 › 차트 › '후보 · 내 종목 위치' (11/17 사용자 선택 A).
+
+    groups = [(제목, [(ChartRow 또는 None, 이름, 코드, [꼬리표])])]. 516 · 350 종목
+    전체 목록 대신 내가 볼 종목만 — 종목의 쪽(과매도 · 과매수) · 20일선 대비 ·
+    60 · 120일선 위아래 · CCI · 스토캐스틱 상태를 한 줄씩. 판정 · 순서에 쓰지 않습니다.
+    """
+    import chart_signals as _cs  # noqa: PLC0415
+    out = []
+    for title, items in groups:
+        if not items:
+            continue
+        rows = [r for r, *_ in items if r is not None and r.ok]
+        n_os = sum(1 for r in rows if r.side == "os")
+        n_ob = sum(1 for r in rows if r.side == "ob")
+        n_en = sum(1 for r in rows if _cs.is_os_entry(r))
+        lines = []
+        for r, name, code, tags in items:
+            tg = "".join(f'<span class="pk-tag">{_esc(t)}</span>' for t in tags or ())
+            head = (f'<div class="cp-nm"><b>{_esc(name or code)}</b>'
+                    f'<span class="pk-code">{_esc(code)}</span>{tg}</div>')
+            if r is None or not r.ok:
+                lines.append(f'<li class="cp-row">{head}<div class="cp-v">차트 계산 없음'
+                             " (지수 밖 · ETF · 일봉 부족)</div></li>")
+                continue
+            d20 = (f"20일선 대비 {(r.price / r.ma20 - 1) * 100:+.1f}%"
+                   if r.price is not None and r.ma20 else "")
+            mas = " · ".join(x for x in (d20, _cp_ma(r, "ma60", "60일선"),
+                                          _cp_ma(r, "ma120", "120일선")) if x)
+            st_ = " · ".join(f"{lb} {r.states[k]}" for k, lb in
+                             (("cci", "CCI"), ("stoch", "%K"), ("bb", "볼린저"))
+                             if r.states.get(k))
+            entry = ('<span class="pk-tag ic-timing" title="최근 3봉 안에 과매도로 들어감">'
+                     "과매도 진입</span>" if _cs.is_os_entry(r) else "")
+            lines.append(
+                f'<li class="cp-row">{head}<div class="cp-v">{_side_chip(r)}{entry}'
+                f'<span>{_esc(mas)}</span></div>'
+                + (f'<div class="cp-st">{_esc(st_)}</div>' if st_ else "") + "</li>")
+        out.append(
+            f'<div class="cp-grp"><div class="cp-h"><b>{_esc(title)}</b> <span>{len(items)}종목 · '
+            f"과매도 쪽 {n_os} · 과매수 쪽 {n_ob} · 과매도 진입 {n_en}</span></div>"
+            f'<ul class="cp-list">{"".join(lines)}</ul></div>')
+    return f'<div class="dash-cpos">{"".join(out)}</div>' if out else ""
+
+
 def render_chart_table(rows, limit: int = 30, held=(), semi=(), new=()) -> str:
     """종목 × 조건. 칸마다 **상태 이름**과 값을 적습니다. held 에 든 종목
     (보유·관심)은 이름 앞에 ★ 를 붙입니다.
@@ -5761,6 +5937,10 @@ def render_paper(pf: dict, market: str) -> str:
                 + (f' · 차이 <b>{_pct(exc)}</b>' if exc is not None else "") + "</div>")
         rows = []
         fmt = (lambda v: f"{v:,.0f}{cur}") if market == "kr" else (lambda v: f"{cur}{v:,.2f}")
+        # 11/17 — 실험 금액 기준 주수 · 금액 (paper.shares, 계좌 가치와 같은 계산)
+        money = (lambda v: f"{v:,.0f}원") if market == "kr" else (lambda v: f"${v:,.0f}")
+        idx = {id(q): i for i, q in enumerate(pf.get("pos") or [])}
+        sh = paper.shares(pf, market, track)
         for p in ps:
             sold = p["state"] == "sold"
             end = p.get("p1") if sold else p.get("p")
@@ -5768,17 +5948,33 @@ def render_paper(pf: dict, market: str) -> str:
             cls = "up" if r > 0.0005 else ("down" if r < -0.0005 else "flat")
             state = (f'매도 {_esc(str(p.get("d1", ""))[5:10])} — {_esc(p.get("why", ""))}' if sold
                      else ("보유 · 판정 불가" if p.get("na") else "보유"))
+            q = sh.get(idx.get(id(p)))
+            if q:
+                buy_amt = q * float(p["p0"])
+                end_amt = q * float(end) if end else None
+                trade = (f'<div class="pp-sub pp-amt">{_esc(str(p["d0"])[5:10])} 매수 '
+                         f'<b>{q:,.2f}주</b> × {fmt(p["p0"])} = {money(buy_amt)} → '
+                         + (f'{"매도" if sold else "지금"} {fmt(end)} = <b>{money(end_amt)}</b> '
+                            f'(손익 {"+" if end_amt >= buy_amt else "−"}{money(abs(end_amt - buy_amt))})'
+                            if end_amt is not None else "—")
+                         + "</div>")
+            else:
+                trade = (f'<div class="pp-sub">{_esc(str(p["d0"])[5:10])} {fmt(p["p0"])} → '
+                         f'{fmt(end) if end else "—"}</div>')
             rows.append(
                 f'<div class="pp-row{" sold" if sold else ""}"><div class="pp-top"><b>{_esc(p["n"])}</b>'
                 f'<span class="pk-code">{_esc(p["t"])}</span><span class="pp-r {cls}">{_pct(r)}</span></div>'
-                f'<div class="pp-sub">{_esc(str(p["d0"])[5:10])} {fmt(p["p0"])} → '
-                f'{fmt(end) if end else "—"} · 시장 {_pct(paper.bench_ret(p))}</div>'
+                f'{trade}<div class="pp-sub">같은 기간 시장 {_pct(paper.bench_ret(p))}</div>'
                 f'<div class="pp-st">{state}</div></div>')
         void_note = (f'<div class="pp-st">이전 규칙 묶음 {voided}종목은 규칙 변경으로 실험에서 뺌 — '
                      '아래 기록에 남김</div>' if voided else "")
         # 누적수익률 (11/16) — 처음 100 에서 사고판 것까지 이어 계산. 다시 산 묶음은 평균과 다름
         nv = paper.nav(pf, market, track)
-        cum = (f'<div class="pp-st">누적(처음 100 기준, 판 돈은 현금) <b>{_pct(nv / 100 - 1)}</b>'
+        cap = paper.CAPITAL.get(market, 100)
+        cash_now = (paper.ledger(pf, market, track) or (0.0, {}))[0] * cap / 100
+        cum = (f'<div class="pp-st pp-acct">실험 금액 <b>{money(cap)}</b> → 지금 <b>{money(nv * cap / 100)}</b> '
+               f'(누적 <b>{_pct(nv / 100 - 1)}</b>'
+               + (f" · 그중 판 돈 현금 {money(cash_now)}" if cash_now >= 1 else "") + ")"
                + (" — 규칙 변경 전 묶음의 손익까지 포함해 위 '평균' 과 다름" if voided else "")
                + "</div>") if nv is not None else ""
         chart = render_paper_curve(paper.curve(pf, market, track), paper.BENCH[market])
@@ -5833,8 +6029,41 @@ def render_timing_card(tm: dict | None) -> str:
             '</div></div>')
 
 
-def render_backtest(res: dict, market: str, recent: str = "A") -> str:
-    """차트 전략 백테스트 (11/13, techtest.py) — 변형마다 요약 카드 + 오늘 신호 + 최근 거래."""
+def backtest_rank(res: dict) -> list[str]:
+    """변형 키를 '같은 기간 후보 전체 대비' 큰 순으로 (끝난 거래가 있는 것만). (11/17)"""
+    import techtest  # noqa: PLC0415
+    var = (res or {}).get("variants") or {}
+    keys = [k for k in techtest.VARIANTS if (var.get(k) or {}).get("trades")]
+    return sorted(keys, key=lambda k: -(var[k].get("excess") or 0.0))
+
+
+def render_backtest_summary(res: dict) -> str:
+    """전략 실험 맨 위 한 줄 (11/17 사용자 선택 C) — '단순 보유보다 나은 변형 n / m'.
+    글만 돌려줌 — 화면은 render_notice 로 감쌈."""
+    import techtest  # noqa: PLC0415
+    var = (res or {}).get("variants") or {}
+    ranked = backtest_rank(res)
+    if not ranked:
+        return ""
+    win = [k for k in ranked if (var[k].get("excess") or 0.0) > 0]
+    best = ranked[0]
+    bv = var[best]
+    head = (f"<b>단순 보유보다 나은 변형 {len(win)} / {len(ranked)}</b> — "
+            if win else f"<b>단순 보유보다 나은 변형 없음 (0 / {len(ranked)})</b> — ")
+    return (head
+            + f"가장 나은 것 {_esc(techtest.LABELS[best])}: 후보 전체 대비 <b>{_pp(bv['excess'])}</b>"
+            f" · 거래 {bv['trades']}번 · 평균 {_pct(bv['avg'])}"
+            + (" · 거래 수가 적어 우연일 수 있음" if bv["trades"] < 150 else "")
+            + ". 비교 = 같은 기간 후보 전체를 같은 비중으로 들고 있었을 때.")
+
+
+def render_backtest(res: dict, market: str, recent: str = "A", *, keys=None,
+                    extras: bool = True) -> str:
+    """차트 전략 백테스트 (11/13, techtest.py) — 변형마다 요약 카드 + 오늘 신호 + 최근 거래.
+
+    keys 를 주면 그 변형 카드만 그 순서로(11/17 — 위 2개 / 나머지 접는 칸),
+    extras=False 면 T 카드 · 오늘 신호 · 최근 거래를 빼고 카드만.
+    """
     import techtest  # noqa: PLC0415
 
     var = res.get("variants") or {}
@@ -5843,7 +6072,7 @@ def render_backtest(res: dict, market: str, recent: str = "A") -> str:
     cur = "원" if market == "kr" else "$"
     fmt = (lambda v: f"{v:,.0f}{cur}") if market == "kr" else (lambda v: f"{cur}{v:,.2f}")
     out, rows = [], []
-    for k in techtest.VARIANTS:
+    for k in (techtest.VARIANTS if keys is None else keys):
         v = var.get(k)
         if not v:
             continue
@@ -5862,7 +6091,10 @@ def render_backtest(res: dict, market: str, recent: str = "A") -> str:
             f'{_pct(v["worst"])}</div>'
             f'<div class="pp-sub">같은 기간 후보 전체 대비 <b>{_pct(v["excess"])}</b> · 평균 보유 '
             f'{v["hold"]}일</div><div class="pp-st">끝난 이유 — {why}</div></div>')
-    out.append(f'<div class="pp-list">{"".join(rows)}</div>')
+    if rows:
+        out.append(f'<div class="pp-list">{"".join(rows)}</div>')
+    if not extras:
+        return f'<div class="dash-paper">{"".join(out)}</div>' if out else ""
     out.append(render_timing_card(res.get("timing")))
     for k, label in (("A", "A 기본"), ("S", "S 스토캐스틱 확인"), ("C", "C 펀더멘털 통과만")):
         sig = (res.get("signals") or {}).get(k)

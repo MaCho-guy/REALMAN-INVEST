@@ -218,26 +218,27 @@ check("요약용 compact 카드는 근거 줄 없음",
 check("빠진 종목 목록", "가격 부담 높음" in ui.render_candidate_excluded(out))
 check("빈 입력에도 깨지지 않음", integrate.build([], {}, {}, {}) == []
       and ui.render_candidate_cards([]) == "")
-check("한국 찾기 = 후보 · 근거 · 차트·거래 · 모의 매수 (11/13 단순화 · 17:04 모의 매수 탭)",
-      dict(config.MARKET_TABS["kr"])["찾기"] == ("picks", "basis", "timing", "paper")
-      and [config.SPECIAL_TAB_LABELS[k] for k in ("picks", "basis", "timing", "paper")]
-      == ["후보", "근거", "차트·거래", "모의 매수"])
+check("한국 찾기 = 후보 · 근거 · 차트 · 거래 스크리너 · 모의 매수 (11/17 차트 · 거래 스크리너 나눔)",
+      dict(config.MARKET_TABS["kr"])["찾기"] == ("picks", "basis", "timing", "screener", "paper")
+      and [config.SPECIAL_TAB_LABELS[k] for k in ("picks", "basis", "timing", "screener", "paper")]
+      == ["후보", "근거", "차트", "거래 스크리너", "모의 매수"])
 check("아침 브리핑은 공통 묶음 (11/13 17:03)",
       all("briefing" in dict(config.MARKET_TABS[m])["공통"]
           and "briefing" not in dict(config.MARKET_TABS[m])["오늘"] for m in ("kr", "us")))
 check("예전 탭은 옮긴 곳으로 (주소 · 세션)",
-      config.KR_TAB_MOVED == {"discover": "basis", "valuation": "basis",
-                              "screener": "timing", "chart": "timing"}
-      and config.TAB_MOVED["kr"] is config.KR_TAB_MOVED)
+      config.KR_TAB_MOVED == {"discover": "basis", "valuation": "basis", "chart": "timing"}
+      and config.TAB_MOVED["kr"] is config.KR_TAB_MOVED
+      and config.TAB_MOVED["us"]["screener"] == "timing"
+      and "screener" not in config.TABS_RETIRED)
 check("옮긴 화면을 지우지 않고 스위치로 부름",
       '_discover_kr(use_demo, part="funnel")' in app_src.split("def render_basis_tab")[1][:12000]
       and "data, fx, use_demo, phone, market=market)" in app_src
       and "render_chart_tab(use_demo, market=market, today=False)" in app_src
-      and "render_screener_tab(use_demo, market=market)" in app_src)
+      and 'render_screener_tab(opts["demo"], market=market)' in app_src)
 check("미국 찾기도 같은 3칸 · 셋째 칸 이름은 '차트' (11/13)",
       dict(config.MARKET_TABS["us"])["찾기"] == ("picks", "basis", "timing", "paper")
       and config.market_labels("us")["timing"] == "차트"
-      and config.market_labels("kr")["timing"] == "차트·거래"
+      and config.market_labels("kr")["timing"] == "차트"
       and dict(config.tab_groups("us"))["찾기"][2] == ("timing", "차트"))
 check("미국 예전 주소도 옮긴 탭으로", config.TAB_MOVED["us"]["discover"] == "basis"
       and config.TAB_MOVED["us"]["chart"] == "timing"
@@ -650,9 +651,9 @@ check("화면 — 점이 하나뿐이면 안내 (깨지지 않음)", "시작 점
       and "시작 점만" in ui.render_paper_curve(None, "SPY"))
 _rp = ui.render_paper(cvg, "us")
 check("모의 매수 화면 — 누적 줄 · 선 · 다시 산 묶음은 평균과 다르다는 설명",
-      "누적(처음 100 기준" in _rp and "pp-curve" in _rp and "평균' 과 다름" in _rp)
+      "실험 금액" in _rp and "누적" in _rp and "pp-curve" in _rp and "평균' 과 다름" in _rp)
 check("예전 파일(곡선 없음)도 그림 — 누적 줄 + 시작 점 안내",
-      "누적(처음 100 기준" in ui.render_paper(pf2, "kr") and paper.curve(pf2, "kr", "stable") == [])
+      "실험 금액" in ui.render_paper(pf2, "kr") and paper.curve(pf2, "kr", "stable") == [])
 check("수집기 — 회차마다 곡선 점", "paper.update_curve(pf, m, track, bar, bench.get(m))" in
       pathlib.Path("tools/collect.py").read_text(encoding="utf-8"))
 _cs = {"curve": {"kr": {"stable": {"start": "2026-11-13", "pts": [["2026-11-13", 99.7, 100.0]]}}}}
@@ -967,6 +968,79 @@ check("폰 — 본문 15 · 설명 14 · 리포트 카드 제목 = 리포트 제
 ckh = ui.render_checklist([("pass", "가", "근거1"), ("unknown", "나", "근거2")], "추가 확인", "설명")
 check("추가 확인 카드 — 항목 / 근거 두 줄 · 상태 글자 · 설명 줄",
       ckh.count('class="ck-top"') == 2 and "좋음" in ckh and "자료 부족" in ckh and 'class="ck-s"' in ckh)
+
+print("\n== 11/17 저녁 — 깔때기 카드 · 차트 위치 · 전략 실험 요약 · 모의 매수 금액 · 줄바꿈")
+import buffett as _bf17  # noqa: E402
+_S = lambda t, v: _bf17.from_summary({"t": t, "n": t, "y": 10,  # noqa: E731
+                                     "c": [[c.key, x, "", "", ""] for c, x in zip(_bf17.CRITERIA, v)]})
+_q1 = _S("000001", ["pass"] * 7 + ["unknown", "fail"])
+_q2 = _S("000002", ["pass"] * 9)
+_light = {"g": 0.02, "h": 0.10, "hi": 0.03, "sp": 7}
+_heavy = {"g": 0.30, "h": 0.05, "hi": 0.35, "sp": 7}
+_fc = ui.render_funnel_cards([_q1, _q2], _bf17.CRITERIA,
+                             rows={"000001": {"p": _light, "f": {"n": 1.0, "c90": 0.03, "c30": 0.01}},
+                                   "000002": {"p": _heavy, "f": {"n": 1.0, "c90": -0.08}}},
+                             gr={"000001": {}, "000002": {"td": 1}}, held={"000002"})
+check("깔때기 카드 — 카드 2장 · 순위 · 관문 결과(후보 / 빠짐 · 이유 전부)",
+      _fc.count('fn-card"') == 2 and '<span class="pk-n">2</span>' in _fc
+      and ">후보<" in _fc and "빠짐 · 가격 높음 · EPS 하향 · 실적 추세 악화" in _fc)
+check("깔때기 카드 — 등 3개(품질 n/9 · 가격 낮음/높음 · EPS 상향/하향) · 기준 칩 ✗ · ? 표시",
+      ">7/9<" in _fc and ">낮음<" in _fc and ">높음<" in _fc and ">상향<" in _fc and ">하향<" in _fc
+      and _fc.count('class="f"') == 1 and _fc.count('class="u"') == 1 and "★ 관심" in _fc
+      and "요구 연 2.0%" in _fc and "30일 +1.0%" in _fc)
+check("깔때기 카드 — 파일이 없으면 관문 결과를 적지 않음 · 빈 입력은 빈 글",
+      "fn-st" not in ui.render_funnel_cards([_q1], _bf17.CRITERIA)
+      and ui.render_funnel_cards([], _bf17.CRITERIA) == "")
+check("깔때기 관문 결과 = integrate 관문 함수와 같음",
+      ui.funnel_gate_status({"p": _light, "f": {"c90": 0.0}}, {})[1] == "ok"
+      and ui.funnel_gate_status(None, None)[1] == "ok"
+      and ui.funnel_gate_status({"p": _heavy}, {})[1] == "out")
+check("앱 — 한 · 미 깔때기 목록이 카드로 (표는 보류 · 미달 접는 칸에만)",
+      app_src.count("ui.render_funnel_cards(") == 4
+      and "ui.render_screen_table(\n                held_back[:60]" in app_src)
+import chart_signals as _cs17  # noqa: E402
+_r1 = _cs17.ChartRow(ticker="A1", name="가", bars=200, price=95.0, ma20=100.0, ma60=90.0,
+                     ma120=110.0, states={"cci": "과매도 진입"}, sides={"cci": "os"})
+_cp = ui.render_chart_position([("후보 · 안정형", [(_r1, "가", "A1", ["타이밍"])]),
+                                ("내 종목", [(None, "나", "B1", ["보유"])]), ("빈 묶음", [])])
+check("차트 위치 — 쪽 · 20일선 대비 · 60/120일선 · 상태 · 진입 · 계산 없음 · 빈 묶음은 안 그림",
+      "과매도" in _cp and "20일선 대비 -5.0%" in _cp and "60일선 위" in _cp and "120일선 아래" in _cp
+      and "CCI 과매도 진입" in _cp and "과매도 진입</span>" in _cp and "차트 계산 없음" in _cp
+      and "빈 묶음" not in _cp and "과매도 쪽 1 · 과매수 쪽 0 · 과매도 진입 1" in _cp)
+check("차트 탭 — 보기 셋(위치 기본 · 전체 목록 · 전략 실험)",
+      '"pos": "후보 · 내 종목 위치"' in app_src and 'default="pos"' in app_src
+      and "_render_chart_position(market, use_demo)" in app_src)
+_bt = {"variants": {"A": {"trades": 400, "excess": -0.02, "avg": -0.02},
+                    "S_vol": {"trades": 103, "excess": 0.01, "avg": 0.042},
+                    "S": {"trades": 280, "excess": -0.014, "avg": -0.019}}}
+check("전략 실험 요약 — 나은 변형 수 · 가장 나은 것 · 순서",
+      ui.backtest_rank(_bt) == ["S_vol", "S", "A"]
+      and "단순 보유보다 나은 변형 1 / 3" in ui.render_backtest_summary(_bt)
+      and "거래 수가 적어 우연일 수 있음" in ui.render_backtest_summary(_bt)
+      and ui.render_backtest_summary({}) == "")
+check("전략 실험 — 위 2개 카드 + 나머지 접는 칸",
+      "keys=ranked[:2]" in app_src and "나머지 변형" in app_src and "extras=False" in app_src)
+_pf17 = {"pos": [
+    {"m": "kr", "track": "stable", "t": "A", "n": "가", "d0": "2026-11-13 16:44", "p0": 10000.0,
+     "p": 11000.0, "state": "hold"},
+    {"m": "kr", "track": "stable", "t": "B", "n": "나", "d0": "2026-11-13 16:44", "p0": 20000.0,
+     "p": 20000.0, "p1": 18000.0, "d1": "2026-11-16 06:51", "state": "sold", "why": "x"}]}
+_sh = paper.shares(_pf17, "kr", "stable")
+check("모의 매수 주수 — 1,000만원을 둘로 나눠 소수 주 · 계좌 가치와 같은 계산",
+      abs(_sh[0] - 500.0) < 1e-9 and abs(_sh[1] - 250.0) < 1e-9
+      and abs(paper.nav(_pf17, "kr", "stable") - (50 * 1.1 + 50 * 0.9)) < 1e-9
+      and abs(paper.ledger(_pf17, "kr", "stable")[0] - 45.0) < 1e-9)
+_rp17 = ui.render_paper(_pf17, "kr")
+check("모의 매수 화면 — 몇 주 × 가격 = 금액 → 매도/지금 금액 · 손익 · 실험 금액 줄",
+      "500.00주</b> × 10,000원 = 5,000,000원" in _rp17 and "지금 11,000원 = <b>5,500,000원</b>" in _rp17
+      and "매도 18,000원 = <b>4,500,000원</b>" in _rp17 and "손익 +500,000원" in _rp17
+      and "손익 −500,000원" in _rp17 and "실험 금액 <b>10,000,000원</b>" in _rp17
+      and "그중 판 돈 현금 4,500,000원" in _rp17)
+check("모의 매수 규칙 상자 — 무엇을(후보 상위 그대로) · 얼마나(금액)",
+      "<b>무엇을</b>" in app_src and "<b>얼마나</b>" in app_src and "paper.CAPITAL" in app_src)
+check("설명 문구 — 한글을 낱말 중간에서 자르지 않고 넓은 화면에서 64em 까지",
+      "word-break: keep-all; overflow-wrap: anywhere;" in _css.split(".dash-footnote {")[1].split("}")[0]
+      and "max-width: 64em;" in _css.split(".dash-footnote {")[1].split("}")[0])
 
 print("\n" + "=" * 54)
 if FAILURES:

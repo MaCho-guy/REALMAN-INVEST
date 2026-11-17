@@ -2132,8 +2132,13 @@ def _render_paper(market: str, use_demo: bool) -> None:
     # 규칙 — 두 줄에서 접히는 legend 대신 잘리지 않는 상자 (11/13 17:20 "밑에 글자 잘림")
     import growth  # noqa: PLC0415
     st.markdown(ui.render_rule_box("규칙", [
-        f"<b>매수</b> — 첫 회차에 시장마다 안정형 상위 {paper.STABLE_N} · 성장형 상위 "
-        f"{paper.GROWTH_N}종목을 같은 비중으로 그 회차 종가에. 이후 추가 매수 없음",
+        f"<b>무엇을</b> — 첫 회차(11/13 16:44)에 시장마다 찾기 › 후보의 <b>안정형 1~{paper.STABLE_N}위 · "
+        f"성장형 1~{paper.GROWTH_N}위</b>를 그대로 — 사람이 고르지 않고 그 회차의 후보 순서로 정함(11/13 당시 순서: 충족 수 → "
+        "타이밍 → 선행 EPS → 가격 여유 · 성장형은 PEG. 11/17 부터 후보 탭은 타이밍을 맨 뒤로 — "
+        "이미 산 묶음은 그대로). 이후 추가 매수 없음",
+        f"<b>얼마나</b> — 묶음마다 <b>{paper.CAPITAL['kr']:,}원</b>(미국 <b>${paper.CAPITAL['us']:,}</b>)을 "
+        "종목 수로 똑같이 나눠 그 회차 종가에 삼(소수 주 — 비중을 정확히 같게). 판 돈은 현금으로 "
+        "두고 다른 종목을 사지 않음(규칙이 바뀐 묶음만 그 현금 전부로 새 상위 종목을 다시 삼)",
         "<b>매도(안정형)</b> — 품질 통과 상실 · 가격 부담 높음 · 선행 EPS 90일 −5% 이하 · "
         "실적 추세 악화 중 하나라도 생긴 회차의 종가",
         f"<b>매도(성장형)</b> — 성장 품질 {growth.GROWTH_MIN_PASS}개 미만 · PEG {growth.PEG_OK} 초과 · "
@@ -2365,37 +2370,97 @@ def render_basis_tab(data, fx, use_demo: bool, phone: bool = False, *,
 
 
 def render_timing_tab(use_demo: bool, *, market: str = "kr") -> None:
-    """찾기 › 차트·거래 (한국) — 타이밍 · 수급을 따로 보고 싶을 때만 (참고용, 11/13)."""
-    if market != "kr":
-        # 미국(11/13) — 거래 스크리너가 없어 차트 조건 전체 목록만
-        st.markdown(ui.render_section_head(
-            "차트 · 미국", "참고용 — 가격 패턴만 봅니다 (재무 판단은 후보 · 근거에서)"),
-            unsafe_allow_html=True)
-        render_chart_tab(use_demo, market=market, today=False)
-        with st.expander("차트 전략 실험 (과거 1년 백테스트)", expanded=False):
-            _render_backtest(market, use_demo)
-        return
+    """찾기 › 차트 (한 · 미) — 가격 패턴 참고용.
+
+    11/17 사용자 "차트·거래에서 거래 스크리너, 차트 조건은 나눠줘" — 한국 거래
+    스크리너는 자기 탭(찾기 › 거래 스크리너, render_screener_tab)으로 나가고, 여기는
+    차트만. 보기 셋: ① 후보 · 내 종목 위치(기본, 사용자 선택 A) ② 차트 조건 전체 목록
+    ③ 전략 실험(사용자 선택 C — 단순 보유보다 나은 변형 수 한 줄 + 위 2개, 나머지 접기).
+    """
     st.markdown(ui.render_section_head(
-        "차트·거래 · 한국", "참고용 — 가격 · 거래 패턴만 봅니다 (재무 판단은 후보 · 근거에서)"),
+        f"차트 · {'한국' if market == 'kr' else '미국'}",
+        "참고용 — 가격 패턴만 봅니다 (재무 판단은 후보 · 근거에서)"),
         unsafe_allow_html=True)
-    views = {"screener": "거래 스크리너", "chart": "차트 조건 (전체 목록)", "test": "전략 실험"}
+    views = {"pos": "후보 · 내 종목 위치", "chart": "차트 조건 (전체 목록)", "test": "전략 실험"}
     pick = None
     picker = getattr(st, "segmented_control", None)
     if picker is not None:
         try:
-            pick = picker("보기", list(views), default="screener", key="timing_view",
+            pick = picker("보기", list(views), default="pos", key=f"chart_view_{market}",
                           format_func=lambda k: views[k], label_visibility="collapsed")
         except Exception:  # noqa: BLE001
             pick = None
     if pick not in views:
-        pick = st.radio("보기", list(views), horizontal=True, key="timing_view_r",
+        pick = st.radio("보기", list(views), horizontal=True, key=f"chart_view_r_{market}",
                         format_func=lambda k: views[k], label_visibility="collapsed")
     if pick == "chart":
         render_chart_tab(use_demo, market=market, today=False)
     elif pick == "test":
         _render_backtest(market, use_demo)
     else:
-        render_screener_tab(use_demo, market=market)
+        _render_chart_position(market, use_demo)
+
+
+def _render_chart_position(market: str, use_demo: bool) -> None:
+    """후보(안정형 · 성장형) + 내 종목(보유 · 관심)의 차트 위치 — 수집기 차트 파일만 읽음 (11/17)."""
+    cands, meta = _integrated(use_demo, market)
+    rows = meta.get("rows") or {}
+    if not rows:
+        st.markdown(ui.render_notice(
+            "차트 파일이 아직 없습니다 — 다음 수집(06:43 · 15:43) 뒤에 나옵니다."),
+            unsafe_allow_html=True)
+        return
+    growth_c = integrate.build_growth(meta.get("screens") or [], meta.get("frows") or {},
+                                      rows, set(meta.get("semis") or ()),
+                                      set(meta.get("new") or ()), market=market)
+    fix = (lambda t: t) if market == "kr" else (lambda t: str(t).replace("-", "."))
+
+    def _item(c, extra=()):
+        return (rows.get(c.ticker), c.name, c.ticker,
+                [*extra] + (["타이밍"] if getattr(c, "timing", False) else []))
+
+    stable = [c for c in cands if not c.excluded][:10]
+    grow = [c for c in growth_c if not c.excluded][:10]
+    # 내 종목 — 보유(Secrets) + 관심종목. 이름은 차트 파일 이름. ETF · 지수 밖이면 '계산 없음'
+    mine: dict[str, list] = {}
+    try:
+        positions, _bad, _src = portfolio.load(use_demo)
+    except Exception:  # noqa: BLE001
+        positions = []
+    for p in positions:
+        if p.market == market:
+            mine.setdefault(fix(p.symbol), []).append("보유")
+    wl = ([c for c, _n in config.watchlist_kr()] if market == "kr"
+          else config.watchlist_us_tickers())
+    for t in wl:
+        tags = mine.setdefault(fix(t), [])
+        if "보유" not in tags:
+            tags.append("관심")
+    names = {fix(c.ticker): c.name for c in [*cands, *growth_c]}
+    if market == "kr":
+        names.update({c: n for c, n in config.watchlist_kr()})
+    mine_items = [(rows.get(t), (rows[t].name if t in rows else "") or names.get(t, ""), t, tags)
+                  for t, tags in mine.items()]
+    mine_items.sort(key=lambda x: (x[0] is None, x[1]))
+    ok_all = [r for r in rows.values() if r.ok]
+    n_os = sum(1 for r in ok_all if r.side == "os")
+    st.markdown(ui.render_notice(
+        f"<b>차트 {_when_kst(meta.get('c'))}</b> ({'네이버' if market == 'kr' else '야후'} 일봉) — "
+        "후보는 재무로 고른 종목, 여기는 '지금 차트상 어디쯤인가' 만 봅니다 (판정 · 순서에 안 씀). "
+        f"시장 전체로는 <b>과매도 쪽 {n_os} / {len(ok_all)}</b> "
+        f"({n_os / len(ok_all) * 100:.0f}%)" if ok_all else ""), unsafe_allow_html=True)
+    st.markdown(ui.render_chart_position([
+        ("후보 · 안정형", [_item(c) for c in stable]),
+        ("후보 · 성장형", [_item(c) for c in grow]),
+        ("내 종목 (보유 · 관심)", mine_items),
+    ]), unsafe_allow_html=True)
+    st.markdown(ui.render_legend(
+        "<b>쪽</b> = CCI · 스토캐스틱 · 볼린저 %B 세 지표로 가른 과매도 · 과매수(숫자 = 그쪽 지표 수, "
+        "기준은 '차트 조건 (전체 목록)' 과 같음) · <b>과매도 진입</b> = 최근 3봉 안에 기준선 아래로(후보 "
+        "'타이밍' 꼬리표와 같은 판정) · <b>20일선 대비</b> = 종가 ÷ 20일 이동평균 − 1 · "
+        "<b>참고</b> — 지난 1년 백테스트에서 이 신호들이 종목 고르기에 보탠 차이는 작았습니다"
+        "(전략 실험 · T 카드). 시장 전체가 과매도 쪽으로 쏠린 날에는 '과매도 쪽' 이 흔해서 구별력이 "
+        "더 낮습니다."), unsafe_allow_html=True)
 
 
 def _render_backtest(market: str, use_demo: bool) -> None:
@@ -2410,13 +2475,28 @@ def _render_backtest(market: str, use_demo: bool) -> None:
         f"과거 일봉 백테스트 · 기간 {win.get('from', '—')} ~ {win.get('to', '—')} · 후보 "
         f"{res.get('n_syms', 0)}종목 · 계산 {_when_kst(bt.get('made'))} · 출처 "
         f"{'네이버 금융' if market == 'kr' else 'Yahoo Finance'} 일봉"), unsafe_allow_html=True)
-    html = ui.render_backtest(res, market) if res else ""
+    # 11/17 사용자 선택 C — 카드 9장을 다 펴 두지 않고: 한 줄 요약 → '후보 전체 대비'
+    # 위 2개 → T 카드 · 오늘 신호 · 최근 거래 → 나머지 변형은 접는 칸
+    ranked = ui.backtest_rank(res) if res else []
+    html = ui.render_backtest(res, market, keys=ranked[:2]) if res else ""
     if not html:
         st.markdown(ui.render_notice(
             "아직 결과가 없습니다 — 다음 수집(15:43 · 06:43)에서 처음 계산됩니다."),
             unsafe_allow_html=True)
         return
+    summ = ui.render_backtest_summary(res)
+    if summ:
+        st.markdown(ui.render_notice(summ), unsafe_allow_html=True)
     st.markdown(html, unsafe_allow_html=True)
+    import techtest as _tt  # noqa: PLC0415
+    rest = [k for k in _tt.VARIANTS if k not in ranked[:2]
+            and (res.get("variants") or {}).get(k)]
+    if rest:
+        with st.expander(f"나머지 변형 {len(rest)}개 (후보 전체 대비 큰 순)", expanded=False):
+            st.markdown(ui.render_backtest(
+                res, market, keys=[k for k in ranked if k in rest]
+                + [k for k in rest if k not in ranked], extras=False),
+                unsafe_allow_html=True)
     st.markdown(ui.render_legend(
         "<b>규칙</b> — 매수: CCI(13) 과매도 탈출 시도 · 탈출 + −DI(14) 가 최근 3봉 안에 30 아래로 + "
         "OBV 가 10일 평균 위 · 5일 전보다 높음 → 그날 종가. 대기: 보유 중 CCI ≥ +100 · −DI ≤ 10. "
@@ -2578,6 +2658,15 @@ def _fallback_note(market: str) -> str:
             "회사를 미리 고른 목록이라 통과율이 실제보다 높게 나옵니다.")
 
 
+#: 품질 깔때기 카드 설명 (11/17 — 표 → 카드)
+_FUNNEL_CARD_LEGEND = (
+    "<b>오른쪽 위</b> = 후보 관문 결과(<b>후보</b> / <b>빠짐 · 이유</b> — 가격 높음 · EPS 하향 · "
+    "실적 추세 악화) · <b>품질</b> 통과 수 / 9 (초록 = 미달 없음 · 노랑 = 미달 있음) · "
+    "<b>가격</b> 역DCF 낮음 · 경계 · 높음(요구 = 지금 주가가 요구하는 FCF 성장률, 과거 = 실제) · "
+    "<b>선행 EPS</b> 90일 변화 · 아래 칩 = 기준 9개(<b>✗</b> 미달 · <b>?</b> 판정 불가, 표시 없음 = 통과) · "
+    "<b>★</b> 내 관심종목 · <b>순서</b> = 판정된 기준 중 통과 비율 → 통과 수 → 선행 EPS 90일")
+
+
 def _discover_us(use_demo: bool) -> None:
     """미국 발굴 — S&P 500 + 나스닥100 전수 심사 결과를 읽어 버핏식 기준으로 거릅니다.
 
@@ -2705,8 +2794,6 @@ def _discover_us(use_demo: bool) -> None:
 
     held = set(config.watchlist_us_tickers())
     sector_ko = {k: universe.sector_label(v) for k, v in sectors.items()}
-    extra_heads: tuple = ()
-    extra: dict = {}
     if fmap:
         stage_names = {"q": f"품질 통과 ({len(passed)})",
                        "p": f"+ 가격 부담 높음 아님 ({len(light)})",
@@ -2738,10 +2825,6 @@ def _discover_us(use_demo: bool) -> None:
             + (f" · 가격을 판정하지 못한 {unknown_p}종목(FCF 적자 · 사이클 왜곡 · 과거 성장률 "
                "계산 불가 · 금융업)은 '높음' 이 아니라 ② 에 남습니다" if unknown_p else "")),
             unsafe_allow_html=True)
-        extra_heads = ("선행 EPS 90일", "요구 성장률")
-        extra = {s_.ticker: [funnel.eps_cells((fmap.get(s_.ticker) or {}).get("f")),
-                             funnel.price_cells(_fp(s_.ticker))]
-                 for s_ in passed}
     quality_n = len(passed)
     passed = {"q": passed, "p": light, "e": gated}.get(stage, passed)
     if not passed:
@@ -2764,14 +2847,12 @@ def _discover_us(use_demo: bool) -> None:
         )
         top = passed[:config.DISCOVER_US_ROWS]
         # 한눈표 — 어느 종목이 어느 기준에서 걸렸는지. 펼치지 않고 비교합니다.
-        st.markdown(ui.render_screen_table(top, buffett.CRITERIA, held=held,
-                                           sectors=sector_ko, rank_from=1,
-                                           extra_heads=extra_heads, extra=extra),
+        # 11/17 — 표 대신 카드(후보 카드와 같은 틀). 표(render_screen_table)는 보류 ·
+        # 관심종목 미달 접는 칸에서 그대로 씀
+        st.markdown(ui.render_funnel_cards(top, buffett.CRITERIA, rows=fmap, gr=gr_of,
+                                           held=held, sectors=sector_ko, rank_from=1),
                     unsafe_allow_html=True)
-        st.markdown(ui.render_legend(
-            "<b>○</b> 통과 · <b>✗</b> 미달 · <b>?</b> 판정 불가(숫자 5년치 미만) · "
-            "<b>★</b> 내 관심종목 · <b>순위</b> = 판정된 기준 중 통과 비율 "
-            "(같으면 통과 수 → 선행 EPS 90일 변화가 큰 쪽) — 미달이 없는 종목이 먼저 옵니다"
+        st.markdown(ui.render_legend(_FUNNEL_CARD_LEGEND
             + (f" · 통과 {len(passed)}종목 중 위 {len(top)}종목"
                if len(passed) > len(top) else "")),
             unsafe_allow_html=True)
@@ -2779,9 +2860,9 @@ def _discover_us(use_demo: bool) -> None:
         if rest:
             with st.expander(f"나머지 통과 종목 {len(rest)}개 ({len(top) + 1}위부터)",
                              expanded=False):
-                st.markdown(ui.render_screen_table(
-                    rest[:300], buffett.CRITERIA, held=held, sectors=sector_ko,
-                    rank_from=len(top) + 1, extra_heads=extra_heads, extra=extra),
+                st.markdown(ui.render_funnel_cards(
+                    rest[:300], buffett.CRITERIA, rows=fmap, gr=gr_of, held=held,
+                    sectors=sector_ko, rank_from=len(top) + 1),
                     unsafe_allow_html=True)
         # 자세히 — 종목마다 접는 칸 30개를 늘어놓던 것을 한 칸으로 줄였습니다.
         # 고른 한 종목만 그리므로 화면도 짧고 보내는 양도 적습니다.
@@ -2834,9 +2915,6 @@ def _kr_quality_block(use_demo: bool) -> None:
     errors = dict(fpay.get("errors") or {})
     errors.update({x.ticker: x.error for x in all_screens if not x.ok and x.error})
     fmap = {r.get("t"): r for r in (fpay.get("rows") or []) if isinstance(r, dict)}
-
-    def _fp(t):
-        return (fmap.get(t) or {}).get("p")
 
     qmin = min(config.DISCOVER_QUALITY_MIN, len(buffett.CRITERIA))
     # 국내 품질 통과 = 확인된 미달 2개 이하 · 판정 7개 이상 (buffett.passes_kr, 2026-11-13).
@@ -2898,8 +2976,6 @@ def _kr_quality_block(use_demo: bool) -> None:
         format_func=lambda k: stage_names[k]) or "q"
     shown = {"q": quality, "p": light, "e": gated}.get(stage, quality)
     held = {c for c, _n in config.watchlist_kr()}
-    extra = {s_.ticker: [funnel.eps_cells((fmap.get(s_.ticker) or {}).get("f")),
-                         funnel.price_cells(_fp(s_.ticker))] for s_ in quality}
     if not shown:
         st.markdown(ui.render_notice(
             "<b>이 단계까지 남은 종목이 없습니다.</b> "
@@ -2909,24 +2985,19 @@ def _kr_quality_block(use_demo: bool) -> None:
             unsafe_allow_html=True)
     else:
         top = shown[:config.DISCOVER_US_ROWS]
-        st.markdown(ui.render_screen_table(
-            top, buffett.CRITERIA, held=held, rank_from=1,
-            extra_heads=("선행 EPS 90일", "요구 성장률"), extra=extra),
-            unsafe_allow_html=True)
-        st.markdown(ui.render_legend(
-            "<b>○</b> 통과 · <b>✗</b> 미달 · <b>?</b> 판정 불가 · <b>★</b> 내 관심종목 · "
-            "<b>순위</b> = 판정된 기준 중 통과 비율 → 통과 수 → 선행 EPS 90일 변화 — "
-            "이 목록은 '살 종목' 이 아니라 "
-            "'공시를 읽어볼 순서' 입니다"
+        st.markdown(ui.render_funnel_cards(top, buffett.CRITERIA, rows=fmap, gr=gr_of,
+                                           held=held, rank_from=1),
+                    unsafe_allow_html=True)
+        st.markdown(ui.render_legend(_FUNNEL_CARD_LEGEND
+            + " — 이 목록은 '살 종목' 이 아니라 '공시를 읽어볼 순서' 입니다"
             + (f" · {len(shown)}종목 중 위 {len(top)}종목" if len(shown) > len(top) else "")),
             unsafe_allow_html=True)
         rest = shown[len(top):]
         if rest:
             with st.expander(f"나머지 {len(rest)}개 ({len(top) + 1}위부터)", expanded=False):
-                st.markdown(ui.render_screen_table(
-                    rest[:300], buffett.CRITERIA, held=held, rank_from=len(top) + 1,
-                    extra_heads=("선행 EPS 90일", "요구 성장률"), extra=extra),
-            unsafe_allow_html=True)
+                st.markdown(ui.render_funnel_cards(
+                    rest[:300], buffett.CRITERIA, rows=fmap, gr=gr_of, held=held,
+                    rank_from=len(top) + 1), unsafe_allow_html=True)
         by_ticker = {s_.ticker: s_ for s_ in shown}
         order = {s_.ticker: i + 1 for i, s_ in enumerate(shown)}
         if st.session_state.get("disc_kr_pick") not in by_ticker:
@@ -6629,7 +6700,7 @@ SECTION_LOADING = {
     "screener": "거래 스크리너 — 아침 수집기가 심사해 둔 결과를 읽습니다",
     "picks": "후보 — 수집기 파일을 읽습니다",
     "basis": "근거 — 수집기 파일을 읽습니다",
-    "timing": "차트·거래 — 수집기 파일을 읽습니다 (차트 전체 목록은 처음 10~30초)",
+    "timing": "차트 — 수집기 파일을 읽습니다 (차트 전체 목록은 처음 10~30초)",
     "paper": "모의 매수 — 수집기 파일을 읽습니다",
     "macro": "매크로 — FRED 13종·VIX·공포탐욕 (처음 10~20초)",
     "chart": "차트 조건 — 후보 종목의 1년 일봉 (처음 10~30초)",

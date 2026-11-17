@@ -1411,7 +1411,7 @@ def render_macro_card(reading, *, hit: bool = False, show_why: bool = True) -> s
     if reading.stale:
         meta.append('<span class="late">발표 지연</span>')
     else:
-        meta.append(_esc(reading.cadence_label))
+        meta.append(_esc(getattr(reading, "fresh_label", "") or reading.cadence_label))
     if reading.live_label:
         meta.insert(0, f"<b>{_esc(reading.live_label)}</b>")
     if not spec.verified:
@@ -4809,8 +4809,11 @@ def render_macro_table(groups, by_group: dict, hit_keys: set,
             if r.delta is not None and r.delta != 0:
                 arrow = f"{'▲' if r.delta > 0 else '▼'} {_esc(r.delta_label)}"
             # 'N일 전' 대신 **언제 것인지**와 **다음에 언제 나오는지** 를 적습니다
+            fresh = getattr(r, "fresh_label", "")
             lag = (f"<span class='late'>발표 지연 · {r.lag_days}일째</span>"
                    if r.stale and r.lag_days is not None
+                   # 일별 금리 — '최신 · 다음 값 언제' 를 폰에서도 보이게 (2026-11-17)
+                   else f"<span class='fr'>{_esc(fresh)}</span>" if fresh
                    else f"<span>{_esc(r.cadence_label)}</span>")
             live = (f"<i class='mt-live'>{_esc(r.live_label)}</i>"
                     if r.live_label else "")

@@ -24,6 +24,55 @@ from config import MacroSeries
 
 #: 일별 계열을 '발표 지연' 으로 보기 시작하는 날수 (주말 2일 + 휴일 + 공개 1일).
 DAILY_STALE_DAYS = 5
+
+#: 일별 계열이 미국에서 올라오는 시각(동부 시각, 시 · 분). 연준 H.15 는 16:15 경 —
+#: 여유를 두어 16:30. 그날 저녁에 올라오는 계열(publish_lag_bd=0)은 17:30.
+DAILY_PUBLISH_ET = {1: (16, 30), 0: (17, 30)}
+_WEEKDAY_KO = "월화수목금토일"
+
+
+def _et_offset(day: dt.date) -> dt.timedelta:
+    """미국 동부 시각의 UTC 차이 — 서머타임(3월 둘째 일요일 ~ 11월 첫째 일요일)이면 −4시간."""
+    try:
+        from zoneinfo import ZoneInfo  # noqa: PLC0415
+        noon = dt.datetime(day.year, day.month, day.day, 12, tzinfo=ZoneInfo("America/New_York"))
+        return noon.utcoffset() or dt.timedelta(hours=-5)
+    except Exception:  # noqa: BLE001 - 시간대 자료가 없는 서버
+        mar1, nov1 = dt.date(day.year, 3, 1), dt.date(day.year, 11, 1)
+        start = mar1 + dt.timedelta(days=(6 - mar1.weekday()) % 7 + 7)
+        end = nov1 + dt.timedelta(days=(6 - nov1.weekday()) % 7)
+        return dt.timedelta(hours=-4 if start <= day < end else -5)
+
+
+def _add_bd(day: dt.date, n: int) -> dt.date:
+    """영업일(월~금) n 개 뒤. 미국 휴일은 모릅니다."""
+    while n > 0:
+        day += dt.timedelta(days=1)
+        if day.weekday() < 5:
+            n -= 1
+    return day
+
+
+def publish_at(obs: dt.date, lag_bd: int) -> dt.datetime:
+    """관측일 obs 의 값이 FRED 에 올라오는 시각 (UTC, 어림)."""
+    day = _add_bd(obs, lag_bd)
+    hh, mm = DAILY_PUBLISH_ET.get(lag_bd, DAILY_PUBLISH_ET[1])
+    local = dt.datetime(day.year, day.month, day.day, hh, mm)
+    return (local - _et_offset(day)).replace(tzinfo=dt.timezone.utc)
+
+
+def expected_latest(now_utc: dt.datetime, lag_bd: int) -> dt.date:
+    """지금(UTC) 이미 올라와 있어야 할 가장 최근 관측일 (영업일, 휴일 모름)."""
+    day = (now_utc + _et_offset(now_utc.date())).date()
+    while day.weekday() >= 5 or publish_at(day, lag_bd) > now_utc:
+        day -= dt.timedelta(days=1)
+    return day
+
+
+def kst_label(when_utc: dt.datetime) -> str:
+    """'11/18(수) 06시' — 한국 시각."""
+    k = when_utc.astimezone(dt.timezone(dt.timedelta(hours=9)))
+    return f"{k.month}/{k.day:02d}({_WEEKDAY_KO[k.weekday()]}) {k.hour:02d}시"
 from sources.fred import Series
 
 
@@ -59,6 +108,8 @@ class Reading:
     live_change: float | None = None
     #: 화면을 그리는 날 (시점 문구 계산용 — 테스트에서 고정)
     today: dt.date | None = None
+    #: 화면을 그리는 시각 (UTC — 일별 계열의 '최신' 판단용, 테스트에서 고정)
+    now: dt.datetime | None = None
 
     @property
     def ok(self) -> bool:
@@ -118,6 +169,25 @@ class Reading:
         if self.spec.period_days >= 7:
             return "주 1회 발표"
         return "다음 영업일 공개"
+
+    @property
+    def fresh_label(self) -> str:
+        """일별 계열 — 지금 올라와 있을 수 있는 가장 최근 값인가, 다음 값은 언제 오나.
+
+        '최신 · 다음 11/18(수) 06시경' 처럼. 미국 공개 시각이 한국과 13~14시간
+        차이라, 화요일 저녁에 보는 10년물이 '11/13(금) 종가' 인 것은 고장이 아니라
+        정상입니다(2026-11-17 사용자: "국채금리가 갱신이 안 되는 것 같다").
+        우리가 가진 값이 기대보다 오래되면(휴일 · 받기 실패) 빈 글 — 그때는
+        기존 '다음 영업일 공개' · '발표 지연' 이 그대로 보입니다.
+        """
+        if self.spec.period_days >= 7 or self.observed_at is None:
+            return ""
+        now = self.now or dt.datetime.now(dt.timezone.utc)
+        lag = getattr(self.spec, "publish_lag_bd", 1)
+        if self.observed_at < expected_latest(now, lag):
+            return ""
+        nxt = publish_at(_add_bd(self.observed_at, 1), lag)
+        return f"최신 · 다음 {kst_label(nxt)}"     # 폰 칸에서 두 줄 안에 (11/17)
 
     @property
     def live_label(self) -> str:

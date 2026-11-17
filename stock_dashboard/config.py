@@ -559,6 +559,11 @@ class MacroSeries:
     #: 일별 금리는 다음 영업일에야 올라오므로, 화면에는 이 시세를 함께
     #: 적습니다. 임계값 판정은 그대로 FRED 값으로 합니다.
     live_symbol: str = ""
+    #: 일별 계열이 미국에서 공개되기까지의 **영업일** 수. 1 = 그날 값이 다음 영업일
+    #: 오후(미국 동부 16:15경, 연준 H.15 · ICE)에 올라옴, 0 = 그날 저녁에 올라옴
+    #: (재무부 수익률 곡선에서 바로 계산하는 T10Y2Y · T5YIFR). 2026-11-17 실화면:
+    #: 같은 시각에 DGS10 · DGS2 · BAML 은 11/13, T10Y2Y · T5YIFR 은 11/16 이 최신.
+    publish_lag_bd: int = 1
     #: 이 통계가 속한 FRED 발표 묶음 번호 (calendar_events.FRED_RELEASES).
     #: 있으면 '다음 발표 11/13' 을 적습니다.
     release_id: int | None = None
@@ -599,7 +604,7 @@ MACRO_SERIES: tuple[MacroSeries, ...] = (
         change_abs=0.50, change_periods=20,
     ),
     MacroSeries(
-        "curve", "10년-2년 스프레드", "T10Y2Y", "rates", "%p",
+        "curve", "10년-2년 스프레드", "T10Y2Y", "rates", "%p", publish_lag_bd=0,
         mode="level", decimals=2, period_days=1, verified=True,
         why="마이너스는 장단기 금리 역전입니다. 역전 진입도 신호지만 "
             "**역전에서 플러스로 되돌아올 때**가 역사적으로 더 중요한 국면이었습니다. "
@@ -664,7 +669,7 @@ MACRO_SERIES: tuple[MacroSeries, ...] = (
         news_query="코어 PCE 물가",
     ),
     MacroSeries(
-        "breakeven", "5년후 5년 기대인플레", "T5YIFR", "inflation", "%",
+        "breakeven", "5년후 5년 기대인플레", "T5YIFR", "inflation", "%", publish_lag_bd=0,
         mode="level", decimals=2, period_days=1, verified=True,
         why="시장이 보는 장기 기대인플레입니다. 2% 근처를 벗어나면 "
             "연준의 신뢰도 문제로 번질 수 있어 따로 봅니다.",

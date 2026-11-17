@@ -5473,6 +5473,15 @@ def render_macro_tab(data: dict[str, dict[str, Quote]], fx, use_demo: bool,
         unsafe_allow_html=True,
     )
 
+    # 설명 문구는 기본으로 꺼져 있어 위 설명이 안 보입니다. 금리가 며칠 전 값이라
+    # '갱신이 안 된다' 로 읽혀서(2026-11-17), 그 이유만은 늘 보이게 한 줄로 둡니다.
+    st.markdown(ui.render_legend(
+        "<b>일별 금리 · 스프레드는 미국 공개 시각 기준</b> — 10년 · 2년물과 회사채 "
+        "스프레드는 그날 값이 <b>다음 영업일 오후(미 동부)</b>에, 10년-2년 · 기대인플레는 "
+        "그날 저녁에 FRED 에 올라옵니다. 한국 시간으로는 하루 이틀 늦게 보이는 것이 "
+        "정상이고, 줄마다 '최신 · 다음 (한국 시각, 어림)' 을 적었습니다. 10년물 실시간 값은 "
+        "'지금'(야후)."), unsafe_allow_html=True)
+
     show_why = st.toggle("각 지표를 보는 이유 표시", value=False,
                          key="macro_why",
                          help="왜 이 지표가 제 포트폴리오와 연결되는지")

@@ -2245,6 +2245,7 @@ def build_rules() -> str:
   .dash-mt td.mt-obs span {{ display: block; color: var(--dash-ink-muted);
                             font-size: var(--fs-1); }}
   .dash-mt td.mt-obs span.late {{ color: var(--dash-badge-error); font-weight: 650; }}
+  .dash-mt td.mt-obs span.fr {{ color: var(--dash-ink-muted); }}
   /* 반도체 리포트 — 묶음 요약 + 리포트 카드 */
   .dash-digest {{ background: var(--dash-surface); border: 1px solid var(--dash-border);
     border-left: 3px solid var(--dash-accent); border-radius: var(--r-card);
@@ -3365,6 +3366,8 @@ def build_type_rules() -> str:
     table.dash-mt.dash-stk td.mt-val, table.dash-mt.dash-stk td.mt-obs { grid-column: auto; }
     table.dash-mt.dash-stk td.mt-val .mt-live { display: inline; margin-left: 4px; }
     table.dash-mt.dash-stk td.mt-obs span { display: none; }
+    /* 일별 금리의 '최신 · 다음 값 언제' 는 폰에서도 (2026-11-17) */
+    table.dash-mt.dash-stk td.mt-obs span.fr { display: block; }
     table.dash-mt.dash-stk td.mt-spark svg { display: inline-block; vertical-align: middle;
       width: 84px; height: 20px; }
     /* 19:22 "CPI · 코어 PCE 옆에 이상한 줄" — 임계값 표시 띠(첫 칸 안쪽 그림자)가 카드에서 글자에

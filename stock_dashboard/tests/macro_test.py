@@ -957,6 +957,36 @@ _valid = {rid for rid, *_ in _ce.FRED_RELEASES}
 check("발표 번호는 일정표가 아는 번호만",
       all(s.release_id in _valid for s in config.MACRO_SERIES if s.release_id is not None))
 
+
+print("\n=== 일별 금리 — '최신 · 다음 값 언제' (2026-11-17 \"국채금리가 갱신이 안 된다\") ===")
+_now = dt.datetime(2026, 11, 17, 10, 28, tzinfo=dt.timezone.utc)      # 화 19:28 KST
+check("다음 영업일 공개 계열 — 화요일 저녁 한국에서 최신은 금요일(11/13) 값",
+      macro.expected_latest(_now, 1) == dt.date(2026, 11, 13))
+check("그날 저녁 공개 계열(T10Y2Y · T5YIFR) — 최신은 월요일(11/16) 값",
+      macro.expected_latest(_now, 0) == dt.date(2026, 11, 16)
+      and config.macro_series_by_key("curve").publish_lag_bd == 0
+      and config.macro_series_by_key("breakeven").publish_lag_bd == 0
+      and config.macro_series_by_key("ust10").publish_lag_bd == 1)
+_r10 = macro.Reading(spec=config.macro_series_by_key("ust10"), value=5.15,
+                     observed_at=dt.date(2026, 11, 13), now=_now)
+check("가진 값이 최신이면 '최신 · 다음 11/18(수) 06시'",
+      _r10.fresh_label == "최신 · 다음 11/18(수) 06시", _r10.fresh_label)
+_r10.observed_at = dt.date(2026, 11, 12)
+check("기대보다 오래되면 '최신' 이라고 하지 않는다 (빈 글 → 기존 문구)", _r10.fresh_label == "")
+check("월간 통계에는 붙이지 않는다",
+      macro.Reading(spec=config.macro_series_by_key("cpi"), value=3.7,
+                    observed_at=dt.date(2026, 9, 1), now=_now).fresh_label == "")
+check("서머타임이면 한 시간 이르다 (7월: 16:30 EDT = 05:30 KST)",
+      macro.kst_label(macro.publish_at(dt.date(2026, 7, 7), 1)) == "7/09(목) 05시")
+_r10.observed_at = dt.date(2026, 11, 13)
+_tbl = _ui.render_macro_table([("g", "묶음", "")], {"g": [_r10]}, set())
+check("표 — 관측 시점 칸에 폰에서도 보이는 'fr' 줄",
+      "<span class='fr'>최신 · 다음 11/18(수) 06시</span>" in _tbl)
+import theme as _th
+check("폰(표 → 카드)에서도 'fr' 줄은 보인다",
+      "table.dash-mt.dash-stk td.mt-obs span.fr { display: block; }" in _th.build_css("kr"))
+check("카드에도", "최신 · 다음 " in _ui.render_macro_card(_r10))
+
 print("\n" + "=" * 56)
 if FAILURES:
     print(f"실패 {len(FAILURES)}건: {', '.join(FAILURES)}")

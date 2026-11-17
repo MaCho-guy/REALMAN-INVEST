@@ -564,6 +564,10 @@ class MacroSeries:
     #: (재무부 수익률 곡선에서 바로 계산하는 T10Y2Y · T5YIFR). 2026-11-17 실화면:
     #: 같은 시각에 DGS10 · DGS2 · BAML 은 11/13, T10Y2Y · T5YIFR 은 11/16 이 최신.
     publish_lag_bd: int = 1
+    #: 같은 값을 **하루 먼저** 주는 재무부 일별 수익률 곡선의 칸 이름('2 Yr' · '10 Yr').
+    #: H.15 · FRED 의 국채 금리는 이 곡선을 옮겨 적은 것이라 숫자가 같습니다
+    #: (2026-11-17 확인: 11/13 2년 4.88 · 10년 5.15 둘 다 같음). sources/treasury.py.
+    treasury_col: str = ""
     #: 이 통계가 속한 FRED 발표 묶음 번호 (calendar_events.FRED_RELEASES).
     #: 있으면 '다음 발표 11/13' 을 적습니다.
     release_id: int | None = None
@@ -591,7 +595,7 @@ MACRO_SERIES: tuple[MacroSeries, ...] = (
     MacroSeries(
         "ust10", "미국 10년 국채 금리", "DGS10", "rates", "%",
         mode="level", decimals=2, period_days=1, verified=True,
-        live_symbol="^TNX",
+        live_symbol="^TNX", treasury_col="10 Yr",
         why="할인율의 기준입니다. O(리츠)는 금리와 역방향으로 움직이고, "
             "QQQ 같은 성장주 묶음은 듀레이션이 길어 금리 상승에 더 민감합니다.",
         change_abs=0.50, change_periods=20,
@@ -599,7 +603,7 @@ MACRO_SERIES: tuple[MacroSeries, ...] = (
     ),
     MacroSeries(
         "ust2", "미국 2년 국채 금리", "DGS2", "rates", "%",
-        mode="level", decimals=2, period_days=1, verified=True,
+        mode="level", decimals=2, period_days=1, verified=True, treasury_col="2 Yr",
         why="연준 정책 기대를 가장 직접 반영합니다. 10년물보다 먼저 움직입니다.",
         change_abs=0.50, change_periods=20,
     ),

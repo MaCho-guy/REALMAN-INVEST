@@ -1442,6 +1442,18 @@ def _attach_dcf(screens: list, use_demo: bool, *, currency: str = "USD",
     return out
 
 
+@swr.cached(3_600, stale=36 * 3_600)
+def load_treasury_curve(use_demo: bool) -> list:
+    """재무부 일별 수익률 곡선 — 이번 달 + 지난달 (약 2 KB · 0.5초). 1시간 저장.
+
+    FRED 의 2년 · 10년물과 같은 숫자를 하루 먼저 줍니다 (sources/treasury.py).
+    """
+    if use_demo:
+        return []
+    from sources import treasury  # noqa: PLC0415
+    return treasury.fetch_recent(_today_kst())
+
+
 def _risk_free_pct(use_demo: bool) -> float | None:
     """FRED 10년물(DGS10) 최신값. 가격 조건의 기준선에 씁니다.
 
@@ -5264,6 +5276,11 @@ def render_macro_tab(data: dict[str, dict[str, Quote]], fx, use_demo: bool,
     series_map, errors = load_macro(use_demo, fred.key_fingerprint())
     readings = macro_mod.build_readings(config.macro_series(), series_map, errors)
     readings = _macro_context(readings, data, use_demo)
+    # 재무부 곡선 — FRED 보다 하루 빠른 2년 · 10년물 종가. 못 받아도 화면은 그대로.
+    try:
+        macro_mod.attach_treasury(readings, load_treasury_curve(use_demo))
+    except Exception:  # noqa: BLE001
+        pass
     triggers = macro_mod.evaluate_all(readings)
     hit_keys = {t.reading.spec.key for t in triggers}
 
@@ -5480,7 +5497,9 @@ def render_macro_tab(data: dict[str, dict[str, Quote]], fx, use_demo: bool,
         "스프레드는 그날 값이 <b>다음 영업일 오후(미 동부)</b>에, 10년-2년 · 기대인플레는 "
         "그날 저녁에 FRED 에 올라옵니다. 한국 시간으로는 하루 이틀 늦게 보이는 것이 "
         "정상이고, 줄마다 '최신 · 다음 (한국 시각, 어림)' 을 적었습니다. 10년물 실시간 값은 "
-        "'지금'(야후)."), unsafe_allow_html=True)
+        "'지금'(야후). <b>2년 · 10년물은 같은 숫자를 하루 먼저 올리는 미 재무부 곡선의 "
+        "더 최근 종가</b>를 'M/D 값 재무부' 로 함께 적습니다 (판정은 FRED 값으로)."),
+        unsafe_allow_html=True)
 
     show_why = st.toggle("각 지표를 보는 이유 표시", value=False,
                          key="macro_why",
@@ -5775,7 +5794,7 @@ FETCH_LABELS = {
     "load_all": "시세",
     "load_fundamentals": "밸류에이션 지표", "load_market_caps": "시가총액",
     "load_chart_rows": "차트 일봉",
-    "load_macro": "경제지표(FRED)", "load_inflation": "물가", "load_liquidity": "유동성",
+    "load_macro": "경제지표(FRED)", "load_treasury_curve": "재무부 금리", "load_inflation": "물가", "load_liquidity": "유동성",
     "load_kr_macro": "한국 지표", "load_kr_exports": "수출 통계",
     "load_release_dates": "발표 일정",
     "load_feargreed": "공포탐욕", "load_vix": "VIX",
@@ -6819,6 +6838,7 @@ def _section_jobs(section: str, market: str, use_demo: bool) -> dict:
     elif section == "macro":
         jobs.update({
             "매크로": lambda: load_macro(use_demo, ffp),
+            "재무부 금리": lambda: load_treasury_curve(use_demo),
             "공포탐욕": lambda: load_feargreed(use_demo),
             "VIX": lambda: load_vix(use_demo),
             # 경제지표 줄의 '다음 발표 11/13' 에 씁니다 (화면은 기다리지 않음)

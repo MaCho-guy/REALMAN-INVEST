@@ -1414,6 +1414,8 @@ def render_macro_card(reading, *, hit: bool = False, show_why: bool = True) -> s
         meta.append(_esc(getattr(reading, "fresh_label", "") or reading.cadence_label))
     if reading.live_label:
         meta.insert(0, f"<b>{_esc(reading.live_label)}</b>")
+    if getattr(reading, "tsy_label", ""):
+        meta.insert(0, f"<b>{_esc(reading.tsy_label)}</b>")
     if not spec.verified:
         meta.append("계열 미검증")
 
@@ -4817,6 +4819,10 @@ def render_macro_table(groups, by_group: dict, hit_keys: set,
                    else f"<span>{_esc(r.cadence_label)}</span>")
             live = (f"<i class='mt-live'>{_esc(r.live_label)}</i>"
                     if r.live_label else "")
+            # 같은 금리의 더 최근 종가 (재무부가 FRED 보다 하루 먼저 올림 — 2026-11-17)
+            tsy = getattr(r, "tsy_label", "")
+            if tsy:
+                live += f"<i class='mt-live mt-tsy'>{_esc(tsy)}</i>"
             body.append(
                 f"<tr class='{'mt-hit' if hit else ''}'>{name}"
                 f"<td class='mt-val'>{_esc(r.value_label)}{live}</td>"

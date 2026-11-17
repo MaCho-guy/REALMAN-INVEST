@@ -987,6 +987,83 @@ check("폰(표 → 카드)에서도 'fr' 줄은 보인다",
       "table.dash-mt.dash-stk td.mt-obs span.fr { display: block; }" in _th.build_css("kr"))
 check("카드에도", "최신 · 다음 " in _ui.render_macro_card(_r10))
 
+
+print("\n=== 재무부 곡선 — FRED 보다 하루 빠른 2년 · 10년물 (2026-11-17 승인) ===")
+from sources import treasury as _tsy
+
+
+def _raises(exc, fn):
+    try:
+        fn()
+    except exc:
+        return True
+    return False
+
+
+# 2026-11-17 수집 환경에서 받은 실제 응답의 앞부분 (11/11 은 휴장이라 없음)
+_csv = ('Date,"1 Mo","1.5 Month","2 Mo","3 Mo","4 Mo","6 Mo","1 Yr","2 Yr","3 Yr","5 Yr",'
+        '"7 Yr","10 Yr","20 Yr","30 Yr"\n'
+        "11/16/2026,4.10,4.19,4.27,4.34,4.33,4.42,4.62,4.83,4.87,4.93,5.01,5.12,5.51,5.46\n"
+        "11/13/2026,4.10,4.18,4.26,4.32,4.34,4.42,4.65,4.88,4.92,4.98,5.05,5.15,5.52,5.47\n"
+        "11/12/2026,4.12,4.18,4.26,4.32,4.35,4.42,4.65,4.86,4.90,4.95,5.02,5.10,5.48,5.43\n")
+_cv = _tsy.parse_csv(_csv)
+check("CSV — 날짜 오름차순 · 칸은 이름으로",
+      [c.date.day for c in _cv] == [12, 13, 16] and _cv[-1].get("2 Yr") == 4.83
+      and _cv[-1].get("10 Yr") == 5.12 and _cv[0].get("2yr") == 4.86)
+check("빈 칸 · 형식 아님 · 빈 응답",
+      _tsy.parse_csv('Date,"2 Yr","10 Yr"\n11/16/2026,,5.12\n')[0].get("2 Yr") is None
+      and _raises(_tsy.TreasuryError, lambda: _tsy.parse_csv("<html>"))
+      and _raises(_tsy.TreasuryError, lambda: _tsy.parse_csv("")))
+
+
+class _Resp:
+    def __init__(self, code, text=""):
+        self.status_code, self.text = code, text
+
+
+_asked = []
+
+
+def _get(url, **kw):
+    _asked.append(url)
+    return _Resp(200, _csv) if "202611" in url else _Resp(503)
+
+
+_got = _tsy.fetch_recent(dt.date(2026, 11, 17), get=_get)
+check("이번 달 + 지난달을 묻고, 한 달이 실패해도 다른 달로 간다",
+      len(_asked) == 2 and "202610" in _asked[0] and "202611" in _asked[1] and len(_got) == 3)
+check("둘 다 실패면 TreasuryError",
+      _raises(_tsy.TreasuryError,
+              lambda: _tsy.fetch_recent(dt.date(2026, 11, 17), get=lambda u, **k: _Resp(500))))
+_u2 = macro.Reading(spec=config.macro_series_by_key("ust2"), value=4.88,
+                    observed_at=dt.date(2026, 11, 13), now=_now)
+_u10 = macro.Reading(spec=config.macro_series_by_key("ust10"), value=5.15,
+                     observed_at=dt.date(2026, 11, 16), now=_now)
+_hy = macro.Reading(spec=config.macro_series_by_key("hy_spread"), value=3.23,
+                    observed_at=dt.date(2026, 11, 13), now=_now)
+macro.attach_treasury([_u2, _u10, _hy], _cv)
+check("FRED 보다 새 날짜만 붙인다 — 2년물 11/16 4.83, FRED 가 이미 11/16 이면 안 붙임, 다른 계열 안 붙임",
+      (_u2.tsy_date, _u2.tsy_value) == (dt.date(2026, 11, 16), 4.83) and _u2.value == 4.88
+      and _u10.tsy_value is None and _hy.tsy_value is None)
+check("글 — '11/16 4.83% 재무부'", _u2.tsy_label == "11/16 4.83% 재무부", _u2.tsy_label)
+check("재무부 값이 붙으면 날짜 칸은 'FRED 다음 …' ('최신' 이라고 하지 않음)",
+      _u2.fresh_label == "FRED 다음 11/18(수) 06시", _u2.fresh_label)
+check("곡선이 없거나 비어도 그대로", macro.attach_treasury([_hy], []) == [_hy]
+      and macro.attach_treasury([], None) == [])
+_t2 = _ui.render_macro_table([("g", "묶음", "")], {"g": [_u2]}, set())
+check("표 — 현재값 칸에 '11/16 4.83% 재무부' · 표시값은 FRED 그대로",
+      "<i class='mt-live mt-tsy'>11/16 4.83% 재무부</i>" in _t2 and "4.88%" in _t2)
+check("카드에도", "11/16 4.83% 재무부" in _ui.render_macro_card(_u2))
+check("설정 — 2년 · 10년물만 재무부 칸",
+      config.macro_series_by_key("ust2").treasury_col == "2 Yr"
+      and config.macro_series_by_key("ust10").treasury_col == "10 Yr"
+      and not config.macro_series_by_key("curve").treasury_col)
+_app = pathlib.Path(__file__).resolve().parents[1].joinpath("app.py").read_text(encoding="utf-8")
+check("앱 — 매크로 탭 미리 받기 · 받은 시각 이름 · 실패해도 화면 계속",
+      '"재무부 금리": lambda: load_treasury_curve(use_demo)' in _app
+      and '"load_treasury_curve": "재무부 금리"' in _app
+      and "macro_mod.attach_treasury(readings, load_treasury_curve(use_demo))" in _app)
+
 print("\n" + "=" * 56)
 if FAILURES:
     print(f"실패 {len(FAILURES)}건: {', '.join(FAILURES)}")

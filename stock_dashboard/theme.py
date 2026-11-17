@@ -3365,6 +3365,8 @@ def build_type_rules() -> str:
       font-size: var(--fs-1); font-weight: 500; color: var(--dash-ink-muted); }
     table.dash-mt.dash-stk td.mt-val, table.dash-mt.dash-stk td.mt-obs { grid-column: auto; }
     table.dash-mt.dash-stk td.mt-val .mt-live { display: inline; margin-left: 4px; }
+    /* 재무부 더 최근 종가는 폰에서 한 줄 따로 — 세 숫자가 붙어 읽히던 것 (11/17) */
+    table.dash-mt.dash-stk td.mt-val .mt-live.mt-tsy { display: block; margin-left: 0; }
     table.dash-mt.dash-stk td.mt-obs span { display: none; }
     /* 일별 금리의 '최신 · 다음 값 언제' 는 폰에서도 (2026-11-17) */
     table.dash-mt.dash-stk td.mt-obs span.fr { display: block; }

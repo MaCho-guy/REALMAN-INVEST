@@ -110,6 +110,9 @@ class Reading:
     today: dt.date | None = None
     #: 화면을 그리는 시각 (UTC — 일별 계열의 '최신' 판단용, 테스트에서 고정)
     now: dt.datetime | None = None
+    #: 재무부 곡선의 **더 최근** 값 (FRED 보다 새 날짜일 때만) — 판정에는 안 씀
+    tsy_value: float | None = None
+    tsy_date: dt.date | None = None
 
     @property
     def ok(self) -> bool:
@@ -187,7 +190,19 @@ class Reading:
         if self.observed_at < expected_latest(now, lag):
             return ""
         nxt = publish_at(_add_bd(self.observed_at, 1), lag)
+        if self.tsy_value is not None:
+            # 재무부의 더 최근 종가가 옆에 있으면 'FRED 기준' 임을 밝힙니다 — '최신' 이라고
+            # 쓰면 바로 옆의 더 새 숫자와 어긋나 보입니다 (11/17)
+            return f"FRED 다음 {kst_label(nxt)}"
         return f"최신 · 다음 {kst_label(nxt)}"     # 폰 칸에서 두 줄 안에 (11/17)
+
+    @property
+    def tsy_label(self) -> str:
+        """'11/16 4.83% 재무부' — FRED 보다 새 재무부 값이 있을 때만."""
+        if self.tsy_value is None or self.tsy_date is None:
+            return ""
+        d = self.tsy_date
+        return f"{d.month}/{d.day:02d} {self.tsy_value:,.{self.spec.decimals}f}{self.spec.unit} 재무부"
 
     @property
     def live_label(self) -> str:
@@ -563,6 +578,28 @@ def attach_context(readings: list[Reading], *, next_releases: dict | None = None
             value, change = live_quotes[sym]
             if value is not None:
                 r.live_value, r.live_change = float(value), change
+    return readings
+
+
+def attach_treasury(readings: list[Reading], curves: list) -> list[Reading]:
+    """재무부 곡선(sources.treasury.Curve 목록)에서 FRED 보다 **새 날짜**의 값을 붙입니다.
+
+    같은 숫자를 하루 먼저 주는 출처라 '더 최근 종가' 로만 보여 주고, 표시값 ·
+    직전 대비 · 임계값 판정은 그대로 FRED 값으로 합니다 (신호가 두 출처 사이에서
+    왔다 갔다 하지 않게). 곡선이 없거나 FRED 가 이미 같은 날이면 아무것도 안 붙임.
+    """
+    curves = sorted(curves or [], key=lambda c: c.date)
+    for r in readings:
+        col = getattr(r.spec, "treasury_col", "")
+        if not col or not r.ok or r.observed_at is None:
+            continue
+        for c in reversed(curves):
+            if c.date <= r.observed_at:
+                break
+            v = c.get(col)
+            if v is not None:
+                r.tsy_value, r.tsy_date = v, c.date
+                break
     return readings
 
 

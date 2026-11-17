@@ -2159,6 +2159,14 @@ def _render_growth_picks(stable_cands: list, meta: dict, market: str) -> None:
         f"{growth.RULE40_MIN.get(market, 40):.0f} · 주식보상비 ≤ 매출 {growth.SBC_REV_MAX * 100:.0f}% · "
         f"재무 안전)을 넘고, PEG(선행 PER ÷ 내년 EPS 성장률)가 {growth.PEG_OK} 이하이고, 선행 EPS "
         f"90일이 −{abs(config.EPS_DOWN_WARN) * 100:g}% 아래로 깎이지 않은 종목. "
+        "판정할 수 없는 기준은 통과로 세지 않습니다"
+        + (f" — <b>한국은 주식보상비를 DART 재무에서 읽을 수 없어(판정 불가), "
+           f"{growth.GROWTH_MIN_PASS}개 이상 = 나머지 {len(growth.NAMES) - 1}개 "
+           + ("전부 통과" if growth.GROWTH_MIN_PASS >= len(growth.NAMES) - 1
+              else f"중 {growth.GROWTH_MIN_PASS}개") + f"</b>입니다(미국은 7개 중 미달 · 판정 불가를 합쳐 "
+           f"{len(growth.NAMES) - growth.GROWTH_MIN_PASS}개까지)" if market == "kr" else "")
+        + ". 충족한 등이 많은 순, 같으면 성장 품질을 더 많이 통과한 순 → 선행 EPS 90일 → PEG 낮은 순"
+        "(타이밍 꼬리표는 맨 마지막). "
         "<b>안정형과 따로 계산하며 안정형 판단에 섞지 않습니다.</b> 성장주는 기대가 꺾이면 "
         "크게 빠집니다 — 먼저 공시를 읽어볼 종목이지 매수 권유가 아닙니다."),
         unsafe_allow_html=True)

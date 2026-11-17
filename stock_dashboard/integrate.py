@@ -64,6 +64,9 @@ class Candidate:
     track: str = "stable"                          # 'stable' 안정형 · 'growth' 성장형 (11/13)
     also: bool = False                             # 다른 트랙 후보에도 있음
     gscore: int = 0                                # 성장 품질 통과 수 (성장형만, 11/13 17:02)
+    om3: float | None = None                       # 영업이익률 최근 3년 (11/17 — 표시만)
+    om10: float | None = None                      # 영업이익률 전체 기간 평균 (최대 10년)
+    om_n: int | None = None                        # om10 을 낸 연도 수
 
     @property
     def greens(self) -> int:
@@ -80,6 +83,27 @@ class Candidate:
 
 def held_back(sc, market: str = "kr") -> bool:
     return buffett.held_back_kr(sc) if market == "kr" else buffett.held_back_us(sc)
+
+
+def margin_line(om3, om10, n=None) -> str:
+    """'영업이익률 최근 3년 x% · 장기 평균(n년) y% → +z%p' — 11/17 사용자 선택.
+
+    처음엔 '사이클 정점 경고'(om3 ≫ om10) 를 만들려 했으나 11/17 실데이터에서 차이가 큰
+    종목은 Arista · Mastercard · Microsoft · Lilly 처럼 이익률이 구조적으로 오른 회사였고,
+    한국 반도체 소재 · 장비는 지금 장기 평균 아래였습니다. 그래서 경고 · 판정 없이 숫자만
+    보이고 해석은 사람이 합니다. 둘 중 하나라도 없으면 빈 글.
+    """
+    if om3 is None or om10 is None:
+        return ""
+    yrs = f"({int(n)}년)" if n else ""
+    d = (om3 - om10) * 100
+    return (f"영업이익률 최근 3년 {om3 * 100:.1f}% · 장기 평균{yrs} {om10 * 100:.1f}% "
+            f"→ {d:+.1f}%p")
+
+
+def _set_margin(c, gr) -> None:
+    gr = gr or {}
+    c.om3, c.om10, c.om_n = gr.get("om3"), gr.get("om10"), gr.get("n")
 
 
 def _quality(sc, market: str = "kr") -> tuple[str, str]:
@@ -185,6 +209,7 @@ def build(screens: list, frows: dict, chart_rows: dict, hits: dict,
             c.eps_c90 = None                           # 순서에서는 '추정 없음' 처럼 뒤로
         c.price_gap = funnel.price_gap((fr or {}).get("p"))
         gr = s.get("gr") if isinstance(s, dict) else None
+        _set_margin(c, gr)
         if c.lamps["price"] == RED:
             c.excluded = "가격 부담 높음"
         elif funnel.eps_down((fr or {}).get("f")):
@@ -276,6 +301,7 @@ def build_growth(screens: list, frows: dict, chart_rows: dict, semis: set = (),
                       track="growth", also=t in stable)
         c.lamps["growth"], c.notes["growth"] = _growth_lamp(gr, market)
         c.gscore = growth.score(gr, market)[0]
+        _set_margin(c, gr)
         c.lamps["price"], c.notes["price"], pg = _peg_lamp(fr.get("f"), price)
         c.lamps["eps"], c.notes["eps"] = _trend_lamp(fr.get("f"))
         chart_col, c.notes["chart"] = _chart(row)
@@ -321,7 +347,7 @@ def checklist(summary: dict | None, frow: dict | None, row, market: str,
         out.append(("unknown", "마진 추세", "영업이익률 연도 부족 (다음 수집부터)"))
     else:
         out.append(("pass" if om3 >= om10 - growth.OM_TOL else "fail", "마진 추세",
-                    f"영업이익률 최근 3년 {om3 * 100:.1f}% · 전체 평균 {om10 * 100:.1f}%"))
+                    margin_line(om3, om10, gr.get("n"))))
     td = gr.get("td")
     out.append(("unknown" if td is None else ("fail" if td else "pass"), "실적 추세",
                 "연도 부족 (다음 수집부터)" if td is None else

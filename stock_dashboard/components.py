@@ -5583,6 +5583,14 @@ _LAMP_ORDER_GROWTH = (("growth", "성장 품질"), ("price", "가격 PEG"), ("ep
 _LAMP_WORD = {"g": "충족", "y": "보통", "r": "주의", "-": "없음"}
 
 
+def _om_line(c) -> str:
+    import integrate  # noqa: PLC0415
+
+    txt = integrate.margin_line(getattr(c, "om3", None), getattr(c, "om10", None),
+                                getattr(c, "om_n", None))
+    return f'<div class="ic-om">{_esc(txt)}</div>' if txt else ""
+
+
 def render_candidate_cards(cands: list, limit: int = 10, *, compact: bool = False) -> str:
     """cands: integrate.Candidate 목록. compact=True 면 근거 줄 없이 등만 (요약 탭용)."""
     cards = []
@@ -5602,11 +5610,13 @@ def render_candidate_cards(cands: list, limit: int = 10, *, compact: bool = Fals
                          f'<span class="ic-l">{label}</span>'
                          f'<span class="ic-w">{_LAMP_WORD.get(col, "")}</span>{note}</div>')
         n = len(order)
+        # 11/17 — 이익률 최근 3년 vs 장기 평균 (경고 · 판정 없이 숫자만, integrate.margin_line)
+        om = "" if compact else _om_line(c)
         cards.append(
             f'<div class="pk-card ic-card"><div class="pk-top"><span class="pk-n">{i}</span>'
             f'<b>{_esc(c.name)}</b><span class="pk-code">{_esc(c.ticker)}</span>{tags}'
             f'<span class="ic-score">근거 {c.greens}/{n}</span></div>'
-            f'<div class="ic-lamps{" compact" if compact else ""}">{"".join(lamps)}</div></div>')
+            f'<div class="ic-lamps{" compact" if compact else ""}">{"".join(lamps)}</div>{om}</div>')
     if not cards:
         return ""
     return f'<div class="dash-picks ic-picks">{"".join(cards)}</div>'

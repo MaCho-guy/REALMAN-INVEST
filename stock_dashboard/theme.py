@@ -2027,6 +2027,9 @@ def build_rules() -> str:
   .ic-l {{ font-weight: 700; color: var(--dash-ink); }}
   .ic-w {{ color: var(--dash-ink-2); font-size: var(--fs-1); }}
   .ic-note {{ color: var(--dash-ink-2); min-width: 0; overflow-wrap: anywhere; }}
+  .ic-om {{ margin-top: 6px; padding-top: 5px; border-top: 1px dashed var(--dash-divider);
+            color: var(--dash-ink-2); font-size: var(--fs-1); font-variant-numeric: tabular-nums;
+            overflow-wrap: anywhere; }}
   .ic-out {{ margin: 4px 0 0; padding-left: 1.1em; font-size: var(--fs-2); color: var(--dash-ink-2); }}
   .ic-out li {{ margin: 2px 0; }} .ic-out span {{ color: var(--dash-ink-muted); }}
   /* 모의 매수 실험 (11/13) */

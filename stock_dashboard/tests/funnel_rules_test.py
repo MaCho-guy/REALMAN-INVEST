@@ -456,6 +456,34 @@ _o4 = sorted([_cand("G7", 2, 0.01, 1.2, gscore=7), _cand("G6T", 2, 0.30, 0.5, ti
              key=_C.sort_key)
 check("성장형 — 충족 수 다음은 성장 품질 통과 수 (그대로)", [c.ticker for c in _o4] == ["G7", "G6T"])
 
+print("\n=== 이익률 최근 3년 vs 장기 평균 — 숫자만 (11/17) ===")
+check("글 — 최근 3년 · 장기 평균(n년) · 차이 %p",
+      integrate.margin_line(0.411, 0.316, 10) == "영업이익률 최근 3년 41.1% · 장기 평균(10년) 31.6% → +9.5%p"
+      and integrate.margin_line(0.2235, 0.2538) == "영업이익률 최근 3년 22.4% · 장기 평균 25.4% → -3.0%p"
+      and integrate.margin_line(None, 0.2) == "" and integrate.margin_line(0.1, None) == "")
+import components as _cmp  # noqa: E402
+_mc = _cand("M", 2, 0.02, 0.1); _mc.om3, _mc.om10, _mc.om_n = 0.30, 0.25, 10
+_nc = _cand("N", 2, 0.02, 0.1)
+_html = _cmp.render_candidate_cards([_mc, _nc])
+check("후보 카드에 한 줄 (값이 없으면 줄 없음) · 요약 탭(compact)에는 없음",
+      _html.count('class="ic-om"') == 1 and "→ +5.0%p" in _html
+      and 'ic-om' not in _cmp.render_candidate_cards([_mc], compact=True))
+_scr = [{**summ("A", [P] * 9),
+         "gr": {"om3": 0.3, "om10": 0.2, "n": 9, "rev3": 0.3, "gm3": 0.5, "gm3p": 0.5, "op3": 0.4,
+                "ocf3": 10, "fcfm": 0.2, "r40": 50, "sbcr": 0.01, "nc": 1}}]
+_b = integrate.build(_scr, {}, {}, {}, market="us")
+_g = integrate.build_growth(_scr, {}, {}, market="us")
+check("안정형 · 성장형 후보 둘 다 이익률 값을 들고 있음 (판정 · 등에는 안 씀)",
+      _b and _b[0].om3 == 0.3 and _b[0].om_n == 9 and _g and _g[0].om10 == 0.2
+      and set(_b[0].lamps) == {"quality", "price", "eps"}, str([(c.ticker, c.om3) for c in _b + _g]))
+_ck = integrate.checklist(_scr[0], None, None, "us", None)
+check("근거 탭 '마진 추세' 도 같은 글 (판정 기준은 그대로)",
+      any(l == "마진 추세" and "→ +10.0%p" in t and st == "pass" for st, l, t in _ck))
+_app = pathlib.Path("app.py").read_text(encoding="utf-8")
+check("성장형 규칙 한 문장 — 판정 불가 · 한국 주식보상비 · 순서 설명 (11/17 사용자 선택 b)",
+      "판정할 수 없는 기준은 통과로 세지 않습니다" in _app and "한국은 주식보상비를 DART 재무에서 읽을 수 없어" in _app
+      and "같으면 성장 품질을 더 많이 통과한 순 → 선행 EPS 90일 → PEG 낮은 순" in _app)
+
 print("\n=== 선행 EPS 이어 쓰기 (funnel.carry_eps, 11/14) ===")
 _T0 = 1_800_000_000
 _prevr = [{"t": f"K{i}", "f": {"c90": 0.01 * i, "n": 1.0}} for i in range(20)]

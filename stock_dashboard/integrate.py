@@ -14,7 +14,10 @@
 관문 (하나라도 걸리면 후보가 아니고 '빠진 이유' 에 적습니다):
     품질 통과가 아님 · 가격 부담 높음 · 선행 EPS 90일 −5% 이하 (실적 추정이 깎이는 중)
 
-순서: 초록 수 → 타이밍 꼬리표 → 선행 EPS 90일 변화 큰 순(추정 없음은 뒤) → 가격 여유.
+순서: 초록 수 → 선행 EPS 90일 변화 큰 순(추정 없음 · 이상값은 소폭 하향보다 뒤) → 가격 여유
+→ 타이밍 꼬리표. 11/17 사용자 승인으로 타이밍을 2순위에서 맨 뒤로 내림 — 꼬리표 단독 백테스트
+(11/14 · techtest.timing)에서 '아무 날' 대비 +0 ~ 1.6%p 로 근거가 약했고, 실제로 선행 EPS
+추정이 없는 종목이 타이밍만으로 소폭 하향 종목 앞에 섰음(11/17 한국 미원상사 · DN오토모티브).
 거래 스크리너 신호는 근거(notes["trade"])에만 남기고 등으로 세지 않습니다.
 
 **한 점수로 합치지 않습니다** — 초록 수는 순서를 정하는 데만 쓰고, 화면에는 등 네 개와
@@ -69,9 +72,10 @@ class Candidate:
     def sort_key(self):
         c = self.eps_c90
         # 성장형: 등 수가 같으면 성장 품질을 더 많이 통과한 회사 먼저 ("더 나은 기업", 11/13).
-        # 안정형은 gscore = 0 이라 순서 그대로.
-        return (-self.greens, -self.gscore, not self.timing, c is None, -(c or 0.0),
-                self.price_gap if self.price_gap is not None else 1.0, self.ticker)
+        # 안정형은 gscore = 0 이라 순서 그대로. 타이밍은 맨 뒤 (11/17 — 머리말).
+        return (-self.greens, -self.gscore, c is None, -(c or 0.0),
+                self.price_gap if self.price_gap is not None else 1.0, not self.timing,
+                self.ticker)
 
 
 def held_back(sc, market: str = "kr") -> bool:

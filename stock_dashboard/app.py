@@ -2070,7 +2070,7 @@ def render_picks_tab(use_demo: bool, *, market: str = "kr") -> None:
         "통과하고, 가격 부담이 높지 않고, 선행 EPS 90일이 "
         f"−{abs(config.EPS_DOWN_WARN) * 100:g}% 아래로 깎이지 않은 종목. "
         f"오늘 <b>{len(picks)}종목</b>(품질 통과 {len(cands)} 가운데). 충족한 등이 많은 순, "
-        "같으면 차트가 과매도에 막 들어온 종목(타이밍)이 먼저. "
+        "같으면 선행 EPS 90일 변화가 큰 순 → 가격 여유 큰 순(타이밍 꼬리표는 맨 마지막). "
         "<b>먼저 공시를 읽어볼 종목이지 매수 권유가 아닙니다.</b>"), unsafe_allow_html=True)
     if picks:
         st.markdown(ui.render_candidate_cards(picks, integrate.MAX_PICKS),
@@ -2086,7 +2086,7 @@ def render_picks_tab(use_demo: bool, *, market: str = "kr") -> None:
         f"<b>등</b> — 품질: 9개 기준 중 {'확인된 미달 2개 이하' if kr else '7개 이상 통과'} · "
         "가격: 역DCF 요구 성장률 ≤ 과거 (낮음=충족, 경계·판정 안 함=보통) · 선행 EPS: 90일 "
         "상향=충족, 보합·소폭 하향=보통 · <b>타이밍</b>: CCI · 스토캐스틱이 최근 3거래일 안에 "
-        "과매도로 들어감. 한 종목의 자세한 근거는 찾기 › 근거, "
+        "과매도로 들어감(순서에서는 맨 마지막 — 단독 효과가 약함, 찾기 › 차트 전략 실험 T). 한 종목의 자세한 근거는 찾기 › 근거, "
         + ("차트 · 거래 패턴은 찾기 › 차트·거래" if kr else "차트는 찾기 › 차트")),
         unsafe_allow_html=True)
     if out:
@@ -2181,8 +2181,8 @@ def _render_growth_picks(stable_cands: list, meta: dict, market: str) -> None:
     st.markdown(ui.render_legend(
         "<b>등</b> — 성장 품질: 7개 중 통과 수 · 가격 PEG: ≤ "
         f"{growth.PEG_GOOD} 충족, ≤ {growth.PEG_OK} 보통 · 추정 흐름: 선행 EPS 30일 · 90일 둘 다 "
-        "상향이면 충족 · <b>타이밍</b>: 차트 과매도 진입 · 순서: 충족 수 → 타이밍 → 선행 EPS "
-        "90일 → PEG 낮은 순 · 선행 EPS · 내년 성장률은 야후 애널리스트 평균"),
+        "상향이면 충족 · <b>타이밍</b>: 차트 과매도 진입 · 순서: 충족 수 → 성장 품질 통과 수 → 선행 EPS "
+        "90일 → PEG 낮은 순 → 타이밍 · 선행 EPS · 내년 성장률은 야후 애널리스트 평균"),
         unsafe_allow_html=True)
     if out:
         with st.expander(f"관문에서 빠진 성장 품질 통과 종목 {len(out)}개 — 이유", expanded=False):
@@ -2421,7 +2421,7 @@ def _render_backtest(market: str, use_demo: bool) -> None:
         "거르므로 실제보다 좋게 나올 수 있음(미리 보기 편향)</b>. "
         "<b>T 타이밍 꼬리표 단독</b> — 후보 순서에 쓰는 '과매도 진입'(CCI 나 스토캐스틱이 최근 3봉 "
         "안에 기준선 아래로 · 종목의 쪽이 과매도, 화면과 같은 판정)이 처음 뜬 날 종가 → 20 · 60봉 뒤 "
-        "종가. 같은 종목군을 아무 날이나 샀을 때 평균보다 나아야 꼬리표를 순서에 쓸 근거가 됨. "
+        "종가. 같은 종목군을 아무 날이나 샀을 때 평균보다 나아야 꼬리표를 순서에 쓸 근거가 됨(11/17 부터 차이가 작아 순서 맨 마지막으로만 씀). "
         "급락일에 사례가 몰리면 실제 표본은 '나온 날' 수에 가까움. "
         "<b>비교</b> — 같은 기간 후보 전체를 같은 비중으로 들고 있었을 때와의 차이. "
         "<b>한계</b> — 대상은 <b>오늘의</b> 지수 구성 종목(한국 코스피200 · 코스닥150, 미국 S&P 500 · 나스닥100)이라 그사이 빠진 종목은 없음 · 1년치(앞 30봉은 지표 준비) · 한 장세에 쏠릴 수 있음 · 거래 수가 적으면 "

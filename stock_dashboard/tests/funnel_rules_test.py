@@ -437,6 +437,25 @@ check("check_funnel — 문턱 민감도 표 (★ = 지금 규칙, 표에 지금
 check("수집기 — 규칙 · 업종을 넘김", "rules_=picks_log.rules(), sec=sec" in
       pathlib.Path("tools/collect.py").read_text(encoding="utf-8"))
 
+print("\n=== 후보 순서 — 타이밍은 맨 뒤 (11/17) ===")
+_C = integrate.Candidate
+def _cand(t, greens, c90=None, gap=None, timing=False, gscore=0):
+    c = _C(ticker=t, name=t, eps_c90=c90, price_gap=gap, timing=timing, gscore=gscore)
+    c.lamps = {k: ("g" if i < greens else "y") for i, k in enumerate(("quality", "price", "eps"))}
+    return c
+_o = sorted([_cand("NOEPS_T", 1, None, -0.05, timing=True), _cand("DOWN", 1, -0.03, 0.02),
+             _cand("UP", 1, 0.04, 0.05), _cand("TWO", 2, None, 0.1)], key=_C.sort_key)
+check("충족 수가 먼저 · 같으면 EPS(상향 → 소폭 하향 → 추정 없음) · 타이밍이 있어도 추정 없음은 뒤 "
+      "(11/17 한국 미원상사 사례)", [c.ticker for c in _o] == ["TWO", "UP", "DOWN", "NOEPS_T"],
+      str([c.ticker for c in _o]))
+_o2 = sorted([_cand("A", 1, 0.02, 0.01), _cand("B_T", 1, 0.02, 0.01, timing=True)], key=_C.sort_key)
+check("EPS · 가격 여유까지 같을 때만 타이밍이 먼저", [c.ticker for c in _o2] == ["B_T", "A"])
+_o3 = sorted([_cand("NONE", 1, None, -0.2), _cand("GAP", 1, None, 0.3, timing=True)], key=_C.sort_key)
+check("둘 다 추정 없음이면 가격 여유 큰 순 (타이밍보다 먼저)", [c.ticker for c in _o3] == ["NONE", "GAP"])
+_o4 = sorted([_cand("G7", 2, 0.01, 1.2, gscore=7), _cand("G6T", 2, 0.30, 0.5, timing=True, gscore=6)],
+             key=_C.sort_key)
+check("성장형 — 충족 수 다음은 성장 품질 통과 수 (그대로)", [c.ticker for c in _o4] == ["G7", "G6T"])
+
 print("\n=== 선행 EPS 이어 쓰기 (funnel.carry_eps, 11/14) ===")
 _T0 = 1_800_000_000
 _prevr = [{"t": f"K{i}", "f": {"c90": 0.01 * i, "n": 1.0}} for i in range(20)]

@@ -526,6 +526,7 @@ def run(market, payload, funnel_payload=None, kr_funnel=None, **kw):
     import buffett_kr as _bkr
     ns = {"st": st, "ui": ui, "config": config, "buffett": buffett, "kr_screen": kr_screen,
           "buffett_kr": _bkr, "funnel": funnel, "chart_signals": chart_signals,
+          "integrate": __import__("integrate"),
           "universe": universe, "dt": dt, "KST": ZoneInfo("Asia/Seoul"),
           "_esc_plain": lambda t: _h.escape(str(t), quote=True),
           "load_universe": load_universe, "_soft_main": soft_main, "load_screens": None,
@@ -772,7 +773,8 @@ _fpay = {"made": 1_794_470_000, "rows": [
     {"t": "D1", "p": dear, "c": {"side": "os", "st": {"stoch": "과매도 구간"}}}]}
 stq, hq, _c = run("us", _pay2, funnel_payload=_fpay)
 check("가격 단계는 숫자와 함께 고르는 칸에 있다 · 차트 단계 · 칸은 없다 (11/17 사용자)",
-      stq.seg["disc_stage"][1] == ["품질 통과 (3)", "+ 가격 부담 낮음 (2)"]
+      stq.seg["disc_stage"][1] == ["품질 통과 (3)", "+ 가격 부담 높음 아님 (2)",
+                                   "+ 선행 EPS · 실적 추세 = 후보 (2)"]
       and "요구 성장률" in hq and "<th>차트</th>" not in hq and "과매도" not in hq
       and "까지만 인정" in hq and "전 구간에서" in hq and "주식보상비용" in hq)
 check("기본은 품질 통과 전부", hq.count('class="sc-rk"') == 3)
@@ -781,10 +783,26 @@ check("가격까지 좁히면 부담 낮은 종목만", hp.count('class="sc-rk"'
 stc, hc, _c = run("us", _pay2, funnel_payload=_fpay, choice="c")
 check("예전 '차트' 값이 와도 깨지지 않고 품질 통과 전부", hc.count('class="sc-rk"') == 3)
 stu3, hu3, _c = run("us", _pay2, funnel_payload=_fpay, url_stage="c")
-check("주소의 예전 stage=c 는 '가격 부담 낮음' 으로 연다", hu3.count('class="sc-rk"') == 2
-      and "품질 통과 + 가격 부담 낮음" in hu3)
-ste, he, _c = run("us", _pay2, funnel_payload={"made": 1, "rows": [{"t": "L1", "p": dear, "c": {}}]}, choice="p")
+check("주소의 예전 stage=c 는 '가격 부담 높음 아님' 으로 연다", hu3.count('class="sc-rk"') == 2
+      and "품질 통과 + 가격 부담 높음 아님" in hu3)
+ste, he, _c = run("us", _pay2, funnel_payload={"made": 1, "rows": [
+    {"t": t, "p": dear, "c": {}} for t in ("L1", "L2", "D1")]}, choice="p")
 check("남은 종목이 없으면 그렇게 적는다 (화면은 끝까지)", "이 단계까지 남은 종목이 없습니다" in he)
+# 11/17 저녁: 깔때기 셋째 단계 = 후보 관문 — 끝 숫자가 찾기 › 후보 수와 같아야 함
+_ok_f = {"n": 2.0, "c90": 0.02}; _dn_f = {"n": 2.0, "c90": -0.08}
+_pay3 = us_payload(3)
+_pay3["screens"] = [dict(buffett.to_summary(_all9, s="Utilities"), t=t) for t in ("G1", "E1", "T1", "H1")]
+_pay3["screens"][2]["gr"] = {"td": 1}                       # T1 실적 추세 악화
+_fp4 = {"made": 1, "rows": [{"t": "G1", "p": cheap, "f": _ok_f}, {"t": "E1", "p": cheap, "f": _dn_f},
+                            {"t": "T1", "p": cheap, "f": _ok_f}, {"t": "H1", "p": dear, "f": _ok_f}]}
+ste4, he4, _c = run("us", _pay3, funnel_payload=_fp4, choice="e")
+import integrate as _ig4  # noqa: E402
+_picks4 = _ig4.split(_ig4.build(_pay3["screens"], {r["t"]: r for r in _fp4["rows"]}, {}, {}, market="us"))[0]
+check("셋째 단계 = 후보 — 가격 높음(H1) · EPS −5% 이하(E1) · 실적 추세 악화(T1) 빠지고 G1 만, 후보 수와 같다",
+      ste4.seg["disc_stage"][1] == ["품질 통과 (4)", "+ 가격 부담 높음 아님 (3)",
+                                    "+ 선행 EPS · 실적 추세 = 후보 (1)"]
+      and he4.count('class="sc-rk"') == 1 and "G1" in he4.split("dash-sctable")[1]
+      and [c.ticker for c in _picks4] == ["G1"], str(ste4.seg.get("disc_stage")))
 stn, hn, _c = run("us", _pay2)
 check("깔때기 파일이 없으면 품질 단계만 — 칸도 단계도 없다",
       "가격 부담 낮음" not in hn and "요구 성장률" not in hn and hn.count('class="sc-rk"') == 3)
@@ -843,7 +861,7 @@ check("워크플로 — 지난 한국 깔때기 파일을 꺼내 둔다",
 stk, hk, _c = run("kr", kr_pay, kr_funnel=kdata)
 check("한국 발굴 — 품질 깔때기가 여섯 스크리너 위에 나온다",
       "품질 깔때기 · 한국" in hk and hk.index("품질 깔때기 · 한국") < hk.index("거래 스크리너 · 한국")
-      and "가격 부담 낮음" in hk and "판정 불가" in hk and "DART 사업보고서" in hk
+      and "가격 부담 높음 아님" in hk and "판정 불가" in hk and "DART 사업보고서" in hk
       and any(e.startswith("버핏식 품질 기준 9개") for e in stk.exp))
 stk0, hk0, _c = run("kr", kr_pay)
 check("깔때기 파일이 없으면 안내 + 스크리너는 그대로",
@@ -969,8 +987,8 @@ _ul = hq.split('class="dash-legend">')[1][:260]
 check("후보 줄 — 기준 시각과 출처가 맨 앞 (접어도 보인다)",
       _ul.index("심사 ") < _ul.index("위키백과") < _ul.index("S&amp;P 500 구성 종목")
       and "<b>후보 5종목</b>" in _ul, _ul[:150])
-_pl = next(x for x in hq.split('class="dash-legend">') if "가격 부담 낮음</b> =" in x)[:200]
-check("가격 줄 — 계산 시각과 출처가 맨 앞", _pl.index("가격 계산") < _pl.index("가격 부담 낮음")
+_pl = next(x for x in hq.split('class="dash-legend">') if "가격 부담 높음 아님</b>" in x)[:200]
+check("가격 줄 — 계산 시각과 출처가 맨 앞", _pl.index("가격 계산") < _pl.index("가격 부담 높음 아님")
       and "야후" in _pl[:120] and "SEC EDGAR" in _pl[:120], _pl[:120])
 check("한국 품질 줄 — 심사 시각과 출처가 맨 앞",
       hk.index("품질 심사 ") < hk.index("확인된 미달") and "DART 사업보고서" in hk)
@@ -989,14 +1007,15 @@ check("단계표에는 누를 수 없는 칸만 (후보 · 재무 받음 · 통�
 check("가격 · 차트 단계는 고르는 칸으로 — 이름표가 보이고 '바로 바뀐다' 고 적는다",
       stq.seg["disc_stage"][2] is None and "바로 바뀝니다" in stq.seg["disc_stage"][0])
 stu, hu, _c = run("us", _pay2, funnel_payload=_fpay, url_stage="p")
-check("주소의 stage=p 로 들어와도 '가격 부담 낮음' 목록이 열린다 (예전 링크 호환)",
-      hu.count('class="sc-rk"') == 2 and "품질 통과 + 가격 부담 낮음" in hu)
+check("주소의 stage=p 로 들어와도 가격 단계 목록이 열린다 (예전 링크 호환 · 11/17 '높음 아님')",
+      hu.count('class="sc-rk"') == 2 and "품질 통과 + 가격 부담 높음 아님" in hu)
 stu2, hu2, _c = run("us", _pay2, funnel_payload=_fpay, url_stage="zzz")
 check("이상한 stage 값은 무시한다 (품질 단계)", hu2.count('class="sc-rk"') == 3)
 check("깔때기 파일이 없으면 링크도 없다", "fn-link" not in hn)
 check("한국 품질 깔때기도 같다 — 링크 없음 · 고르는 칸에 숫자",
-      "fn-link" not in hk and len(stk.seg["disc_kr_stage"][1]) == 2 and "<th>차트</th>" not in hk
-      and stk.seg["disc_kr_stage"][1][1].startswith("+ 가격 부담 낮음 ("))
+      "fn-link" not in hk and len(stk.seg["disc_kr_stage"][1]) == 3 and "<th>차트</th>" not in hk
+      and stk.seg["disc_kr_stage"][1][1].startswith("+ 가격 부담 높음 아님 (")
+      and stk.seg["disc_kr_stage"][1][2].startswith("+ 선행 EPS · 실적 추세 = 후보 ("))
 _qm2 = ui.render_quadrant_map([v_moved, v_same], href_fn=lambda t: f"?m=us&s=valuation&pick={t}")
 check("사분면의 종목 이름이 그 종목으로 가는 링크다",
       '<a class="qk" href="?m=us&amp;s=valuation&amp;pick=EDGE" target="_self">EDGE</a>' in _qm2

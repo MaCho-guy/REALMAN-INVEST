@@ -2525,7 +2525,7 @@ def _eps_for(tickers: tuple[str, ...], use_demo: bool) -> dict:
 
 
 def _stage_now(key: str) -> str:
-    """깔때기에서 지금 볼 단계 — 'q' 품질 · 'p' 가격까지.
+    """깔때기에서 지금 볼 단계 — 'q' 품질 · 'p' 가격까지 · 'e' 선행 EPS · 실적 추세까지(= 후보).
 
     고르는 칸(key)을 이미 눌렀으면 그 값, 아니면 주소의 stage(단계 칸을 눌러 들어온
     경우), 둘 다 없으면 'q'. 단계표를 고르는 칸보다 먼저 그리기 때문에, 고르는 칸의
@@ -2534,15 +2534,16 @@ def _stage_now(key: str) -> str:
     11/17 사용자: 품질 깔때기에서 '차트 과매도 쪽'(예전 'c') 단계를 뺌 — 후보 판정에는
     차트를 쓰지 않으므로(타이밍 꼬리표는 순서 맨 뒤에만). 예전 세션 값 · 주소의 'c' 는
     그 바로 앞 단계 'p' 로 엽니다(고르는 칸에 없는 값을 넘기면 스트림릿이 오류).
+    11/17 저녁 사용자 승인: 셋째 단계 'e'(선행 EPS · 실적 추세) 추가 — 끝 숫자 = 후보 수.
     """
     cur = st.session_state.get(key)
     if cur == "c":
         st.session_state[key] = cur = "p"
-    if cur in ("q", "p"):
+    if cur in ("q", "p", "e"):
         return cur
     url = st.query_params.get("stage", "")
     url = "p" if url == "c" else url
-    return url if url in ("q", "p") else "q"
+    return url if url in ("q", "p", "e") else "q"
 
 
 def _universe_or_none(market: str, use_demo: bool) -> dict:
@@ -2674,7 +2675,13 @@ def _discover_us(use_demo: bool) -> None:
         eps_c = {t: ((r or {}).get("f") or {}).get("c90") for t, r in fmap.items()}
         passed_all = buffett.rank_with_eps(passed_all, eps_c)
         passed = buffett.rank_with_eps(passed, eps_c)
-    light = [s_ for s_ in passed if funnel.is_light(_fp(s_.ticker))]
+    # 11/17 저녁(사용자 승인): 깔때기 단계를 후보 관문과 같게 — ② 가격 부담 '높음' 아님
+    # ③ 선행 EPS 90일 −5% 초과 · 실적 추세 악화 아님. 기본 설정에서 ③ 의 수 = 후보 수.
+    gr_of = {r.get("t"): r.get("gr") for r in (payload.get("screens") or [])
+             if isinstance(r, dict)} if from_file else {}
+    light = [s_ for s_ in passed if integrate.price_gate_ok(fmap.get(s_.ticker))]
+    gated = [s_ for s_ in light
+             if integrate.trend_gate_ok(fmap.get(s_.ticker), gr_of.get(s_.ticker))]
 
     # 가격 단계는 이 표에 그리지 않고 **바로 아래 고르는 칸**에 숫자와 함께 둡니다.
     # (11/17 사용자: '차트 과매도 쪽' 단계 · 차트 칸은 뺌 — _stage_now 머리말)
@@ -2702,7 +2709,8 @@ def _discover_us(use_demo: bool) -> None:
     extra: dict = {}
     if fmap:
         stage_names = {"q": f"품질 통과 ({len(passed)})",
-                       "p": f"+ 가격 부담 낮음 ({len(light)})"}
+                       "p": f"+ 가격 부담 높음 아님 ({len(light)})",
+                       "e": f"+ 선행 EPS · 실적 추세 = 후보 ({len(gated)})"}
         stage = st.segmented_control(
             "어디까지 좁혀 볼지 누르세요 (바로 바뀝니다)", list(stage_names),
             default=stage, key="disc_stage",
@@ -2717,22 +2725,25 @@ def _discover_us(use_demo: bool) -> None:
             "<b>가격 계산 "
             + (dt.datetime.fromtimestamp(made_f, KST).strftime("%m/%d %H:%M") if made_f else "?")
             + "</b> (시세 야후 · 재무 SEC EDGAR) — "
-            "<b>가격 부담 낮음</b> = 역DCF 로 역산한 '지금 주가가 요구하는 FCF 성장률' 이 "
-            "과거 실제 FCF 성장률 이하 — <b>할인율 8~12% 전 구간에서</b> 성립할 때만 (10% 에서만 "
-            "성립하면 '경계') · 과거 성장률은 앞 3년 평균 → 뒤 3년 평균, "
+            "<b>단계는 후보 관문과 같습니다</b> — ② <b>가격 부담 높음 아님</b>: 역DCF 로 역산한 "
+            "'지금 주가가 요구하는 FCF 성장률' 이 과거 실제 FCF 성장률을 넘으면 '높음' 으로 빼고, "
+            "낮음(할인율 8~12% 전 구간에서 요구 ≤ 과거) · 경계(10% 에서만 성립) · 판정 안 함은 남김 · "
+            f"③ <b>선행 EPS 90일</b> −{abs(config.EPS_DOWN_WARN) * 100:g}% 이하 · <b>실적 추세 악화</b>"
+            "(매출 · 영업이익 3년 연속 동반 감소)를 뺌 — 업종 · 통과 수를 기본값으로 두면 ③ 의 수가 "
+            "찾기 › 후보 수와 같음 · 과거 성장률은 앞 3년 평균 → 뒤 3년 평균, "
             f"연 {config.FUNNEL_HIST_GROWTH_CAP * 100:g}% 까지만 인정 · FCF 에서 주식보상비용 차감 · "
             "금융업은 판정하지 않음 · "
             "<b>선행 EPS 90일</b> = 향후 12개월 EPS 추정(애널리스트 평균 · 야후)이 90일 전보다 "
             "얼마나 바뀌었나 (올해 · 내년 추정을 남은 달 수로 섞음)"
             + (f" · 가격을 판정하지 못한 {unknown_p}종목(FCF 적자 · 사이클 왜곡 · 과거 성장률 "
-               "계산 불가 · 금융업)은 '낮음' 으로 세지 않습니다" if unknown_p else "")),
+               "계산 불가 · 금융업)은 '높음' 이 아니라 ② 에 남습니다" if unknown_p else "")),
             unsafe_allow_html=True)
         extra_heads = ("선행 EPS 90일", "요구 성장률")
         extra = {s_.ticker: [funnel.eps_cells((fmap.get(s_.ticker) or {}).get("f")),
                              funnel.price_cells(_fp(s_.ticker))]
                  for s_ in passed}
     quality_n = len(passed)
-    passed = {"q": passed, "p": light}.get(stage, passed)
+    passed = {"q": passed, "p": light, "e": gated}.get(stage, passed)
     if not passed:
         st.markdown(
             ui.render_notice(
@@ -2746,7 +2757,8 @@ def _discover_us(use_demo: bool) -> None:
     else:
         st.markdown(
             ui.render_section_head(
-                {"q": "통과 종목", "p": "품질 통과 + 가격 부담 낮음"}.get(stage, "통과 종목"),
+                {"q": "통과 종목", "p": "품질 통과 + 가격 부담 높음 아님",
+                 "e": "후보 — 품질 · 가격 · 선행 EPS · 실적 추세 관문 통과"}.get(stage, "통과 종목"),
                 "판정된 기준 중 통과 비율 순", len(passed)),
             unsafe_allow_html=True,
         )
@@ -2836,7 +2848,11 @@ def _kr_quality_block(use_demo: bool) -> None:
         [s_ for s_ in usable if buffett.held_back_kr(s_)], eps_c)
     max_fail, min_known = config.KR_QUALITY_MAX_FAIL, config.KR_QUALITY_MIN_KNOWN
     bar = f"미달 {max_fail}개 이하"
-    light = [s_ for s_ in quality if funnel.is_light(_fp(s_.ticker))]
+    # 11/17 저녁(사용자 승인): 단계 = 후보 관문 (미국 깔때기와 같음 — 그쪽 주석)
+    gr_of = {r.get("t"): r.get("gr") for r in (fpay.get("screens") or []) if isinstance(r, dict)}
+    light = [s_ for s_ in quality if integrate.price_gate_ok(fmap.get(s_.ticker))]
+    gated = [s_ for s_ in light
+             if integrate.trend_gate_ok(fmap.get(s_.ticker), gr_of.get(s_.ticker))]
     verdicts = [c.verdict for s_ in usable for c in s_.checks]
     unknown_pct = (verdicts.count("unknown") / len(verdicts) * 100) if verdicts else 0.0
     q_made, made = fpay.get("q_made"), fpay.get("made")
@@ -2846,7 +2862,7 @@ def _kr_quality_block(use_demo: bool) -> None:
 
     st.markdown(ui.render_section_head(
         "품질 깔때기 · 한국",
-        f"대형주 전수 → 버핏식 품질 기준 {len(buffett.CRITERIA)}개 → 가격"),
+        f"대형주 전수 → 버핏식 품질 기준 {len(buffett.CRITERIA)}개 → 가격 → 선행 EPS · 실적 추세 = 후보"),
         unsafe_allow_html=True)
     st.markdown(ui.render_legend(
         f"<b>품질 심사 {_when(q_made)}</b> (DART 사업보고서) · <b>가격 계산 {_when(made)}</b> — "
@@ -2854,8 +2870,11 @@ def _kr_quality_block(use_demo: bool) -> None:
         f"(미국 9개 중 {qmin}개와 같은 허용 폭 — 판정 불가는 미달로 세지 않음 · 최근 10년) · "
         f"전체 판정 가운데 <b>판정 불가 {unknown_pct:.0f}%</b> — 감가상각비가 재무제표 본문에 "
         "없는 회사가 많아 <b>주주이익 · 설비투자</b> 두 기준은 대부분 판정 불가입니다 · "
-        "<b>가격 부담 낮음</b> = 역DCF 요구 FCF 성장률 ≤ "
-        f"과거 실제 성장률(할인율 8~12% 전 구간 · 연 {config.FUNNEL_HIST_GROWTH_CAP * 100:g}% 까지만 인정) · "
+        "<b>단계는 후보 관문과 같습니다</b> — ② <b>가격 부담 높음 아님</b>(역DCF 요구 FCF 성장률이 "
+        f"과거 실제 성장률(연 {config.FUNNEL_HIST_GROWTH_CAP * 100:g}% 까지만 인정)을 넘는 '높음' 만 뺌 · 낮음 · "
+        "경계 · 판정 안 함은 남김) · ③ <b>선행 EPS 90일</b> "
+        f"−{abs(config.EPS_DOWN_WARN) * 100:g}% 이하 · <b>실적 추세 악화</b>(매출 · 영업이익 3년 연속 동반 "
+        "감소)를 뺌 — ③ 의 수 = 찾기 › 후보 수 · "
         f"<b>선행 EPS 90일</b> = 향후 12개월 EPS 추정(야후)의 90일 변화"),
         unsafe_allow_html=True)
     stage = _stage_now("disc_kr_stage")
@@ -2871,12 +2890,13 @@ def _kr_quality_block(use_demo: bool) -> None:
             unsafe_allow_html=True)
 
     stage_names = {"q": f"품질 통과 ({len(quality)})",
-                   "p": f"+ 가격 부담 낮음 ({len(light)})"}
+                   "p": f"+ 가격 부담 높음 아님 ({len(light)})",
+                   "e": f"+ 선행 EPS · 실적 추세 = 후보 ({len(gated)})"}
     stage = st.segmented_control(
         "어디까지 좁혀 볼지 누르세요 (바로 바뀝니다)", list(stage_names),
         default=stage, key="disc_kr_stage",
         format_func=lambda k: stage_names[k]) or "q"
-    shown = {"q": quality, "p": light}.get(stage, quality)
+    shown = {"q": quality, "p": light, "e": gated}.get(stage, quality)
     held = {c for c, _n in config.watchlist_kr()}
     extra = {s_.ticker: [funnel.eps_cells((fmap.get(s_.ticker) or {}).get("f")),
                          funnel.price_cells(_fp(s_.ticker))] for s_ in quality}

@@ -224,6 +224,20 @@ def build(screens: list, frows: dict, chart_rows: dict, hits: dict,
     return picks + rest
 
 
+def price_gate_ok(frow: dict | None) -> bool:
+    """후보 관문 ② — 가격 부담 '높음' 이 아님 (경계 · 판정 안 함 · 계산 없음은 통과).
+
+    build() 의 '가격 부담 높음' 제외와 같은 조건입니다(_price 가 RED 인 경우 = heavy).
+    품질 깔때기 둘째 단계가 이 함수를 써서 후보와 같은 기준으로 좁힙니다(11/17).
+    """
+    return funnel.price_state((frow or {}).get("p")) != "heavy"
+
+
+def trend_gate_ok(frow: dict | None, gr: dict | None) -> bool:
+    """후보 관문 ③ · ④ — 선행 EPS 90일이 −5% 이하가 아니고, 실적 추세 악화(td)도 아님."""
+    return not funnel.eps_down((frow or {}).get("f")) and not (gr or {}).get("td")
+
+
 def split(cands: list[Candidate]) -> tuple[list[Candidate], list[Candidate]]:
     return [c for c in cands if not c.excluded], [c for c in cands if c.excluded]
 

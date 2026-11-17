@@ -1086,6 +1086,22 @@ _ev = ui.render_paper(_pf21, "kr").split("pp-ev")[-1]
 check("기록 — 빈자리 채움 매수는 보이고 첫 매수는 안 보임",
       "매수 — 빈자리 채움 매수" in _ev and "매수 10,000.00" not in _ev
       and "논거 변경점 · 매도 · 빈자리 매수 기록" in _ev)
+# 11/17 저녁 — 사고팔 가격 = 그 회차 종가 날짜의 일봉 종가
+_tp = {("kr", "A"): 20800.0, ("kr", "B"): 100.0, ("kr", "C"): 50.0, ("us", "BRK.B"): 400.0}
+_tb = {"A": {"date": ["2026-11-12", "2026-11-13"], "close": [20500.0, 20750.0]},
+       "B": {"date": ["2026-11-12"], "close": [99.0]}}
+_n_tp = paper.trade_prices(_tp, _tb, "kr", "2026-11-13 16:44")
+_tpu = {("us", "BRK.B"): 400.0}
+paper.trade_prices(_tpu, {"BRK-B": {"date": ["2026-11-12 00:00:00"], "close": [410.0]}}, "us", "2026-11-13 16:44")
+check("사고팔 가격 — 종가 날짜 일봉이 정확히 있으면 그 종가 · 없으면(늦은 일봉 · 일봉 없음) 예전 가격 · 미국 표기",
+      _n_tp == 1 and _tp[("kr", "A")] == 20750.0 and _tp[("kr", "B")] == 100.0
+      and _tp[("kr", "C")] == 50.0 and _tp[("us", "BRK.B")] == 400.0 and _tpu[("us", "BRK.B")] == 410.0,
+      str(_tp))
+check("수집기 — 판정 · 매수 전에 가격을 일봉 종가로 · 로그 px_bars",
+      "paper.trade_prices(prices, (bars or {}).get(m), m, day)" in
+      pathlib.Path("tools/collect.py").read_text(encoding="utf-8")
+      and pathlib.Path("tools/collect.py").read_text(encoding="utf-8").index("paper.trade_prices(")
+      < pathlib.Path("tools/collect.py").read_text(encoding="utf-8").index("paper.step(pf, day, judged, prices, bench)"))
 check("모의 매수 규칙 상자 — 무엇을(후보 상위 그대로) · 얼마나(금액)",
       "<b>무엇을</b>" in app_src and "<b>얼마나</b>" in app_src and "paper.CAPITAL" in app_src)
 check("설명 문구 — 한글을 낱말 중간에서 자르지 않고 넓은 화면에서 64em 까지",

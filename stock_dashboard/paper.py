@@ -15,6 +15,8 @@
          같은 회차에 판정할 데이터가 없으면(파일에 없음) 팔지 않고 '판정 불가' 로 적음.
   변경점 등(色)이 바뀐 순간을 모두 적음 — 매도는 아니지만 논거가 약해지거나 강해진 기록.
   비교   같은 기간 시장(한국 KODEX 200 · 미국 SPY) 수익률.
+  가격   (11/17 저녁부터) 사고 · 팔고 · 지금 값을 매기는 가격 = 그 회차 종가 날짜(close_date)의
+         일봉 종가(trade_prices). 일봉에 그 날짜가 없으면 예전처럼 차트 파일 가격.
 
 과거로 돌려 보는 백테스트는 하지 않습니다 — 과거 시점의 재무 · 추정 스냅숏이 없어서
 '그때의 후보' 를 다시 만들 수 없습니다. 오늘부터 앞으로만 따라갑니다.
@@ -425,6 +427,35 @@ def _on_or_before(hist, day):
             return float(closes[i])
         i -= 1
     return None
+
+
+def trade_prices(prices: dict, bars: dict | None, m: str, stamp: str) -> int:
+    """사고 · 팔고 · 지금 값을 매기는 가격을 그 회차 종가 날짜의 일봉 종가로 바꿈 (11/17 저녁,
+    사용자 승인 "그렇게 해줘"). prices = {(시장, 티커): 가격} 를 그 자리에서 고침. 바꾼 수.
+
+    전에는 차트 파일의 가격(ChartRow.price)을 썼는데, 한국 16:44 회차처럼 장 마감 뒤에는
+    시간외 단일가가 섞여 그날 종가와 달랐음 → 같은 종가 날짜에 사고팔아도 ±0.2% 같은 가짜
+    손익. 일봉에 그 종가 날짜(close_date)가 **정확히** 있을 때만 바꾸고(휴장일 · 일봉이 늦은
+    경우는 예전처럼 차트 가격), 이미 산 종목의 매수가(p0)는 건드리지 않음.
+    """
+    cd = close_date(stamp, m)
+    mb = bars or {}
+    n = 0
+    for (mm, t) in list(prices):
+        if mm != m:
+            continue
+        b_ = mb.get(t) or mb.get(str(t).replace(".", "-"))
+        if not b_ or not b_.get("date") or not b_.get("close"):
+            continue
+        for d, c in zip(reversed(list(b_["date"])), reversed(list(b_["close"]))):
+            ds = str(d)[:10]
+            if ds < cd:
+                break
+            if ds == cd and c:
+                prices[(m, t)] = float(c)
+                n += 1
+                break
+    return n
 
 
 def nav_on(pf: dict, m: str, track: str, day: str, px_hist: dict) -> float | None:

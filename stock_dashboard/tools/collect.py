@@ -1112,6 +1112,8 @@ def build_paper(out_dir: str, markets=("us", "kr"), *, now: float | None = None,
             bench[m] = v
     prices = {(m, t): paper._px(r) for m, v in inputs.items() for t, r in v[2].items()
               if paper._px(r) is not None}
+    # 11/17 저녁(사용자 승인): 가격 = 이 회차 종가 날짜의 일봉 종가 (시간외가 섞인 차트 가격 대신)
+    px_from_bars = {m: paper.trade_prices(prices, (bars or {}).get(m), m, day) for m in inputs}
     pf = _read_prev(out_dir, "paper_portfolio.json")
     if True:   # 묶음마다 — 아직 없는 묶음은 이 회차에 시작
         picks, ranked = {}, {}
@@ -1201,7 +1203,7 @@ def build_paper(out_dir: str, markets=("us", "kr"), *, now: float | None = None,
     return {"action": action, "pos": len(pf["pos"]),
             "hold": sum(1 for p in pf["pos"] if p["state"] == "hold"), "bytes": size_b,
             "bench": {m: (round(v, 2) if v else "⚠ 못 받음") for m, v in bench.items()},
-            "curve": curve_pts, "curve_days": filled}
+            "curve": curve_pts, "curve_days": filled, "px_bars": px_from_bars}
 
 
 def build_picks_history(out_dir: str, markets=("us", "kr"), *, now: float | None = None) -> dict:

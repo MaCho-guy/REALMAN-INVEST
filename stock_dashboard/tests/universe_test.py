@@ -576,7 +576,7 @@ check("첫 표는 20줄까지 · 나머지는 접어 둠",
            or any(e.startswith("나머지 통과 종목") for e in st_.exp)),
       f"통과 {n_pass} · 카드 {[t.count('fn-card\"') for t in tables]}")
 check("순위 + 순위의 근거('판정 n 중 m')가 카드에 있다",
-      '<span class="pk-n">1</span>' in tables[0] and " 통과 · 미달 " in tables[0]
+      '<span class="pk-n">1</span>' in tables[0] and 'ic-note">미달 ' in tables[0]
       and "판정된 기준 중 통과 비율" in html)
 _one = ui.render_screen_table([_mk0], buffett.CRITERIA, rank_from=1)
 import re as _re

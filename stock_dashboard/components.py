@@ -1825,8 +1825,9 @@ def render_funnel_cards(screens, criteria, *, rows: dict | None = None,
         fails = sum(1 for c in s.checks if c.verdict == "fail")
         unk = sum(1 for c in s.checks if c.verdict == "unknown")
         q_col = "g" if not fails else "y"
-        q_note = f"판정 {s.known_count} 중 {s.passed_count} 통과 · 미달 {fails}" + (
-            f" · 판정 불가 {unk}" if unk else "")
+        # 통과 수는 옆 'n/9' 에 있으므로 보조 줄은 미달 · 판정 불가만 (순서 근거 = 판정 중 통과 비율)
+        q_note = f"미달 {fails}" + (f" · 판정 불가 {unk}" if unk else "") + (
+            f" · 판정 {s.known_count} 중 {s.passed_count}" if unk else "")
         p_col, p_w, p_note = _fn_price_lamp(frow.get("p"))
         e_col, e_w, e_note = _fn_eps_lamp(frow.get("f"))
         lamps = [(q_col, "품질", f"{s.passed_count}/{len(s.checks)}", q_note),
@@ -6001,7 +6002,7 @@ def render_timing_card(tm: dict | None) -> str:
     """타이밍 꼬리표 단독 (11/13 저녁, techtest.timing) — 후보 순서에 쓰는 '과매도 진입' 이
     처음 뜬 날 샀다면 20 · 60봉 뒤가 '아무 날이나 샀을 때' 보다 나았나. 카드 한 장."""
     title = '<div class="pp-top"><b>T · 타이밍 꼬리표 단독</b>'
-    lead = ('<div class="pp-sub">후보 순서 2순위인 \'타이밍\'(과매도 진입)이 처음 뜬 날 종가에 '
+    lead = ('<div class="pp-sub">후보 순서 맨 뒤에 쓰는 \'타이밍\'(과매도 진입)이 처음 뜬 날 종가에 '
             '샀다면 — 손절 · 매도 규칙 없이 20 · 60봉 뒤 종가로 비교</div>')
     if not tm or not isinstance(tm, dict) or not tm.get("all"):
         return (f'<div class="pp-list"><div class="pp-row">{title}</div>{lead}'
@@ -6089,7 +6090,7 @@ def render_backtest(res: dict, market: str, recent: str = "A", *, keys=None,
             f'<div class="pp-sub">거래 {v["trades"]}번 (보유 중 {v["open"]}) · 이긴 비율 '
             f'{v["win"] * 100:.0f}% · 가운데 {_pct(v["med"])} · 최고 {_pct(v["best"])} · 최저 '
             f'{_pct(v["worst"])}</div>'
-            f'<div class="pp-sub">같은 기간 후보 전체 대비 <b>{_pct(v["excess"])}</b> · 평균 보유 '
+            f'<div class="pp-sub">같은 기간 후보 전체 대비 <b>{_pp(v["excess"])}</b> · 평균 보유 '
             f'{v["hold"]}일</div><div class="pp-st">끝난 이유 — {why}</div></div>')
     if rows:
         out.append(f'<div class="pp-list">{"".join(rows)}</div>')

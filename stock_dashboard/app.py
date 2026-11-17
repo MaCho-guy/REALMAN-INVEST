@@ -2525,17 +2525,24 @@ def _eps_for(tickers: tuple[str, ...], use_demo: bool) -> dict:
 
 
 def _stage_now(key: str) -> str:
-    """깔때기에서 지금 볼 단계 — 'q' 품질 · 'p' 가격까지 · 'c' 차트까지.
+    """깔때기에서 지금 볼 단계 — 'q' 품질 · 'p' 가격까지.
 
     고르는 칸(key)을 이미 눌렀으면 그 값, 아니면 주소의 stage(단계 칸을 눌러 들어온
     경우), 둘 다 없으면 'q'. 단계표를 고르는 칸보다 먼저 그리기 때문에, 고르는 칸의
     값을 여기서 미리 읽습니다.
+
+    11/17 사용자: 품질 깔때기에서 '차트 과매도 쪽'(예전 'c') 단계를 뺌 — 후보 판정에는
+    차트를 쓰지 않으므로(타이밍 꼬리표는 순서 맨 뒤에만). 예전 세션 값 · 주소의 'c' 는
+    그 바로 앞 단계 'p' 로 엽니다(고르는 칸에 없는 값을 넘기면 스트림릿이 오류).
     """
     cur = st.session_state.get(key)
-    if cur in ("q", "p", "c"):
+    if cur == "c":
+        st.session_state[key] = cur = "p"
+    if cur in ("q", "p"):
         return cur
     url = st.query_params.get("stage", "")
-    return url if url in ("q", "p", "c") else "q"
+    url = "p" if url == "c" else url
+    return url if url in ("q", "p") else "q"
 
 
 def _universe_or_none(market: str, use_demo: bool) -> dict:
@@ -2662,18 +2669,15 @@ def _discover_us(use_demo: bool) -> None:
     def _fp(t):
         return (fmap.get(t) or {}).get("p")
 
-    def _fc(t):
-        return (fmap.get(t) or {}).get("c")
-
     if fmap:
         # 비율 · 통과 수가 같으면 선행 EPS 90일 변화 큰 순 (2026-11-13)
         eps_c = {t: ((r or {}).get("f") or {}).get("c90") for t, r in fmap.items()}
         passed_all = buffett.rank_with_eps(passed_all, eps_c)
         passed = buffett.rank_with_eps(passed, eps_c)
     light = [s_ for s_ in passed if funnel.is_light(_fp(s_.ticker))]
-    both = [s_ for s_ in light if funnel.is_oversold(_fc(s_.ticker))]
 
-    # 가격 · 차트 단계는 이 표에 그리지 않고 **바로 아래 고르는 칸**에 숫자와 함께 둡니다.
+    # 가격 단계는 이 표에 그리지 않고 **바로 아래 고르는 칸**에 숫자와 함께 둡니다.
+    # (11/17 사용자: '차트 과매도 쪽' 단계 · 차트 칸은 뺌 — _stage_now 머리말)
     # 2026-11-12~13 폰 확인: 표의 숫자 칸은 눌러도 반응이 없었고(글자뿐), 링크로
     # 바꾸니 화면을 통째로 다시 불러와 느렸습니다. 고르는 칸은 다시 불러오지 않습니다.
     stage = _stage_now("disc_stage") if fmap else "q"
@@ -2698,8 +2702,7 @@ def _discover_us(use_demo: bool) -> None:
     extra: dict = {}
     if fmap:
         stage_names = {"q": f"품질 통과 ({len(passed)})",
-                       "p": f"+ 가격 부담 낮음 ({len(light)})",
-                       "c": f"+ 차트 과매도 쪽 ({len(both)})"}
+                       "p": f"+ 가격 부담 낮음 ({len(light)})"}
         stage = st.segmented_control(
             "어디까지 좁혀 볼지 누르세요 (바로 바뀝니다)", list(stage_names),
             default=stage, key="disc_stage",
@@ -2711,7 +2714,7 @@ def _discover_us(use_demo: bool) -> None:
         made_f = fpay.get("made")
         unknown_p = sum(1 for s_ in passed if not funnel.price_known(_fp(s_.ticker)))
         st.markdown(ui.render_legend(
-            "<b>가격 · 차트 계산 "
+            "<b>가격 계산 "
             + (dt.datetime.fromtimestamp(made_f, KST).strftime("%m/%d %H:%M") if made_f else "?")
             + "</b> (시세 야후 · 재무 SEC EDGAR) — "
             "<b>가격 부담 낮음</b> = 역DCF 로 역산한 '지금 주가가 요구하는 FCF 성장률' 이 "
@@ -2719,20 +2722,17 @@ def _discover_us(use_demo: bool) -> None:
             "성립하면 '경계') · 과거 성장률은 앞 3년 평균 → 뒤 3년 평균, "
             f"연 {config.FUNNEL_HIST_GROWTH_CAP * 100:g}% 까지만 인정 · FCF 에서 주식보상비용 차감 · "
             "금융업은 판정하지 않음 · "
-            "<b>차트</b> = 과매도 쪽 (CCI · 스토캐스틱 · 볼린저) · "
             "<b>선행 EPS 90일</b> = 향후 12개월 EPS 추정(애널리스트 평균 · 야후)이 90일 전보다 "
             "얼마나 바뀌었나 (올해 · 내년 추정을 남은 달 수로 섞음)"
             + (f" · 가격을 판정하지 못한 {unknown_p}종목(FCF 적자 · 사이클 왜곡 · 과거 성장률 "
                "계산 불가 · 금융업)은 '낮음' 으로 세지 않습니다" if unknown_p else "")),
             unsafe_allow_html=True)
-        extra_heads = ("선행 EPS 90일", "요구 성장률", "차트")
-        names = {k: n for k, n, _r in chart_signals.CONDITIONS}
+        extra_heads = ("선행 EPS 90일", "요구 성장률")
         extra = {s_.ticker: [funnel.eps_cells((fmap.get(s_.ticker) or {}).get("f")),
-                             funnel.price_cells(_fp(s_.ticker)),
-                             (funnel.chart_cell(_fc(s_.ticker), names), "")]
+                             funnel.price_cells(_fp(s_.ticker))]
                  for s_ in passed}
     quality_n = len(passed)
-    passed = {"q": passed, "p": light, "c": both}[stage]
+    passed = {"q": passed, "p": light}.get(stage, passed)
     if not passed:
         st.markdown(
             ui.render_notice(
@@ -2746,8 +2746,7 @@ def _discover_us(use_demo: bool) -> None:
     else:
         st.markdown(
             ui.render_section_head(
-                {"q": "통과 종목", "p": "품질 통과 + 가격 부담 낮음",
-                 "c": "품질 통과 + 가격 부담 낮음 + 차트 과매도 쪽"}[stage],
+                {"q": "통과 종목", "p": "품질 통과 + 가격 부담 낮음"}.get(stage, "통과 종목"),
                 "판정된 기준 중 통과 비율 순", len(passed)),
             unsafe_allow_html=True,
         )
@@ -2809,7 +2808,7 @@ def _discover_us(use_demo: bool) -> None:
 
 
 def _kr_quality_block(use_demo: bool) -> None:
-    """국내 품질 깔때기 — 버핏식 기준 9개 → 가격(역DCF 요구 성장률) → 차트 과매도 쪽.
+    """국내 품질 깔때기 — 버핏식 기준 9개 → 가격(역DCF 요구 성장률). (11/17 차트 단계 뺌)
 
     수집기가 코스피200 + 코스닥150 을 DART 사업보고서로 심사해 올린 funnel_kr.json
     을 읽기만 합니다 (tools/collect.build_funnel_kr). 파일이 없으면 아무것도
@@ -2827,9 +2826,6 @@ def _kr_quality_block(use_demo: bool) -> None:
     def _fp(t):
         return (fmap.get(t) or {}).get("p")
 
-    def _fc(t):
-        return (fmap.get(t) or {}).get("c")
-
     qmin = min(config.DISCOVER_QUALITY_MIN, len(buffett.CRITERIA))
     # 국내 품질 통과 = 확인된 미달 2개 이하 · 판정 7개 이상 (buffett.passes_kr, 2026-11-13).
     # 순서는 판정 중 통과 비율 → 통과 수 → 선행 EPS 90일 변화.
@@ -2841,7 +2837,6 @@ def _kr_quality_block(use_demo: bool) -> None:
     max_fail, min_known = config.KR_QUALITY_MAX_FAIL, config.KR_QUALITY_MIN_KNOWN
     bar = f"미달 {max_fail}개 이하"
     light = [s_ for s_ in quality if funnel.is_light(_fp(s_.ticker))]
-    both = [s_ for s_ in light if funnel.is_oversold(_fc(s_.ticker))]
     verdicts = [c.verdict for s_ in usable for c in s_.checks]
     unknown_pct = (verdicts.count("unknown") / len(verdicts) * 100) if verdicts else 0.0
     q_made, made = fpay.get("q_made"), fpay.get("made")
@@ -2851,17 +2846,17 @@ def _kr_quality_block(use_demo: bool) -> None:
 
     st.markdown(ui.render_section_head(
         "품질 깔때기 · 한국",
-        f"대형주 전수 → 버핏식 품질 기준 {len(buffett.CRITERIA)}개 → 가격 → 차트"),
+        f"대형주 전수 → 버핏식 품질 기준 {len(buffett.CRITERIA)}개 → 가격"),
         unsafe_allow_html=True)
     st.markdown(ui.render_legend(
-        f"<b>품질 심사 {_when(q_made)}</b> (DART 사업보고서) · <b>가격 · 차트 계산 {_when(made)}</b> — "
+        f"<b>품질 심사 {_when(q_made)}</b> (DART 사업보고서) · <b>가격 계산 {_when(made)}</b> — "
         f"<b>품질</b> = 확인된 미달 {max_fail}개 이하 · 판정된 기준 {min_known}개 이상 "
         f"(미국 9개 중 {qmin}개와 같은 허용 폭 — 판정 불가는 미달로 세지 않음 · 최근 10년) · "
         f"전체 판정 가운데 <b>판정 불가 {unknown_pct:.0f}%</b> — 감가상각비가 재무제표 본문에 "
         "없는 회사가 많아 <b>주주이익 · 설비투자</b> 두 기준은 대부분 판정 불가입니다 · "
         "<b>가격 부담 낮음</b> = 역DCF 요구 FCF 성장률 ≤ "
         f"과거 실제 성장률(할인율 8~12% 전 구간 · 연 {config.FUNNEL_HIST_GROWTH_CAP * 100:g}% 까지만 인정) · "
-        f"<b>차트</b> = 과매도 쪽 · <b>선행 EPS 90일</b> = 향후 12개월 EPS 추정(야후)의 90일 변화"),
+        f"<b>선행 EPS 90일</b> = 향후 12개월 EPS 추정(야후)의 90일 변화"),
         unsafe_allow_html=True)
     stage = _stage_now("disc_kr_stage")
     st.markdown(ui.render_funnel([
@@ -2876,18 +2871,15 @@ def _kr_quality_block(use_demo: bool) -> None:
             unsafe_allow_html=True)
 
     stage_names = {"q": f"품질 통과 ({len(quality)})",
-                   "p": f"+ 가격 부담 낮음 ({len(light)})",
-                   "c": f"+ 차트 과매도 쪽 ({len(both)})"}
+                   "p": f"+ 가격 부담 낮음 ({len(light)})"}
     stage = st.segmented_control(
         "어디까지 좁혀 볼지 누르세요 (바로 바뀝니다)", list(stage_names),
         default=stage, key="disc_kr_stage",
         format_func=lambda k: stage_names[k]) or "q"
-    shown = {"q": quality, "p": light, "c": both}[stage]
+    shown = {"q": quality, "p": light}.get(stage, quality)
     held = {c for c, _n in config.watchlist_kr()}
-    names = {k: n for k, n, _r in chart_signals.CONDITIONS}
     extra = {s_.ticker: [funnel.eps_cells((fmap.get(s_.ticker) or {}).get("f")),
-                         funnel.price_cells(_fp(s_.ticker)),
-                         (funnel.chart_cell(_fc(s_.ticker), names), "")] for s_ in quality}
+                         funnel.price_cells(_fp(s_.ticker))] for s_ in quality}
     if not shown:
         st.markdown(ui.render_notice(
             "<b>이 단계까지 남은 종목이 없습니다.</b> "
@@ -2899,7 +2891,7 @@ def _kr_quality_block(use_demo: bool) -> None:
         top = shown[:config.DISCOVER_US_ROWS]
         st.markdown(ui.render_screen_table(
             top, buffett.CRITERIA, held=held, rank_from=1,
-            extra_heads=("선행 EPS 90일", "요구 성장률", "차트"), extra=extra),
+            extra_heads=("선행 EPS 90일", "요구 성장률"), extra=extra),
             unsafe_allow_html=True)
         st.markdown(ui.render_legend(
             "<b>○</b> 통과 · <b>✗</b> 미달 · <b>?</b> 판정 불가 · <b>★</b> 내 관심종목 · "
@@ -2913,7 +2905,7 @@ def _kr_quality_block(use_demo: bool) -> None:
             with st.expander(f"나머지 {len(rest)}개 ({len(top) + 1}위부터)", expanded=False):
                 st.markdown(ui.render_screen_table(
                     rest[:300], buffett.CRITERIA, held=held, rank_from=len(top) + 1,
-                    extra_heads=("선행 EPS 90일", "요구 성장률", "차트"), extra=extra),
+                    extra_heads=("선행 EPS 90일", "요구 성장률"), extra=extra),
             unsafe_allow_html=True)
         by_ticker = {s_.ticker: s_ for s_ in shown}
         order = {s_.ticker: i + 1 for i, s_ in enumerate(shown)}
@@ -2949,7 +2941,7 @@ def _discover_kr(use_demo: bool, part: str = "funnel") -> None:
 
     2026-11-13 사용자(폰): "종목발굴 안에 품질깔때기 / 거래 스크리너 둘 다 있으니까
     폰 화면에서 너무 길어지고 — 다른 탭으로 각기 정리". 두 화면은 질문이 다릅니다
-    (재무 품질 → 가격 → 차트 / 주가 · 거래 패턴). 탭: '품질 깔때기' · '거래 스크리너'.
+    (재무 품질 → 가격 / 주가 · 거래 패턴). 탭: '품질 깔때기' · '거래 스크리너'.
     """
     payload = _universe_or_none("kr", use_demo)
     from_file = bool(payload.get("profiles"))
@@ -2961,7 +2953,7 @@ def _discover_kr(use_demo: bool, part: str = "funnel") -> None:
             _kr_quality_block(use_demo)      # 제목 · 기준 시각은 이 안에서 그립니다
         else:
             st.markdown(ui.render_section_head(
-                "품질 깔때기 · 한국", "재무 품질 → 가격(역DCF) → 차트 과매도 쪽"),
+                "품질 깔때기 · 한국", "재무 품질 → 가격(역DCF)"),
                 unsafe_allow_html=True)
             st.markdown(ui.render_notice(
                 "<b>품질 심사 결과(funnel_kr.json)를 아직 받지 못했습니다.</b> 수집기가 "

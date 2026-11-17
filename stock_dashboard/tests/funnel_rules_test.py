@@ -445,13 +445,14 @@ _i0 = funnel.carry_eps(_cur_full, _prevr, _T0 - 3600, now=_T0)
 check("다 받았으면 안 건드림", not _i0["on"] and _i0["carried"] == 0
       and all(r["f"]["c90"] == 0.5 for r in _cur_full))
 _cur_15 = [{"t": f"K{i}", "f": ({"c90": 0.5} if i < 15 else None)} for i in range(20)]
-check("조금 줄면(15/20 ≥ 70%) 안 건드림",
-      not funnel.carry_eps(_cur_15, _prevr, _T0 - 3600, now=_T0)["on"]
-      and _cur_15[19]["f"] is None)
+_i15 = funnel.carry_eps(_cur_15, _prevr, _T0 - 3600, now=_T0)
+check("조금 줄어도(15/20 ≥ 70%) 빈 종목은 이어 씀 — 11/17 종목마다 (미국 154/203 사례)",
+      _i15["on"] and _i15["carried"] == 5 and not _i15["drop"]
+      and _cur_15[19]["f"]["old"] == _T0 - 3600 and _cur_15[0]["f"] == {"c90": 0.5}, str(_i15))
 _cur_5 = [{"t": f"K{i}", "f": ({"c90": 0.5} if i < 5 else None)} for i in range(20)]
 _i5 = funnel.carry_eps(_cur_5, _prevr, _T0 - 3600, now=_T0)
-check("크게 줄면(5/20) 빈 종목만 지난 값 + 받은 시각",
-      _i5 == {"cur": 5, "prev": 20, "carried": 15, "stale": 0, "on": True}
+check("크게 줄면(5/20) 빈 종목만 지난 값 + 받은 시각 + 크게 줄어듦 표시",
+      _i5 == {"cur": 5, "prev": 20, "carried": 15, "stale": 0, "on": True, "drop": True}
       and _cur_5[0]["f"] == {"c90": 0.5}                              # 이번 값은 그대로
       and _cur_5[19]["f"] == {"c90": 0.19, "n": 1.0, "old": _T0 - 3600}, str(_i5))
 _prev_carried = [dict(r, f=dict(r["f"], old=_T0 - 50 * 3600)) for r in _prevr]
@@ -464,10 +465,24 @@ _prev_old = [dict(r, f=dict(r["f"], old=_T0 - 80 * 3600)) for r in _prevr]
 _ix = funnel.carry_eps(_cur_x, _prev_old, _T0 - 3600, now=_T0)
 check("72시간 넘은 값은 안 이음 → 추정 없음", _ix["carried"] == 0 and _ix["stale"] == 20
       and all(r["f"] is None for r in _cur_x))
-check("지난 파일이 없거나 표본이 작으면(<10) 안 건드림",
-      not funnel.carry_eps([{"t": "A", "f": None}], None, None, now=_T0)["on"]
-      and not funnel.carry_eps([{"t": f"K{i}", "f": None} for i in range(5)],
-                               _prevr[:5], _T0, now=_T0)["on"])
+check("지난 파일이 없으면 안 건드림",
+      not funnel.carry_eps([{"t": "A", "f": None}], None, None, now=_T0)["on"])
+_small = [{"t": f"K{i}", "f": None} for i in range(5)]
+_ism = funnel.carry_eps(_small, _prevr[:5], _T0, now=_T0)
+check("표본이 작아도(<10) 종목마다 이어 씀 · 크게 줄어듦 경고는 안 냄",
+      _ism["carried"] == 5 and not _ism["drop"], str(_ism))
+_prev_mix = ([{"t": "A", "f": None}, {"t": "B", "f": {"c90": 0.1, "old": _T0 - 7200}},
+              {"t": "C", "f": {"c90": 0.2}}, {"t": "D.E", "f": None}])
+check("먼저 물을 종목 = 지난번에 비었거나 이어 쓴 종목 (11/17)",
+      funnel.eps_stale_first(_prev_mix) == {"A", "B", "D.E"}
+      and funnel.eps_stale_first(_prev_mix, lambda t: t.replace(".", "-")) == {"A", "B", "D-E"}
+      and funnel.eps_stale_first(None) == set())
+from tools import collect as _colm2  # noqa: E402
+_asked = []
+_colm2._eps_trends(["S1", "S2", "S3", "S4"], lambda ss: (_asked.append(list(ss)), {s_: {"e0": 1} for s_ in ss})[1],
+                   first={"S3", "S4"})
+check("수집기 — 먼저 물을 종목을 맨 앞에서 묻는다 (나머지 순서는 그대로)",
+      _asked and _asked[0] == ["S3", "S4", "S1", "S2"], str(_asked))
 check("지난 파일에만 있는 종목은 세지 않음(이번 줄 기준)",
       funnel.carry_eps([{"t": "K1", "f": None}] + [{"t": f"N{i}", "f": {"c90": 0}} for i in range(9)],
                        _prevr, _T0, now=_T0)["prev"] == 1)
@@ -481,6 +496,8 @@ check("등 설명에 지난 값 표시 · 색은 그대로",
 _col = pathlib.Path("tools/collect.py").read_text(encoding="utf-8")
 check("수집기 — 한 · 미 깔때기 둘 다 이어 쓰기 · 로그",
       _col.count("funnel.carry_eps(rows,") == 2 and "_carry_txt(f)" in _col and "_carry_txt(k)" in _col)
+check("수집기 — 한 · 미 깔때기 둘 다 지난번에 빈 종목부터 묻기",
+      _col.count("first=funnel.eps_stale_first(") == 2)
 check("check_funnel — 이어 쓰기 검사", "check_eps_carry(d)" in pathlib.Path(
     "tools/check_funnel.py").read_text(encoding="utf-8"))
 for _wfp in ("tools/collect_workflow.yml", "../.github/workflows/collect.yml"):

@@ -1038,9 +1038,15 @@ with tempfile.TemporaryDirectory() as out:
     _fr = universe.parse(pathlib.Path(out, "funnel_us.json").read_text(encoding="utf-8"))["rows"][0]
     check("수집기가 선행 EPS 를 깔때기 파일에 싣는다 (야후 표기 BRK-B 로 묻고 BRK.B 로 적음)",
           fe["eps"] == 1 and _fr["t"] == "BRK.B" and _fr["f"]["n"] > 0 and "c90" in _fr["f"], str(_fr.get("f")))
+    _boom = lambda sy: (_ for _ in ()).throw(RuntimeError("야후 실패"))  # noqa: E731
+    fe3 = collect.build_funnel_us(None, out, caps_fn=lambda sy: {}, ohlc_fn=lambda sy: ({}, {}),
+                                  eps_fn=_boom)
+    check("선행 EPS 를 못 받으면 방금 지난 값을 이어 씀 (11/17 종목마다)",
+          fe3["eps"] == 1 and fe3["eps_carry"]["carried"] == 1, str(fe3.get("eps_carry")))
+    pathlib.Path(out, "funnel_us.json").unlink()
     fe2 = collect.build_funnel_us(None, out, caps_fn=lambda sy: {}, ohlc_fn=lambda sy: ({}, {}),
-                                  eps_fn=lambda sy: (_ for _ in ()).throw(RuntimeError("야후 실패")))
-    check("선행 EPS 를 못 받아도 깔때기의 나머지는 간다", fe2["eps"] == 0 and fe2["n"] == 1)
+                                  eps_fn=_boom)
+    check("선행 EPS 를 못 받아도 깔때기의 나머지는 간다 (지난 파일 없음)", fe2["eps"] == 0 and fe2["n"] == 1)
 _fp3 = {"made": 1, "rows": [{"t": "L1", "f": _e, "p": cheap, "c": {"side": "os", "st": {}}}]}
 ste3, he3, _c = run("us", _pay2, funnel_payload=_fp3)
 check("발굴 표 — '선행 EPS 90일' 칸이 맨 앞 (요구 성장률 · 차트 앞)",

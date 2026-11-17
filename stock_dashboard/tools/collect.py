@@ -492,7 +492,7 @@ def _carry_txt(res: dict) -> str:
     c = (res or {}).get("eps_carry") or {}
     if not c.get("on"):
         return ""
-    return (f" [⚠ 이번 받음 {c['cur']} · 지난 {c['prev']} → 이어 씀 {c['carried']}"
+    return (f" [{'⚠ 크게 줄어듦 · ' if c.get('drop') else ''}이번 받음 {c['cur']} · 지난 {c['prev']} → 이어 씀 {c['carried']}"
             + (f" · 너무 오래돼 못 이음 {c['stale']}" if c.get("stale") else "") + "]")
 
 
@@ -503,17 +503,23 @@ EPS_RETRY_WORKERS = 3
 LAST_EPS_RETRY: dict = {}
 
 
-def _eps_trends(symbols, eps_fn=None, *, wait: float | None = None) -> tuple[dict, float]:
+def _eps_trends(symbols, eps_fn=None, *, wait: float | None = None,
+                first=None) -> tuple[dict, float]:
     """선행 EPS 추정 추이 (야후) — 실패해도 깔때기의 나머지는 갑니다. (결과, 걸린 초)
 
     11/16: 처음에 못 받은 종목은 EPS_RETRY_WAIT 초 쉬고 동시 3개로 한 번 더 묻습니다
     (11/14 09:28 한국 72 → 24 처럼 야후가 잠깐 막은 경우를 되살리려고). 정말 추정이 없는
     종목도 다시 묻게 되어 한국은 회차마다 20초 남짓 늘어납니다. 결과는 LAST_EPS_RETRY.
+
+    11/17: first(지난번에 비었거나 이어 쓴 종목)를 맨 앞에서 묻습니다 — 야후가 한 회차의
+    요청이 일정량을 넘으면 막아 늘 끝부분이 비므로(funnel.eps_stale_first).
     """
     from sources import yahoo  # noqa: PLC0415
 
     t = time.time()
     syms = list(dict.fromkeys(symbols))
+    if first:
+        syms = [s_ for s_ in syms if s_ in first] + [s_ for s_ in syms if s_ not in first]
     fn = eps_fn or yahoo.fetch_eps_trend
     try:
         got = dict(fn(syms) or {})
@@ -581,7 +587,10 @@ def build_funnel_us(app, out_dir: str, *, caps_fn=None, ohlc_fn=None, eps_fn=Non
         ohlc, oerr = {}, {s: f"야후 일봉 실패: {type(exc).__name__}" for s in sym.values()}
     charts = {row.ticker: row for row in chart_signals.build_rows(
         [(sym[r["t"]], r.get("n", "")) for r in todo], ohlc, oerr)}
-    eps, t_eps = _eps_trends(sym.values(), eps_fn)
+    prev_f = _read_prev(out_dir, "funnel_us.json")
+    eps, t_eps = _eps_trends(sym.values(), eps_fn,
+                             first=funnel.eps_stale_first(prev_f.get("rows"),
+                                                          lambda t: str(t).replace(".", "-")))
     rows = []
     for r in todo:
         s = sym[r["t"]]
@@ -589,8 +598,7 @@ def build_funnel_us(app, out_dir: str, *, caps_fn=None, ohlc_fn=None, eps_fn=Non
                      "p": funnel.price_part(r["t"], r["d"], caps.get(s),
                                             financial=r.get("s") == "Financials"),
                      "c": funnel.chart_part(charts[s])})
-    # 선행 EPS 가 크게 줄면 빈 종목만 지난 값으로 (11/14 — funnel.carry_eps)
-    prev_f = _read_prev(out_dir, "funnel_us.json")
+    # 선행 EPS 가 빈 종목은 지난 값으로 (11/14 — 11/17 부터 종목마다, funnel.carry_eps)
     carry = funnel.carry_eps(rows, prev_f.get("rows"), prev_f.get("made"))
     payload = {"rows": rows, "min_pass": config.FUNNEL_MIN_PASS,
                "universe_made": prev.get("made")}
@@ -684,11 +692,11 @@ def build_funnel_kr(app, out_dir: str, *, screens_fn=None, caps_fn=None, ohlc_fn
         ohlc, oerr = {}, {c: f"일봉 실패: {type(exc).__name__}" for c in codes}
     charts = {row.ticker: row for row in chart_signals.build_rows(
         [(r["t"], r.get("n", "")) for r in todo], ohlc, oerr)}
-    eps, t_eps = _eps_trends(codes, eps_fn)
+    eps, t_eps = _eps_trends(codes, eps_fn, first=funnel.eps_stale_first(prev.get("rows")))
     rows = [{"t": r["t"], "f": funnel.eps_part(eps.get(r["t"])),
              "p": funnel.price_part(r["t"], r["d"], caps.get(r["t"])),
              "c": funnel.chart_part(charts[r["t"]])} for r in todo]
-    # 선행 EPS 가 크게 줄면 빈 종목만 지난 값으로 (11/14 — funnel.carry_eps)
+    # 선행 EPS 가 빈 종목은 지난 값으로 (11/14 — 11/17 부터 종목마다, funnel.carry_eps)
     carry = funnel.carry_eps(rows, prev.get("rows"), prev.get("made"))
     payload = {"screens": screens, "errors": errors, "rows": rows, "q_made": q_made,
                "screen_rev": buffett_kr.KR_REV, "min_pass": config.FUNNEL_MIN_PASS,

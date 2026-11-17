@@ -2035,11 +2035,11 @@ def render_picks_tab(use_demo: bool, *, market: str = "kr") -> None:
         return
     carry = meta.get("eps_carry") or {}
     if carry.get("carried"):
-        # 11/14 — 선행 EPS 를 받은 종목이 크게 줄어 빈 종목은 지난 수집 값을 이어 씀 (funnel.carry_eps)
+        # 11/14 — 선행 EPS 가 빈 종목은 지난 수집 값을 이어 씀 (11/17 부터 종목마다, funnel.carry_eps)
         st.markdown(ui.render_notice(
             f"<b>선행 EPS {carry['carried']}종목은 지난 수집 값</b>입니다 — 이번 수집({_when_kst(meta['p'])})에서 "
-            f"야후 추정을 {carry.get('cur', '?')}종목만 받아(지난번 {carry.get('prev', '?')}) 빈 종목은 지난 값을 "
-            "이어 썼습니다. 종목별 시각은 등 설명에 '(지난 수집 … 값)' 으로 붙습니다."
+            f"야후 추정을 못 받은 종목(받음 {carry.get('cur', '?')} · 지난번 {carry.get('prev', '?')})은 72시간 안의 "
+            "지난 값을 이어 썼습니다. 종목별 시각은 등 설명에 '(지난 수집 … 값)' 으로 붙습니다."
             + (f" 너무 오래된 {carry['stale']}종목은 '추정 없음'." if carry.get("stale") else "")),
             unsafe_allow_html=True)
     missing = [n for k, n in (("chart", "차트"), ("trade", "거래"))

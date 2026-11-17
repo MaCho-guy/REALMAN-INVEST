@@ -195,23 +195,27 @@ def eps_down(f: dict | None) -> bool:
 
 def carry_eps(rows: list, prev_rows: list | None, prev_made: float | None,
               now: float | None = None) -> dict:
-    """선행 EPS 를 받은 종목이 지난 수집보다 크게 줄면 빈 종목만 지난 값으로 채웁니다.
+    """이번에 선행 EPS 가 빈 종목은 지난 수집 값으로 채웁니다 (종목마다, 72시간 안의 값만).
 
-    2026-11-14 사용자 승인. 그날 09:28 수집에서 한국 깔때기 87줄 중 선행 EPS 가 있는 줄이
-    72 → 24 로 줄었는데(코드 변경 없음 — 야후 응답이 빈 것으로 보임), 'EPS 하향' 관문이
-    덜 걸려 안정형 후보가 17 → 27 로 늘고 모의 매수에 '선행 EPS → 없음' 변경이 생겼습니다.
-    한 번 비는 것으로 판정이 흔들리지 않게 합니다.
+    2026-11-14 사용자 승인 — 그날 09:28 수집에서 한국 깔때기 87줄 중 선행 EPS 가 있는 줄이
+    72 → 24 로 줄어 'EPS 하향' 관문이 덜 걸려 안정형 후보가 17 → 27 로 늘었습니다.
+    처음에는 '받은 수가 지난번의 70%(EPS_CARRY_RATIO) 아래로 줄 때만' 이어 썼는데,
+    11/16 15:43 · 11/17 06:43 미국 203줄 중 맨 뒤 49줄이 비었을 때(154/203 = 76%)는
+    걸리지 않아 29종목이 '추정 없음' 으로 관문을 그냥 지났습니다. 그래서 11/17 사용자 승인
+    ("먼저 고침")으로 **종목마다** 이어 씁니다. 야후가 한 회차의 요청이 일정량(실측 약
+    430~445건)을 넘으면 막는 것으로 보여, 비는 것은 늘 '끝부분 몇십 종목' 입니다.
 
     규칙 (rows 를 직접 고침):
-      · 지난 파일에서 이번 줄과 같은 종목 중 EPS 가 있던 수(prev)가 EPS_CARRY_MIN_PREV 이상이고
-      · 이번에 EPS 가 있는 수(cur)가 prev × EPS_CARRY_RATIO 보다 적으면
-      · 이번에 EPS 가 빈 종목에 지난 값을 복사하고 `old` = 원래 받은 시각(epoch)을 붙임
-        (지난 값이 이미 이어 쓴 값이면 그 old 를 그대로 — 계속 늙어 감).
-      · 원래 받은 지 EPS_CARRY_MAX_HOURS 가 지난 값은 이어 쓰지 않음.
-    이번에 받은 값은 절대 덮어쓰지 않습니다. 줄어듦이 아니면(또는 지난 파일이 없으면) 아무것도
-    안 바꿉니다.
+      · 이번에 EPS 가 빈 종목이 지난 파일에 EPS 를 갖고 있었으면 그 값을 복사하고
+        `old` = 원래 받은 시각(epoch)을 붙임 (지난 값이 이미 이어 쓴 값이면 그 old 를
+        그대로 — 계속 늙어 감).
+      · 원래 받은 지 EPS_CARRY_MAX_HOURS 가 지난 값은 이어 쓰지 않음('추정 없음').
+      · 이번에 받은 값은 절대 덮어쓰지 않습니다.
+    정말 추정이 없어진 종목도 최대 72시간은 지난 값이 보입니다(화면에 '지난 수집 … 값').
 
-    돌려줌: {"cur", "prev", "carried", "stale"(너무 오래돼 못 이은 수), "on"(규칙이 걸렸나)}
+    돌려줌: {"cur", "prev", "carried", "stale"(너무 오래돼 못 이은 수),
+             "on"(이어 쓴 종목이 있나), "drop"(받은 수가 지난번의 70% 아래로 크게 줄었나 —
+             수집 로그의 ⚠ 용, EPS_CARRY_RATIO · EPS_CARRY_MIN_PREV)}
     """
     import time as _time
 
@@ -221,10 +225,8 @@ def carry_eps(rows: list, prev_rows: list | None, prev_made: float | None,
     here = {r.get("t") for r in rows}
     cur = sum(1 for r in rows if r.get("f"))
     prev = sum(1 for t, f in prev_f.items() if t in here)
-    info = {"cur": cur, "prev": prev, "carried": 0, "stale": 0, "on": False}
-    if prev < config.EPS_CARRY_MIN_PREV or cur >= prev * config.EPS_CARRY_RATIO:
-        return info
-    info["on"] = True
+    info = {"cur": cur, "prev": prev, "carried": 0, "stale": 0, "on": False,
+            "drop": prev >= config.EPS_CARRY_MIN_PREV and cur < prev * config.EPS_CARRY_RATIO}
     for r in rows:
         if r.get("f") or r.get("t") not in prev_f:
             continue
@@ -235,7 +237,20 @@ def carry_eps(rows: list, prev_rows: list | None, prev_made: float | None,
             continue
         r["f"] = dict(old_f, old=int(born))
         info["carried"] += 1
+    info["on"] = info["carried"] > 0 or info["stale"] > 0
     return info
+
+
+def eps_stale_first(prev_rows: list | None, to_sym=None) -> set:
+    """지난 파일에서 선행 EPS 가 비었거나 이어 쓴 값이었던 종목 — 이번에 먼저 묻습니다 (11/17).
+
+    야후가 한 회차 요청이 일정량을 넘으면 막아 늘 끝부분이 비므로, 지난번에 못 받은 종목을
+    앞에 세워야 같은 종목이 계속 '지난 값' 으로 늙지 않습니다. to_sym: 깔때기 티커 → 야후 표기.
+    """
+    fix = to_sym or (lambda t: t)
+    return {fix(r.get("t")) for r in prev_rows or []
+            if isinstance(r, dict) and r.get("t")
+            and (not r.get("f") or (r.get("f") or {}).get("old"))}
 
 
 def eps_old_note(f: dict | None, fmt=None) -> str:

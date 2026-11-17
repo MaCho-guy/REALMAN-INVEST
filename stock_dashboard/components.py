@@ -5948,7 +5948,8 @@ def render_paper(pf: dict, market: str) -> str:
             r = paper.ret(p)
             cls = "up" if r > 0.0005 else ("down" if r < -0.0005 else "flat")
             state = (f'매도 {_esc(str(p.get("d1", ""))[5:10])} — {_esc(p.get("why", ""))}' if sold
-                     else ("보유 · 판정 불가" if p.get("na") else "보유"))
+                     else ("보유 · 판정 불가" if p.get("na") else "보유")
+                     + (f' · 빈자리 채움 ({_esc(str(p["d0"])[5:10])})' if p.get("r") and not sold else ""))
             q = sh.get(idx.get(id(p)))
             if q:
                 buy_amt = q * float(p["p0"])

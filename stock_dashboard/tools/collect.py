@@ -1114,7 +1114,7 @@ def build_paper(out_dir: str, markets=("us", "kr"), *, now: float | None = None,
               if paper._px(r) is not None}
     pf = _read_prev(out_dir, "paper_portfolio.json")
     if True:   # 묶음마다 — 아직 없는 묶음은 이 회차에 시작
-        picks = {}
+        picks, ranked = {}, {}
         for m, (screens, frows, rows, semis, new) in inputs.items():
             st_ = integrate.split(integrate.build(screens, frows, rows, {}, semis, new,
                                                   market=m))[0]
@@ -1128,6 +1128,8 @@ def build_paper(out_dir: str, markets=("us", "kr"), *, now: float | None = None,
                                             rows.get(c.ticker), m)
                     chosen.append((c.ticker, c.name, lamps or {}))
                 picks[(m, track)] = chosen
+                # 빈자리 채우기용 — 후보 전체 순서(등은 살 때만 판정) (11/17 저녁)
+                ranked[(m, track)] = (lst, by_t, frows, rows, n)
     started = []
     import growth  # noqa: PLC0415
     if not pf.get("pos"):
@@ -1157,10 +1159,21 @@ def build_paper(out_dir: str, markets=("us", "kr"), *, now: float | None = None,
         # 시장 지수를 못 받은 회차에 산 종목(b0 없음)은 일봉에서 그 매수 날짜 종가로 채움 (11/16)
         for m, (dts, cls) in bench_hist.items():
             paper.fill_bench(pf, m, dts, cls)
+        # 빈자리 채우기 (11/17 저녁 사용자 승인) — 판 자리를 이 회차 후보 상위(지금 안 든 것)로
+        rules.setdefault("refill", day)
+        for (m, track), (lst, by_t, frows_, rows_, n) in ranked.items():
+            def _ranked(lst=lst, by_t=by_t, frows_=frows_, rows_=rows_, m=m, track=track):
+                for c in lst:
+                    lamps, _b = paper.judge(track, by_t.get(c.ticker), frows_.get(c.ticker),
+                                            rows_.get(c.ticker), m)
+                    yield (c.ticker, c.name, lamps or {})
+            got = paper.refill(pf, day, m, track, _ranked(), n, prices, bench)
+            if got:
+                started.append(f"refill {m}/{track} " + "·".join(got))
     for (m, track), chosen in picks.items():
         if chosen and not paper.has_sleeve(pf, m, track):
             if paper.add_sleeve(pf, day, m, track, chosen, prices, bench):
-                started.append(f"{m}/{track}")
+                started.append(f"start {m}/{track}")
     pf["last"] = day
     # 누적수익률 곡선 — 일봉으로 거래일마다 다시 채우고(11/16 오후, paper.backfill_curve)
     # 이번 회차 점을 넣음(paper.update_curve — 지금 가격, 같은 날짜면 바꿈)
@@ -1183,7 +1196,7 @@ def build_paper(out_dir: str, markets=("us", "kr"), *, now: float | None = None,
             pt = paper.update_curve(pf, m, track, bar, bench.get(m))
             if pt:
                 curve_pts[f"{m}/{track}"] = pt
-    action = "start " + ",".join(started) if started else "step"
+    action = " · ".join(started) if started else "step"
     size_b = _write_out(out_dir, "paper_portfolio.json", universe.dump(pf))
     return {"action": action, "pos": len(pf["pos"]),
             "hold": sum(1 for p in pf["pos"] if p["state"] == "hold"), "bytes": size_b,

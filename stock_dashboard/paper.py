@@ -6,6 +6,9 @@
 규칙 (재량 없음 — 코드가 정함):
   매수   첫 수집 회차에 시장마다 안정형 상위 STABLE_N · 성장형 상위 GROWTH_N 종목을 같은
          비중으로. 그 회차의 종가(차트 파일의 마지막 봉). 이후 새로 사지 않음(고정 묶음).
+  빈자리 (11/17 저녁 추가) 판 자리는 그다음 회차(판 회차 포함) 후보 순서에서 지금 들고 있지
+         않은 상위 종목으로 채움 — 판 돈(현금) 전부를 새로 산 종목에 똑같이 나눔(refill).
+         전에는 판 돈을 현금으로 두어 묶음이 점점 현금이 됐음(11/17 한국 안정형 약 60%).
   매도   매수 근거(후보 관문)가 깨진 회차의 종가.
            안정형: 품질 통과 상실 · 가격 부담 높음 · 선행 EPS 90일 −5% 이하 · 실적 추세 악화
            성장형: 성장 품질 미통과 · PEG 2.5 초과 · 선행 EPS 90일 −5% 이하
@@ -20,7 +23,7 @@
     {"version":1, "start": "YYYY-MM-DD",
      "bench": {"kr": {"sym","p0","p"}, "us": {...}},
      "pos": [{"m","track","t","n","d0","p0","l0"(매수 때 등),"p","l"(지금 등),
-              "state":"hold"/"sold","d1"?,"p1"?,"why"?}],
+              "state":"hold"/"sold","d1"?,"p1"?,"why"?, "r"?(빈자리 채움으로 산 종목이면 1)}],
      "events": [[날짜, 시장, 트랙, 티커, 'buy'/'change'/'sell'/'na', 글], …],
      "curve": {"kr": {"stable": {"start": "YYYY-MM-DD", "pts": [[종가 날짜, 가치, 시장 가치], …]},
                       "growth": {…}}, "us": {…}}}          # 11/16 — 아래 '누적수익률 곡선'
@@ -128,6 +131,44 @@ def add_sleeve(pf: dict, day: str, m: str, track: str, lst: list, prices: dict,
         pf["events"].append([day, m, track, t, "buy", f"매수 {p0:,.2f} — 등 " + _lamp_text(lamps)])
         n += 1
     return n
+
+
+def refill(pf: dict, day: str, m: str, track: str, ranked: list, n: int, prices: dict,
+           bench: dict) -> list:
+    """빈자리 채우기 (11/17 사용자 승인 "제안대로 해줘") — 판 자리를 그 회차 후보로 다시 채움.
+
+    묶음(시장 × 트랙)에 들고 있는 종목(hold — 판정 불가 포함)이 n 개보다 적고 판 돈(현금)이
+    있으면, ranked(그 회차 후보 순서 [(티커, 이름, 등), …]) 에서 **지금 들고 있지 않은**
+    종목을 위에서부터 빈자리 수만큼 그 회차 종가에 삽니다. 예전에 팔았던 종목도 다시
+    후보면 살 수 있습니다. 돈은 ledger 규칙 그대로 — 같은 회차에 산 종목끼리 그때까지
+    쌓인 현금을 똑같이 나눔. 가격이 없는 종목은 건너뜀. 돌려줌: 산 티커 목록.
+    void 만 남은 묶음(규칙 변경)은 add_sleeve 가 다시 시작하므로 여기서는 건너뜀.
+    """
+    if not has_sleeve(pf, m, track):
+        return []
+    held = {p["t"] for p in pf.get("pos", [])
+            if p["m"] == m and p["track"] == track and p.get("state") == "hold"}
+    slots = n - len(held)
+    lg = ledger(pf, m, track)
+    if slots <= 0 or not lg or lg[0] <= 1e-9:
+        return []
+    b = (bench or {}).get(m)
+    bought = []
+    for t, name, lamps in ranked:
+        if len(bought) >= slots:
+            break
+        if t in held or t in bought:
+            continue
+        p0 = prices.get((m, t))
+        if p0 is None:
+            continue
+        pf["pos"].append({"m": m, "track": track, "t": t, "n": name, "d0": day, "p0": p0,
+                          "l0": lamps, "p": p0, "l": lamps, "state": "hold", "b0": b, "b": b,
+                          "r": 1})
+        pf.setdefault("events", []).append([day, m, track, t, "buy",
+                             f"빈자리 채움 매수 {p0:,.2f} — 판 돈으로 · 등 " + _lamp_text(lamps)])
+        bought.append(t)
+    return bought
 
 
 def has_sleeve(pf: dict, m: str, track: str) -> bool:

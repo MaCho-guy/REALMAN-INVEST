@@ -259,6 +259,10 @@ check("되살리기 — 모르는 칸은 버리고 이상한 줄은 건너뜀",
 
 print("\n=== 수집기 — 미국 전수 심사 ===")
 import collect  # noqa: E402
+# 11/17 — 선행 EPS 다시 묻기의 20초 쉬기(collect.EPS_RETRY_WAIT)를 테스트에서만 0 으로.
+# eps_fn 을 안 넣은 깔때기 검사가 야후(셸에서 막힘)를 물은 뒤 회차마다 20초씩 기다려
+# 이 파일 하나가 약 2분 걸렸습니다. 수집기 동작은 그대로입니다.
+collect.EPS_RETRY_WAIT = 0.0
 
 real_screen_company = buffett.screen_company
 

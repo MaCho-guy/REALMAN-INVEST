@@ -1036,6 +1036,34 @@ check("모의 매수 화면 — 몇 주 × 가격 = 금액 → 매도/지금 금
       and "매도 18,000원 = <b>4,500,000원</b>" in _rp17 and "손익 +500,000원" in _rp17
       and "손익 −500,000원" in _rp17 and "실험 금액 <b>10,000,000원</b>" in _rp17
       and "그중 판 돈 현금 4,500,000원" in _rp17)
+# 빈자리 채우기 (11/17 저녁 사용자 승인)
+import copy as _cp17  # noqa: E402
+_pf18 = _cp17.deepcopy(_pf17)
+_nav_b = paper.nav(_pf18, "kr", "stable")
+_bp = {("kr", "A"): 11000.0, ("kr", "B"): 18000.0, ("kr", "C"): 5000.0, ("kr", "D"): 7000.0}
+_got = paper.refill(_pf18, "2026-11-18 06:51", "kr", "stable",
+                    [("A", "가", {}), ("C", "다", {"quality": "g"}), ("D", "라", {})], 2, _bp, {"kr": 80.0})
+check("빈자리 채움 — 지금 든 종목(A)은 건너뛰고 빈자리 수(1)만큼 위에서부터(C) · 판 돈 전부",
+      _got == ["C"] and _pf18["pos"][-1]["r"] == 1 and _pf18["pos"][-1]["p0"] == 5000.0
+      and paper.ledger(_pf18, "kr", "stable")[0] < 1e-9
+      and abs(paper.shares(_pf18, "kr", "stable")[2] - 900.0) < 1e-6
+      and abs(paper.nav(_pf18, "kr", "stable") - _nav_b) < 1e-9
+      and "빈자리 채움" in _pf18["events"][-1][5], str(_got))
+check("빈자리 채움 — 다 차 있으면 · 판 돈이 없으면 · 묶음이 없으면 안 삼",
+      paper.refill(_pf18, "d", "kr", "stable", [("D", "라", {})], 2, _bp, {}) == []
+      and paper.refill({"pos": [{"m": "kr", "track": "stable", "t": "A", "n": "가", "d0": "d",
+                                 "p0": 1.0, "p": 1.0, "state": "hold"}], "events": []},
+                       "d2", "kr", "stable", [("D", "라", {})], 2, _bp, {}) == []
+      and paper.refill(_pf18, "d", "us", "stable", [("D", "라", {})], 2, _bp, {}) == [])
+_pf19 = _cp17.deepcopy(_pf17)
+check("빈자리 채움 — 예전에 판 종목(B)도 다시 후보면 살 수 있음",
+      paper.refill(_pf19, "2026-11-18 06:51", "kr", "stable", [("B", "나", {})], 2, _bp, {}) == ["B"])
+_rp18 = ui.render_paper(_pf18, "kr")
+check("빈자리 채움 — 화면 '빈자리 채움 (MM-DD)' · 수집기가 판정 뒤 refill · 규칙 상자",
+      "빈자리 채움 (11-18)" in _rp18
+      and "paper.refill(pf, day, m, track, _ranked(), n, prices, bench)" in
+      pathlib.Path("tools/collect.py").read_text(encoding="utf-8")
+      and "<b>빈자리</b>" in app_src)
 check("모의 매수 규칙 상자 — 무엇을(후보 상위 그대로) · 얼마나(금액)",
       "<b>무엇을</b>" in app_src and "<b>얼마나</b>" in app_src and "paper.CAPITAL" in app_src)
 check("설명 문구 — 한글을 낱말 중간에서 자르지 않고 넓은 화면에서 64em 까지",

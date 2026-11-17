@@ -1899,9 +1899,11 @@ def render_holdings_tab(data: dict[str, dict[str, Quote]], fx,
 
     render_signals_tab(data, use_demo, market=market)
 
-    # 국내 본주 목록은 한국 쪽입니다 — 미국만 볼 때는 보일 이유가 없습니다
+    # 국내 본주(삼성전자우 · 현대차 등)는 괴리율 계산용 기준 가격이라 내 종목에서
+    # 빼고, 괴리율 탭에만 둡니다 (2026-11-17 사용자 요청). 보유했으면 위 보유 표에 나옵니다.
     others = [i for i in local.instruments
-              if i.symbol not in {w.symbol for w in watchlist.instruments}
+              if not _reference_only(i, _kr_held_codes(use_demo))
+              and i.symbol not in {w.symbol for w in watchlist.instruments}
               and config.in_market(i, market)]
     if others:
         with st.expander(f"국내 본주 {len(others)}종목 더 보기", expanded=False):
@@ -3879,13 +3881,26 @@ def _kr_name_map() -> dict[str, str]:
     return names
 
 
+def _reference_only(inst, held: set[str] | None = None) -> bool:
+    """괴리율 계산용 기준 가격으로만 들어 있는 국내 본주인가 (관심도 보유도 아님).
+
+    SECTION_LOCAL 에는 ADR · GDS 와 견줄 국내 본주(삼성전자우 · 현대차 등)가 있습니다.
+    이 종목들은 **괴리율 탭의 기준 가격**이지 내 종목이 아닙니다.
+    2026-11-17 사용자: "내 종목에 현대차랑 삼성전자우 있는 거 수정 요망".
+    """
+    watch = {i.symbol for i in config.SECTION_WATCHLIST.instruments}
+    return (inst in config.SECTION_LOCAL.instruments and inst.symbol not in watch
+            and inst.symbol not in (held or set()))
+
+
 def _kr_watch_codes(use_demo: bool) -> list[str]:
-    """보유 → 관심 → 국내 본주 순서, 중복 없이."""
-    out = list(sorted(_kr_held_codes(use_demo)))
-    for section in (config.SECTION_WATCHLIST, config.SECTION_LOCAL):
-        for inst in section.instruments:
-            if inst.source == "naver" and inst.symbol.isdigit():
-                out.append(inst.symbol)
+    """보유 → 관심 순서, 중복 없이. 국내 본주(괴리율 기준 가격)는 넣지 않습니다
+    — 보유했거나 관심종목에 있을 때만 들어갑니다 (_reference_only)."""
+    held = _kr_held_codes(use_demo)
+    out = list(sorted(held))
+    for inst in config.SECTION_WATCHLIST.instruments:
+        if inst.source == "naver" and inst.symbol.isdigit():
+            out.append(inst.symbol)
     return list(dict.fromkeys(out))
 
 
@@ -3976,12 +3991,14 @@ def render_supply_tab(use_demo: bool) -> None:
 
 
 def _dividend_targets(use_demo: bool) -> list[tuple[str, str, str, bool]]:
-    """(야후 심볼, 이름, 시장, 보유) — 관심·본주 + 보유."""
+    """(야후 심볼, 이름, 시장, 보유) — 관심 + 보유 (괴리율 기준 가격만인 국내 본주는 뺌)."""
     us_held = _us_held_symbols(use_demo)
     kr_held = _kr_held_codes(use_demo)
     out: dict[str, tuple[str, str, str, bool]] = {}
     for section in (config.SECTION_WATCHLIST, config.SECTION_LOCAL):
         for inst in section.instruments:
+            if _reference_only(inst, kr_held):
+                continue                       # 괴리율 기준 가격일 뿐인 국내 본주
             if inst.source == "yahoo":
                 out[inst.symbol] = (inst.symbol, inst.name, "us",
                                     inst.symbol in us_held)
@@ -7194,7 +7211,7 @@ def render_body(opts: dict) -> None:
     st.markdown(ui.render_notice(line), unsafe_allow_html=True)
     notice = _stale_notice(oldest, pending)
     if notice:
-        stale_slot.markdown(ui.render_notice(notice), unsafe_allow_html=True)
+        stale_slot.markdown(ui.render_notice(notice, wide=True), unsafe_allow_html=True)
     # 자동 다시 그리기는 '받는 중'(요약 · 내 종목의 곁가지)일 때만 — 묵은 값만으로는 하지 않음.
     # 2초마다 도는 조각이 탭 누름과 겹치면 한 번에 안 넘어가는 것처럼 보였음 (11/13 17:56)
     _refresh_watch(bool(pending), bool(opts.get("auto")))

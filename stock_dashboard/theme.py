@@ -370,6 +370,9 @@ def build_rules() -> str:
     font-family: {FONT_STACK};
     max-width: 78ch;              /* 긴 줄은 눈이 되돌아올 곳을 잃습니다 */
   }}
+  /* 상태 한 줄(묵은 값 · 받는 중 안내)은 줄 길이를 제한하지 않습니다 —
+     넓은 화면에서 한 줄에 들어가는데도 78ch 에서 꺾였습니다 */
+  .dash-footnote.dash-notice-wide {{ max-width: none; }}
   /* 표시 패널에서 설명을 끄면 데이터만 남습니다 */
   .dash-nonotes .dash-footnote,
   .dash-nonotes .dash-check-detail {{ display: none; }}

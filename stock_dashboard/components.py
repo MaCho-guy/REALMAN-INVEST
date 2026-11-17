@@ -3736,10 +3736,16 @@ def render_empty_reason(n_total: int, errors: dict, *, scope_hint: bool,
     return render_footnote("<b>대상 종목이 없습니다.</b> 후보 목록이 비어 있습니다.")
 
 
-def render_notice(text: str) -> str:
+def render_notice(text: str, *, wide: bool = False) -> str:
     """'설명 문구 표시' 를 꺼도 **남는** 안내 — 0 건·실패·통과 수처럼
-    화면을 읽는 데 꼭 필요한 문장. 설명(footnote)과 모양은 같고 숨지 않습니다."""
-    return f'<div class="dash-footnote dash-notice">{text}</div>'
+    화면을 읽는 데 꼭 필요한 문장. 설명(footnote)과 모양은 같고 숨지 않습니다.
+
+    wide 면 줄 길이 제한(78ch)을 풉니다 — 읽는 글이 아니라 **상태 한 줄**일 때.
+    한글은 한 글자가 약 2ch 라, 40자 남짓이면 넓은 화면에서도 두 줄로 꺾였습니다
+    (2026-11-17 "컴퓨터로 봤을 때 두 줄로 보인다").
+    """
+    cls = "dash-footnote dash-notice" + (" dash-notice-wide" if wide else "")
+    return f'<div class="{cls}">{text}</div>'
 
 
 # ──────────────────────────────────────────────────────────────────────────────

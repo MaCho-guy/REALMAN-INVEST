@@ -1058,6 +1058,29 @@ check("밸류에이션 카드 — 판정 줄 맨 앞에 선행 EPS (없으면 �
       _hv.index("선행 EPS ▲ +4.8% (90일)") < _hv.index("품질 9/9") and "e-up" in _hv
       and "선행 EPS" not in ui.render_verdict(v_light))
 
+print("\n=== 상태 한 줄은 넓은 화면에서 꺾이지 않는다 (2026-11-17) ===")
+import theme as _th3
+check("묵은 값 안내는 줄 길이 제한을 풀어 그린다 (다른 안내는 그대로 78ch)",
+      'dash-notice-wide' in ui.render_notice("x", wide=True) and 'dash-notice-wide' not in ui.render_notice("x")
+      and ".dash-footnote.dash-notice-wide { max-width: none; }" in _th3.build_css("kr")
+      and "stale_slot.markdown(ui.render_notice(notice, wide=True)" in app_src)
+
+print("\n=== 내 종목에 괴리율 기준 가격(현대차 · 삼성전자우)이 섞이지 않는다 (2026-11-17) ===")
+import ast as _ast
+_tree = _ast.parse(app_src)
+_ns = {"config": config}
+for _fn in ("_reference_only",):
+    exec(compile(_ast.Module(body=[n for n in _tree.body if isinstance(n, _ast.FunctionDef) and n.name == _fn],
+                             type_ignores=[]), "app.py", "exec"), _ns)
+_ref = {i.symbol for i in config.SECTION_LOCAL.instruments if _ns["_reference_only"](i, set())}
+check("관심도 보유도 아닌 국내 본주만 기준 가격으로 본다 (삼성전자 · SK하이닉스는 아님)",
+      {"005935", "005380"} <= _ref and "005930" not in _ref and "000660" not in _ref, str(_ref))
+_hy = next(i for i in config.SECTION_LOCAL.instruments if i.symbol == "005380")
+check("보유하면 내 종목으로 들어온다", not _ns["_reference_only"](_hy, {"005380"}))
+_src_watch = app_src.split("def _kr_watch_codes")[1].split("\ndef ")[0]
+check("내 종목 코드 목록(수급 · 실적)에 국내 본주를 넣지 않는다 · 내 종목 탭의 '국내 본주 더 보기' · 배당도 거른다",
+      "SECTION_LOCAL" not in _src_watch and app_src.count("_reference_only(") >= 3)
+
 print("\n=== 후보 한 줄 — 셈이 맞아야 한다 ===")
 _p = {"members": [{"ticker": f"A{i}", "index": True} for i in range(515)] + [{"ticker": "W", "index": False}],
       "rules": {"S&P 500 구성 종목": {"n": 503}, "나스닥100 에만 있는 종목": {"n": 15}}}

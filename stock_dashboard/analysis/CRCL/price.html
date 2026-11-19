@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>서클 가격 판독</title>
+<style>
+.an{--ink:#0b0b0b;--ink2:#52514e;--mut:#898781;--line:#e1e0d9;--blue:#2a78d6;--blue-d:#184f95;--blue-l:#cde2fb;--red:#d03b3b;--green:#0c8a2e;--amber:#b77a00;color:var(--ink);line-height:1.6;font-family:system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo",sans-serif}
+.an *{box-sizing:border-box}
+.an h1{font-size:1.5rem;font-weight:700;letter-spacing:-.02em;margin:0 0 4px}
+.an h2{font-size:1.05rem;font-weight:650;margin:32px 0 12px;padding-bottom:7px;border-bottom:2px solid var(--ink)}
+.an h3{font-size:.9rem;font-weight:650;margin:18px 0 8px}
+.an p{margin:0 0 10px;font-size:.86rem}
+.an ul{margin:0 0 10px;padding-left:18px;font-size:.86rem}
+.an li{margin-bottom:5px}
+.an .sub{color:var(--mut);font-size:.78rem;margin-bottom:14px}
+.an .mode{display:inline-block;font-size:.72rem;font-weight:600;color:var(--blue-d);background:var(--blue-l);border-radius:4px;padding:3px 9px;margin-bottom:12px}
+.an .drill{border-left:4px solid var(--blue);background:#f7fafe;padding:16px 18px;margin:14px 0 8px}
+.an .drill b{font-size:1.08rem;font-weight:650;line-height:1.55}
+.an .big{border:2px solid var(--ink);padding:16px 18px;margin:12px 0}
+.an .big p{font-size:1.02rem;font-weight:600;margin:0 0 8px}
+.an .big p:last-child{margin:0}
+.an .big em{font-style:normal;color:var(--blue-d);font-size:1.25rem}
+.an .verdict{padding:12px 16px;border-radius:6px;font-size:.92rem;font-weight:600;margin:10px 0}
+.an .verdict.g{background:#e8f5ea}.an .verdict.y{background:#fdf4d7}.an .verdict.r{background:#fbe6e6}
+.an .src{font-size:.7rem;color:var(--mut);margin:4px 0 10px}
+.an .src a,.an a{color:var(--blue-d)}
+.an .warn{border-left:4px solid var(--red);background:#fdf3f3;padding:10px 14px;font-size:.84rem;margin:10px 0}
+.an .note{border-left:4px solid var(--amber);background:#fdf8ea;padding:10px 14px;font-size:.84rem;margin:10px 0}
+.an .tag{display:inline-block;font-size:.68rem;font-weight:700;border-radius:3px;padding:1px 6px;margin-right:4px}
+.an .tag.f{background:var(--blue-l);color:var(--blue-d)}.an .tag.i{background:#f1e6c8;color:#6b4a00}
+.an table{border-collapse:collapse;width:100%;font-size:.8rem;margin:6px 0 4px}
+.an th,.an td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:right;vertical-align:top}
+.an th:first-child,.an td:first-child{text-align:left}
+.an thead th{border-bottom:2px solid var(--ink);font-weight:650;white-space:nowrap}
+.an td.l,.an th.l{text-align:left}
+.an .pos{color:var(--green)}.an .neg{color:var(--red)}
+.an .tw{overflow-x:auto}
+.an .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+.an .diff{border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin:8px 0;font-size:.84rem}
+.an .diff .h{font-weight:650;margin-bottom:4px}
+.an .diff q{font-style:italic;color:var(--ink2)}
+.an .tl{border-left:2px solid var(--ink);margin:8px 0 8px 6px;padding-left:14px}
+.an .tl div{position:relative;font-size:.84rem;margin-bottom:9px}
+.an .tl div:before{content:"";position:absolute;left:-19px;top:7px;width:8px;height:8px;border-radius:50%;background:var(--blue)}
+.an .tl b{display:inline-block;min-width:74px}
+.an details{border:1px solid var(--line);border-radius:6px;padding:8px 12px;margin:8px 0;font-size:.84rem}
+.an summary{cursor:pointer;font-weight:650}
+.an svg{max-width:100%;height:auto;display:block;margin:6px 0}
+.an li a,.an .src a{overflow-wrap:anywhere;word-break:break-all}
+.an svg text{font-family:inherit}
+</style>
+</head><body>
+<div class="an">
+<h1>서클 (CRCL) — 가격 판독</h1><div class="sub">역DCF · 주가 $57.65 (2026-11-16 종가) · 생성 2026-11-19</div><div class="mode">📡 웹검색 기반 · 적정주가를 계산하지 않습니다</div>
+<h2>① 결론 — 두 문장</h2>
+<div class="big"><p>지금 서클 주가는 앞으로 10년간 잉여현금흐름이 매년 <em>23.8%</em>씩 늘어난다고 가정하고 있습니다.</p><p>지난 2년(2023→2025) 매출은 연 <em>37.6%</em>씩 늘었습니다. 잉여현금흐름은 2022년까지 적자라 5년 성장률을 낼 수 없습니다.</p></div>
+<h2>② 판정</h2>
+<div class="verdict g">🟢 시장의 기대가 과거 실적보다 낮습니다. 시장이 뭘 걱정하는지 찾아봐야 합니다.</div>
+<p>이 판정은 '사라/팔아라'가 아니라 <b>어디를 더 파봐야 하는지</b>를 알려주는 것입니다. 시장이 걱정하는 것은 숫자에 이미 보입니다: 2026년 3분기 이자 수입 −8%, USDC 유통량 전년 대비 0%, 토큰 판매를 뺀 매출 −8%. '과거 37.6%'는 금리가 높고 유통량이 두 배가 되던 시기의 숫자입니다.</p>
+<div class="warn"><b>먼저 알아야 할 것.</b> 이 계산의 FCF 에는 주식보상비가 비용으로 빠지지 않습니다. 2025년 FCF 474 에 대해 주식보상비가 563 였습니다(상장 일회성 424 포함). 주식으로 준 보상을 비용으로 보면 남는 현금은 훨씬 작고, 요구 성장률은 아래 숫자보다 높아집니다.</div>
+<h2>③ 요구 성장률 vs 과거 실적</h2>
+<svg viewBox="0 0 600 210" style="width:100%;max-width:600px" role="img" aria-label="연 성장률 (%) — 할인율 12%"><text x="10" y="15" font-size="12" font-weight="650" fill="#0b0b0b">연 성장률 (%) — 할인율 12%</text><line x1="10" x2="590" y1="176.0" y2="176.0" stroke="#0b0b0b" stroke-width="1"/><rect x="37.5" y="115.4" width="89.9" height="60.6" fill="#0c8a2e"/><text x="82.5" y="111.4" font-size="11" text-anchor="middle" fill="#0b0b0b">23.8%</text><text x="82.5" y="192" font-size="11" text-anchor="middle" fill="#52514e">시장 요구 (3년 평균 FCF)</text><rect x="182.6" y="133.4" width="89.9" height="42.6" fill="#7fc594"/><text x="227.5" y="129.4" font-size="11" text-anchor="middle" fill="#0b0b0b">16.8%</text><text x="227.5" y="192" font-size="11" text-anchor="middle" fill="#52514e">시장 요구 (2025 FCF)</text><rect x="327.6" y="80.2" width="89.9" height="95.8" fill="#2a78d6"/><text x="372.5" y="76.2" font-size="11" text-anchor="middle" fill="#0b0b0b">37.6%</text><text x="372.5" y="192" font-size="11" text-anchor="middle" fill="#52514e">매출 2년 실제</text><rect x="472.6" y="42.0" width="89.9" height="134.0" fill="#2a78d6"/><text x="517.5" y="38.0" font-size="11" text-anchor="middle" fill="#0b0b0b">52.7%</text><text x="517.5" y="192" font-size="11" text-anchor="middle" fill="#52514e">매출 3년 실제</text></svg>
+<p>FCF 자체의 2년 성장률(2023→2025)은 연 111%이지만, 적자에서 막 벗어난 직후라 기준으로 삼기 어렵습니다. 10년 기록은 없습니다(2021년 매출 0.85억 달러).</p>
+<h2>④ 민감도 — 할인율과 기준 FCF 를 흔들어보면</h2>
+<div class="tw"><table><thead><tr><th class=l>할인율(WACC)</th><th>3년 평균 FCF 289 (기본)</th><th>2025년 FCF 474</th><th>최근 12개월 FCF 694 (2026.6까지)</th></tr></thead><tbody><tr><td class=l>10%</td><td>19.5%</td><td>12.8%</td><td>7.6%</td></tr><tr><td class=l>12% (기본)</td><td>23.8%</td><td>16.8%</td><td>11.3%</td></tr><tr><td class=l>14%</td><td>27.7%</td><td>20.4%</td><td>14.7%</td></tr></tbody></table></div>
+<p>어떤 FCF 를 기준으로 잡느냐에 따라 요구 성장률이 11%~24%로 크게 달라집니다. 이 회사의 현금흐름이 아직 자리 잡지 않았다는 뜻입니다.</p>
+<h2>⑤ 이 숫자가 흔들리는 조건</h2>
+<ul><li><b>FCF 정규화</b> — 2025년 FCF(474)가 3년 평균(289)보다 64% 높아 ±40% 기준을 넘었습니다. 그래서 <b>3년 평균을 기본값으로</b> 썼습니다. 2025년 값을 쓰면 16.8%, 최근 12개월이면 11.3%.</li><li><b>주가</b> — 며칠 사이 크게 움직였습니다. 11월 13일 종가 62.20달러로 계산하면 25.1%.</li><li><b>금리</b> — 수입의 96%가 이자라, 금리 전망이 바뀌면 '과거 성장률' 자체가 비교 기준으로서 의미가 달라집니다.</li><li><b>토큰 판매</b> — 최근 12개월 FCF 에는 2026년 3분기 토큰 수입이 아직 들어 있지 않습니다(6월까지 집계). 들어가면 일시적으로 더 좋아 보입니다.</li></ul>
+<h2>⑥ 계산 과정</h2>
+<details><summary>입력값 5개 · 모델 · 식 (펼치기)</summary>
+<div class="tw"><table><thead><tr><th class=l>입력값</th><th class=l>값</th><th>출처</th></tr></thead><tbody><tr><td class=l>주가</td><td class=l>$57.65 (2026-11-16 종가 — 11월 17일 시세 페이지의 '전일 종가')</td><td><a href="https://investor.wedbush.com/wedbush/quote?Symbol=NY%3ACRCL" target="_blank" rel="noopener noreferrer">시세 페이지</a></td></tr><tr><td class=l>희석 주식수</td><td class=l>267.8백만 주 (2026년 3분기 가중평균 희석)</td><td><a href="https://www.sec.gov/Archives/edgar/data/0001876042/000187604226000309/finalq3epr-110326.htm" target="_blank" rel="noopener noreferrer">3분기 발표</a></td></tr><tr><td class=l>FCF</td><td class=l>3년 평균 289.0 = (106.1 + 287.3 + 473.5) ÷ 3 — 영업현금흐름 − 유형자산 − 소프트웨어 자본화</td><td><a href="https://stockanalysis.com/stocks/crcl/financials/cash-flow-statement/" target="_blank" rel="noopener noreferrer">현금흐름표 집계</a></td></tr><tr><td class=l>순부채</td><td class=l>-1,700 (순현금) = 부채 0 − 회사 몫 현금 1,700 (2026-09-30). 고객 준비금 73,570 과 회사 보유 스테이블코인용 현금 1,020 은 넣지 않음</td><td><a href="https://www.sec.gov/Archives/edgar/data/0001876042/000187604226000309/finalq3epr-110326.htm" target="_blank" rel="noopener noreferrer">3분기 발표</a></td></tr><tr><td class=l>할인율</td><td class=l>12% (고성장·고변동 기본값) · 10/14% 민감도</td><td>스킬 기본값</td></tr></tbody></table></div>
+<p>시가총액 = 57.65 × 267.8 = 15,439 · 기업가치(EV) = 시가총액 − 순현금 = <b>13,739</b> (백만 달러).</p>
+<p>모델: 10년간 성장률 g, 그 뒤 영구성장 2.5%. EV = Σ(t=1..10) FCF×(1+g)^t ÷ (1+W)^t + [FCF×(1+g)^10×1.025 ÷ (W−0.025)] ÷ (1+W)^10 을 만족하는 g 를 이분법으로 찾았습니다. 계산 코드는 같은 폴더의 <code>reverse_dcf.py</code>.</p>
+<p>과거 성장률: 매출 1,450(2023) → 2,747(2025) = 연 37.64% · 772(2022) → 2,747 = 연 52.66% · FCF 106.1(2023) → 473.5(2025) = 연 111.3%. FCF 연도별: 2021 -100.2, 2022 -94.1, 2023 106.1, 2024 287.3, 2025 473.5.</p>
+</details>
+<h2>⑦ ⚠️ 경고</h2>
+<div class="warn"><b>이 숫자는 판단의 시작이지 답이 아닙니다.</b><ul><li>가정(할인율, 성장 기간, 영구성장률)이 바뀌면 결과가 바뀝니다.</li><li>역DCF 는 "시장이 뭘 기대하는가"를 보여줄 뿐, "얼마가 적정한가"를 말하지 않습니다.</li><li>그 기대가 타당한지는 사업 모델과 경쟁 환경을 직접 확인해야 알 수 있습니다.</li><li>투자 판단과 그 결과는 본인 책임입니다.</li></ul></div>
+<h2>📎 사용한 자료</h2>
+<ul><li><a href="https://investor.wedbush.com/wedbush/quote?Symbol=NY%3ACRCL" target="_blank" rel="noopener noreferrer">https://investor.wedbush.com/wedbush/quote?Symbol=NY%3ACRCL</a></li><li><a href="https://equibles.com/stocks/crcl/summary" target="_blank" rel="noopener noreferrer">https://equibles.com/stocks/crcl/summary</a></li><li><a href="https://www.sec.gov/Archives/edgar/data/0001876042/000187604226000309/finalq3epr-110326.htm" target="_blank" rel="noopener noreferrer">https://www.sec.gov/Archives/edgar/data/0001876042/000187604226000309/finalq3epr-110326.htm</a></li><li><a href="https://sec.gov/Archives/edgar/data/1876042/000187604226000032/final_circlereportsfourt.htm" target="_blank" rel="noopener noreferrer">https://sec.gov/Archives/edgar/data/1876042/000187604226000032/final_circlereportsfourt.htm</a></li><li><a href="https://stockanalysis.com/stocks/crcl/financials/cash-flow-statement/" target="_blank" rel="noopener noreferrer">https://stockanalysis.com/stocks/crcl/financials/cash-flow-statement/</a></li><li><a href="https://stockanalysis.com/stocks/crcl/financials/income-statement/" target="_blank" rel="noopener noreferrer">https://stockanalysis.com/stocks/crcl/financials/income-statement/</a></li><li><a href="https://wallstsmart.com/stock/CRCL/financials" target="_blank" rel="noopener noreferrer">https://wallstsmart.com/stock/CRCL/financials</a></li></ul>
+</div>
+</body></html>

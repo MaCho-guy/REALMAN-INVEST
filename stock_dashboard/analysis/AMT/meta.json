@@ -1,0 +1,21 @@
+{
+  "name": "American Tower (AMT)",
+  "generated": "2026-11-19",
+  "mode": "web",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1053507/000105350726000035/amt-20251231.htm",
+    "https://www.sec.gov/Archives/edgar/data/1053507/000105350725000025/amt-20241231.htm",
+    "https://seekingalpha.com/pr/20700812",
+    "https://www.sec.gov/Archives/edgar/data/0001053507/000105350726000131/pressreleaseq22026.htm",
+    "https://www.sec.gov/Archives/edgar/data/0001053507/000105350726000094/pressreleaseq12026.htm",
+    "https://www.sec.gov/Archives/edgar/data/1053507/000105350726000032/pressreleaseq42025.htm",
+    "https://www.sec.gov/Archives/edgar/data/1053507/000105350725000022/pressreleaseq42024.htm",
+    "https://sec.gov/Archives/edgar/data/1053507/000105350724000009/pressreleaseq42023.htm",
+    "https://www.webull.com/news/15820482222436352",
+    "https://www.fool.com/earnings/call-transcripts/2026/02/24/american-tower-amt-q4-2025-earnings-transcript",
+    "https://stockanalysis.com/stocks/amt/financials/income-statement/",
+    "https://stockanalysis.com/stocks/amt/financials/cash-flow-statement/",
+    "https://investor.wedbush.com/wedbush/quote?Symbol=NY%3AAMT"
+  ],
+  "note": "웹검색 기반. 10-K · 실적 발표문은 요약 도구로 읽어 페이지 출처가 없습니다. 주가는 2026-11-13 종가. 역DCF 계산은 같은 폴더의 reverse_dcf.py."
+}

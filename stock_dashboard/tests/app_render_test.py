@@ -154,6 +154,16 @@ check("카드 줄 채우기: 5장 → 3 + 2, 9장 → 3 + 3 + 3, 4장 → 넓으
       [_ui._fill_cls(n) for n in (1, 4, 5, 6, 9)]
       == ["dash-fill w1 m1", "dash-fill w4 m2", "dash-fill w3 m3", "dash-fill w3 m3", "dash-fill w3 m3"],
       str([_ui._fill_cls(n) for n in (1, 4, 5, 6, 9)]))
+# 11/19 저녁: 볼 만함 카드에 바탕색 · 넓은 화면에서 왼쪽에만 몰려 있던 두 곳
+_css = theme.build_css("kr")
+_more = re.search(r"ol\.dash-tri-more > li\.dash-tri-card \{([^}]*)\}", _css)
+check("볼 만함 카드: 투명이 아니라 메뉴 색을 섞은 바탕 (화면 바탕과 구분)",
+      bool(_more) and "transparent" not in _more.group(1) and "--grp-tint" in _more.group(1),
+      _more.group(1) if _more else "규칙 없음")
+check("연준 순유동성 카드 · 강세/약세 칩: 넓은 화면 규칙이 있고 폰 규칙은 건드리지 않는다",
+      "dash-exp dash-liq" in PAGES[("us", "us_flows")]
+      and ".dash-exp.dash-liq { display: grid" in _css and ".heat-sum { display: grid" in _css
+      and _css.index(".heat-sum { display: grid") > _css.rindex("@media (min-width: 1200px)", 0, _css.index(".heat-sum { display: grid")))
 check("한국: 뉴스 · 공시 · 지표가 화면 셋으로 나뉘었다 (내용은 그대로)",
       "주요 공시" not in PAGES[("kr", "kr_flows")] and "경제지표" not in PAGES[("kr", "kr_flows")]
       and "한국 — 주요 공시" in PAGES[("kr", "kr_filings")] and 'class="dash-tri"' not in PAGES[("kr", "kr_filings")]

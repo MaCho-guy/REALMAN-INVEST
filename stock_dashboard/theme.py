@@ -3743,7 +3743,11 @@ def build_menu_rules() -> str:
     display: flex; flex-direction: column; gap: 6px; padding: 12px 14px;
     border-left: 3px solid var(--dash-divider); }
   ol.dash-tri-must > li.dash-tri-card.mine { border-left-color: var(--dash-accent); }
-  ol.dash-tri-more > li.dash-tri-card { padding: 9px 12px; gap: 4px; background: transparent; }
+  /* 11/19 저녁 "볼 만함 카드가 화면 배경과 같은 색이라 이상함": 투명 → 읽기 메뉴 색(카키)을
+     옅게 섞은 바탕. 꼭 읽기(흰 카드)보다 한 단계 가라앉고, 회색 화면 바탕과는 구분됩니다. */
+  ol.dash-tri-more > li.dash-tri-card { padding: 9px 12px; gap: 4px;
+    background: color-mix(in srgb, var(--grp-tint, #f2f0e3) 80%, var(--dash-surface));
+    border-left-color: var(--grp-mid, var(--dash-divider)); }
   .dash-tri-top { display: flex; align-items: center; justify-content: space-between;
     gap: 8px; min-height: 20px; }
   .dash-tri-sec { font-size: var(--fs-1); font-weight: 700; color: var(--dash-ink);
@@ -3807,6 +3811,23 @@ def build_menu_rules() -> str:
     .dash-cal:has(> .cal-day) { columns: 2; column-gap: 28px;
       column-rule: 1px solid var(--dash-divider); }
     .dash-cal > .cal-day { break-inside: avoid; }
+  }
+
+  /* ── 넓은 화면에서 왼쪽에만 몰려 있던 두 곳 (11/19 저녁 사용자 "1. 해주고") ──
+     ① 섹터 온도 강세 · 약세 칩: 두 줄 → 좌우 두 칸. ② 연준 순유동성 카드: 큰 숫자는 왼쪽,
+     구성요소 셋은 오른쪽에 고르게. 폰 · 좁은 화면은 그대로입니다. */
+  @media (min-width: 1200px) {
+    .heat-sum { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 28px; }
+    .heat-sum > .heat-sum-row:only-of-type { grid-column: 1 / -1; }
+    .heat-sum > .heat-sum-row .heat-chip { flex: 1 1 auto; text-align: center; }
+    .heat-sum > .heat-sum-note { grid-column: 1 / -1; }
+    .dash-exp.dash-liq { display: grid; grid-template-columns: auto minmax(0, 1fr);
+      column-gap: 48px; align-items: center; }
+    .dash-exp.dash-liq > .dash-exp-top, .dash-exp.dash-liq > .dash-exp-value { grid-column: 1; }
+    .dash-exp.dash-liq > .dash-hit-row { grid-column: 2; grid-row: 1 / span 2;
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px;
+      padding: 0 0 0 28px; border-bottom: none; border-left: 1px solid var(--dash-divider); }
+    .dash-exp.dash-liq .dash-hit-value { font-size: var(--fs-6); }
   }
 
   /* ── 받은 시각 — 한 줄로 접힘 (누르면 전부) ── */

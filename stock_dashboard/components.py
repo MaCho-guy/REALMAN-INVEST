@@ -3293,7 +3293,7 @@ def render_liquidity(nl, extra: list | None = None) -> str:
            else f'<span class="dash-exp-delta">{arrow} '
                 f'{fmt_usd_bn(abs(nl.change))} (4주)</span>')
     return (
-        '<div class="dash-exp">'
+        '<div class="dash-exp dash-liq">'
         '<div class="dash-exp-top">'
         '<span class="dash-exp-label">연준 순유동성</span>'
         f'<span class="dash-exp-period">{_esc(nl.period)}</span></div>'

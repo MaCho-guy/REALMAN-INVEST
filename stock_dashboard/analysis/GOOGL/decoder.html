@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Alphabet (GOOGL) — 기업 해독기</title>
+<style>
+.an{--ink:#0b0b0b;--ink2:#52514e;--mut:#898781;--line:#e1e0d9;--blue:#2a78d6;--blue-d:#184f95;--blue-l:#cde2fb;--red:#d03b3b;--green:#0c8a2e;--amber:#b77a00;color:var(--ink);line-height:1.6;font-family:system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo",sans-serif}
+.an *{box-sizing:border-box}
+.an h1{font-size:1.5rem;font-weight:700;letter-spacing:-.02em;margin:0 0 4px}
+.an h2{font-size:1.05rem;font-weight:650;margin:32px 0 12px;padding-bottom:7px;border-bottom:2px solid var(--ink)}
+.an h3{font-size:.9rem;font-weight:650;margin:18px 0 8px}
+.an p{margin:0 0 10px;font-size:.86rem}
+.an ul{margin:0 0 10px;padding-left:18px;font-size:.86rem}
+.an li{margin-bottom:5px}
+.an .sub{color:var(--mut);font-size:.78rem;margin-bottom:14px}
+.an .mode{display:inline-block;font-size:.72rem;font-weight:600;color:var(--blue-d);background:var(--blue-l);border-radius:4px;padding:3px 9px;margin-bottom:12px}
+.an .drill{border-left:4px solid var(--blue);background:#f7fafe;padding:16px 18px;margin:14px 0 8px}
+.an .drill b{font-size:1.08rem;font-weight:650;line-height:1.55}
+.an .big{border:2px solid var(--ink);padding:16px 18px;margin:12px 0}
+.an .big p{font-size:1.02rem;font-weight:600;margin:0 0 8px}
+.an .big p:last-child{margin:0}
+.an .big em{font-style:normal;color:var(--blue-d);font-size:1.25rem}
+.an .verdict{padding:12px 16px;border-radius:6px;font-size:.92rem;font-weight:600;margin:10px 0}
+.an .verdict.g{background:#e8f5ea}.an .verdict.y{background:#fdf4d7}.an .verdict.r{background:#fbe6e6}
+.an .src{font-size:.7rem;color:var(--mut);margin:4px 0 10px}
+.an .src a,.an a{color:var(--blue-d)}
+.an .warn{border-left:4px solid var(--red);background:#fdf3f3;padding:10px 14px;font-size:.84rem;margin:10px 0}
+.an .note{border-left:4px solid var(--amber);background:#fdf8ea;padding:10px 14px;font-size:.84rem;margin:10px 0}
+.an .tag{display:inline-block;font-size:.68rem;font-weight:700;border-radius:3px;padding:1px 6px;margin-right:4px}
+.an .tag.f{background:var(--blue-l);color:var(--blue-d)}.an .tag.i{background:#f1e6c8;color:#6b4a00}
+.an table{border-collapse:collapse;width:100%;font-size:.8rem;margin:6px 0 4px}
+.an th,.an td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:right;vertical-align:top}
+.an th:first-child,.an td:first-child{text-align:left}
+.an thead th{border-bottom:2px solid var(--ink);font-weight:650;white-space:nowrap}
+.an td.l,.an th.l{text-align:left}
+.an .pos{color:var(--green)}.an .neg{color:var(--red)}
+.an .tw{overflow-x:auto}
+.an .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+.an .diff{border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin:8px 0;font-size:.84rem}
+.an .diff .h{font-weight:650;margin-bottom:4px}
+.an .diff q{font-style:italic;color:var(--ink2)}
+.an .tl{border-left:2px solid var(--ink);margin:8px 0 8px 6px;padding-left:14px}
+.an .tl div{position:relative;font-size:.84rem;margin-bottom:9px}
+.an .tl div:before{content:"";position:absolute;left:-19px;top:7px;width:8px;height:8px;border-radius:50%;background:var(--blue)}
+.an .tl b{display:inline-block;min-width:74px}
+.an details{border:1px solid var(--line);border-radius:6px;padding:8px 12px;margin:8px 0;font-size:.84rem}
+.an summary{cursor:pointer;font-weight:650}
+.an svg{max-width:100%;height:auto;display:block;margin:6px 0}
+.an li a,.an .src a{overflow-wrap:anywhere;word-break:break-all}
+.an svg text{font-family:inherit}
+.an{--c1:#1A5FB4;--c2:#E66100;--grid:#ebebe7;--gline:#e2e2de;--b1:#dce8f6;--b2:#b5cdec;--b3:#84ade0;--b4:#4e89cf;--b5:#1A5FB4;--b6:#113f78}.an .gcard{border:1px solid var(--gline);border-radius:10px;padding:16px 18px 6px;margin:6px 0 22px}.an .tagc{display:inline-block;font-size:.68rem;letter-spacing:.06em;font-weight:700;padding:3px 10px;border-radius:999px;background:var(--c1);color:#fff;margin-bottom:10px}.an .tagc.o{background:var(--c2)}.an .kick2{font-size:.78rem;letter-spacing:.08em;color:var(--mut);font-weight:600;margin:0 0 14px}.an p.hero{font-size:1.08rem;line-height:1.55;font-weight:650;letter-spacing:-.01em;margin:0 0 8px}.an .hero em{font-style:normal;color:var(--c2)}.an p.lead{font-size:.92rem;color:var(--ink2);margin:0 0 14px}.an p.nt{font-size:.78rem;color:var(--mut);margin:6px 0 10px}.an span.src{font-size:.7rem;color:var(--mut);margin:0}.an .fact{border-left:3px solid var(--c1);padding:2px 0 2px 12px;margin:0 0 12px;font-size:.86rem}.an .interp{border-left:3px solid var(--c2);padding:2px 0 2px 12px;margin:0 0 12px;font-size:.86rem}.an .fact>b:first-child,.an .interp>b:first-child{font-size:.7rem;letter-spacing:.06em}.an .qt{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.76rem;background:var(--grid);padding:9px 12px;border-radius:6px;margin:6px 0;color:var(--ink2);overflow-wrap:anywhere}.an .wn{border:1px solid var(--c2);border-radius:8px;padding:13px 15px;margin:14px 0 6px;font-size:.84rem}.an .wn strong{color:var(--c2)}.an .lg{display:flex;gap:6px 16px;flex-wrap:wrap;font-size:.76rem;color:var(--ink2);margin:2px 0 10px}.an .lg i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}.an .bign{font-size:2.4rem;font-weight:700;letter-spacing:-.03em;line-height:1}.an .bign .u{font-size:1.1rem;font-weight:600;color:var(--mut);margin-left:3px}.an .vd{display:inline-block;padding:7px 13px;border-radius:8px;font-weight:700;font-size:.92rem;border:2px solid var(--c2);color:var(--c2);margin:2px 0 12px}.an ol{margin:0 0 10px;padding-left:20px;font-size:.86rem}.an tr.hl td{background:var(--grid);font-weight:650}.an tr.yy td{font-size:.7rem;color:var(--mut)}.an code{font-size:.82em;background:var(--grid);border-radius:3px;padding:1px 4px}.an .chart{margin:10px 0 2px}.an .chart svg{width:100%;overflow:visible}.an .ax{stroke:var(--gline);stroke-width:1}.an .gl{stroke:var(--grid);stroke-width:1}.an .tk{fill:#6f7177;font-size:10.5px}.an .dl{fill:#17171a;font-size:11px;font-weight:650}.an .flowbox{fill:#fff;stroke:var(--c1);stroke-width:1.5}.an .flowbox2{fill:#fff;stroke:var(--c2);stroke-width:1.5}.an .flowtxt{fill:#17171a;font-size:11.5px;font-weight:600;text-anchor:middle}.an .flowsub{fill:#6f7177;font-size:10px;text-anchor:middle}.an .arr{stroke:#44464d;stroke-width:1.3;fill:none;marker-end:url(#gah)}.an details h3{margin-top:12px}.an .chart.w{overflow-x:auto}@media(max-width:640px){.an .chart.w svg{min-width:680px}}</style>
+</head><body>
+<div class="an">
+<h1>Alphabet (GOOGL) 통합 분석 — ① 기업 해독기</h1>
+<div class="sub">기업 해독기 · 기업 스토리 리더 · 가격 판독기 3종 통합 · 작성 2026-11-05<br>📄 공시자료 27건 기반 (10-K 5개년 · 10-Q 9분기 · DEF 14A · 어닝콜 12분기) · 페이지/섹션 출처 명시<br>환율 가정 <b>₩1,450/$</b> (오늘자 환율을 신뢰 가능하게 확정하지 못해 가정치 사용)</div>
+<div class="gcard">
+<span class="tagc">한 줄 요약</span>
+<p class="hero">광고로 번 돈을 전부 AI 인프라에 쏟아붓기 시작한 회사입니다. 그 결과 <em>25년 만에 처음으로 돈을 빌리고 주식을 찍어내는 회사</em>가 됐고, 잉여현금흐름은 적자로 돌아섰습니다.</p>
+<p class="lead">바뀐 것은 실적이 아니라 <b>자본 구조와 사업의 성격</b>입니다. 영업이익은 여전히 30% 성장 중입니다.</p>
+</div>
+<span class="tagc">① 기업 해독기 (Company Decoder)</span>
+<div class="kick2">이 회사가 뭘로 돈을 버는가</div>
+<h2>① 2분 드릴 — 한 문장</h2>
+<p class="hero">구글은 <em>사람들이 뭘 찾는지</em>를 세상에서 가장 잘 알아내서, 그 정보를 광고주에게 팔아 돈을 벌고, 지금은 그 기술을 빌려주는 컴퓨터 임대업까지 하고 있습니다.</p>
+<p class="nt">매출의 55.7%가 검색 광고 하나에서 나옵니다. <span class="src">출처: 10-K FY2025, Note 2 Revenues (Google Search &amp; other $224.5B ÷ 총매출 $402.8B)</span></p>
+<h2>② 돈 버는 구조</h2>
+<div class="chart w"><svg viewBox="0 0 940 390" role="img" aria-label="구글의 돈 흐름 구조도">
+<defs><marker id="gah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#44464d"/></marker></defs>
+<rect class="flowbox" rx="7" x="10" y="30" width="150" height="62"/>
+<text class="flowtxt" x="85" y="56">사용자 (무료)</text>
+<text class="flowsub" x="85" y="74">검색·유튜브·안드로이드</text>
+<rect class="flowbox" rx="7" x="230" y="30" width="170" height="62"/>
+<text class="flowtxt" x="315" y="56">관심·검색의도</text>
+<text class="flowsub" x="315" y="74">광고 재고가 됨</text>
+<rect class="flowbox2" rx="7" x="470" y="30" width="160" height="62"/>
+<text class="flowtxt" x="550" y="56">광고주</text>
+<text class="flowsub" x="550" y="74">검색·유튜브·네트워크</text>
+<rect class="flowbox2" rx="7" x="710" y="20" width="220" height="82"/>
+<text class="flowtxt" x="820" y="46">광고 매출 $294.7B</text>
+<text class="flowsub" x="820" y="64">전체의 73.2%</text>
+<text class="flowsub" x="820" y="82">검색 224.5 · 유튜브 40.4 · 네트워크 29.8</text>
+<rect class="flowbox2" rx="7" x="710" y="124" width="220" height="60"/>
+<text class="flowtxt" x="820" y="148">구독·기기 $48.0B</text>
+<text class="flowsub" x="820" y="166">YouTube Premium · Google One · Pixel</text>
+<rect class="flowbox" rx="7" x="230" y="210" width="170" height="78"/>
+<text class="flowtxt" x="315" y="236">기술 인프라</text>
+<text class="flowsub" x="315" y="254">데이터센터 · TPU · 전력</text>
+<text class="flowsub" x="315" y="272">PP&amp;E 순액 $372.8B</text>
+<rect class="flowbox2" rx="7" x="470" y="210" width="160" height="78"/>
+<text class="flowtxt" x="550" y="238">기업 고객</text>
+<text class="flowsub" x="550" y="256">클라우드 · AI 랩</text>
+<text class="flowsub" x="550" y="274">TPU 시스템 구매</text>
+<rect class="flowbox2" rx="7" x="710" y="206" width="220" height="60"/>
+<text class="flowtxt" x="820" y="230">클라우드 $58.7B</text>
+<text class="flowsub" x="820" y="248">26Q3 연율 $123B · +102.6%</text>
+<rect class="flowbox" rx="7" x="10" y="300" width="400" height="56"/>
+<text class="flowtxt" x="210" y="324">재투자: FY2026 CapEx 가이던스 $195~205B</text>
+<text class="flowsub" x="210" y="342">영업현금흐름의 대부분 + 차입·주식발행 $134.7B</text>
+<path class="arr" d="M160,61 L228,61"/>
+<path class="arr" d="M400,61 L468,61"/>
+<path class="arr" d="M630,55 L708,52"/>
+<path class="arr" d="M630,72 L708,145"/>
+<path class="arr" d="M400,249 L468,249"/>
+<path class="arr" d="M630,244 L708,238"/>
+<path class="arr" d="M820,266 L820,296 L412,296 L412,320"/>
+<path class="arr" d="M820,184 L690,184 L690,296"/>
+<path class="arr" d="M160,328 L160,249 L228,249"/>
+<path class="arr" d="M86,300 L86,95"/>
+<text class="flowsub" x="196" y="54" text-anchor="start">무료 서비스 제공</text>
+<text class="flowsub" x="434" y="54" text-anchor="start">경매로 판매</text>
+<text class="flowsub" x="120" y="200" text-anchor="start">인프라가</text>
+<text class="flowsub" x="120" y="215" text-anchor="start">제품을 강화</text>
+</svg></div>
+<p class="nt">순환 구조: 사용자가 많아지면 → 광고 단가가 올라가고 → 번 돈으로 인프라를 키우고 → 인프라가 검색·AI 품질을 올려 다시 사용자를 붙잡습니다. 2026년부터는 이 순환의 재투자 금액이 영업현금흐름을 초과하기 시작했습니다. <span class="src">출처: 10-K FY2025 Note 2 / 10-Q Q3FY2026 Balance Sheets, MD&amp;A</span></p>
+<h2>③ 매출 구성 — 사업부문별 · 지역별</h2>
+<div class="grid2">
+<div>
+<h3>사업부문별 (FY2025)</h3>
+<div class="chart"><svg viewBox="0 0 440 210" role="img" aria-label="FY2025 사업부문별 매출 비중 막대">
+<rect x="0" y="8" width="233" height="22" rx="4" fill="var(--b6)"><title>Google Search &amp; other $224.5B (55.7%)</title></rect>
+<text class="dl" x="241" y="24">검색 55.7%</text>
+<rect x="0" y="40" width="61" height="22" rx="4" fill="var(--b5)"><title>Google Cloud $58.7B (14.6%)</title></rect>
+<text class="dl" x="69" y="56">클라우드 14.6%</text>
+<rect x="0" y="72" width="50" height="22" rx="4" fill="var(--b4)"><title>구독·플랫폼·기기 $48.0B (11.9%)</title></rect>
+<text class="dl" x="58" y="88">구독·기기 11.9%</text>
+<rect x="0" y="104" width="42" height="22" rx="4" fill="var(--b3)"><title>YouTube 광고 $40.4B (10.0%)</title></rect>
+<text class="dl" x="50" y="120">유튜브 광고 10.0%</text>
+<rect x="0" y="136" width="31" height="22" rx="4" fill="var(--b2)"><title>Google Network $29.8B (7.4%)</title></rect>
+<text class="dl" x="39" y="152">네트워크 7.4%</text>
+<rect x="0" y="168" width="4" height="22" rx="2" fill="var(--b1)"><title>Other Bets $1.5B (0.4%)</title></rect>
+<text class="dl" x="12" y="184">Other Bets 0.4%</text>
+</svg></div>
+<div class="tw"><table>
+<thead><tr><th>부문</th><th>매출($B)</th><th>영업이익($B)</th><th>마진</th></tr></thead>
+<tbody>
+<tr><td>Google Services</td><td>342.7</td><td>139.4</td><td>40.7%</td></tr>
+<tr><td>Google Cloud</td><td>58.7</td><td>13.9</td><td>23.7%</td></tr>
+<tr><td>Other Bets</td><td>1.5</td><td>−7.5</td><td>적자</td></tr>
+</tbody></table></div>
+<p class="nt">Other Bets 적자가 FY2024 −$4.4B → FY2025 −$7.5B로 확대됐습니다. <span class="src">출처: 10-K FY2025, Segment Information</span></p>
+</div>
+<div>
+<h3>지역별 (FY2025)</h3>
+<div class="chart"><svg viewBox="0 0 440 150" role="img" aria-label="FY2025 지역별 매출 비중 막대">
+<rect x="0" y="8" width="252" height="22" rx="4" fill="var(--b6)"><title>미국 $194.2B (48.2%)</title></rect>
+<text class="dl" x="260" y="24">미국 48.2%</text>
+<rect x="0" y="40" width="152" height="22" rx="4" fill="var(--b5)"><title>EMEA $117.2B (29.1%)</title></rect>
+<text class="dl" x="160" y="56">EMEA 29.1%</text>
+<rect x="0" y="72" width="88" height="22" rx="4" fill="var(--b4)"><title>아시아태평양 $67.7B (16.8%)</title></rect>
+<text class="dl" x="96" y="88">APAC 16.8%</text>
+<rect x="0" y="104" width="31" height="22" rx="4" fill="var(--b3)"><title>기타 미주 $23.9B (5.9%)</title></rect>
+<text class="dl" x="39" y="120">기타 미주 5.9%</text>
+</svg></div>
+<p class="nt"><b>해외 비중 51.8%.</b> 10-K는 환율 변동이 매출에 영향을 준다고 명시하고, 환헤지 손익을 별도 항목으로 공시합니다. 비달러 매출 비중이 절반을 넘어 달러 강세는 역풍입니다. <span class="src">출처: 10-K FY2025, Note 2 — Revenues by Geography</span></p>
+<h3>고객 집중도</h3>
+<div class="fact"><b>[사실]</b><br>“No individual customer or groups of affiliated customers represented more than 10% of our revenues in 2023, 2024, or 2025.”<br><span style="color:var(--ink2)">단일 고객이나 계열 고객군이 매출의 10%를 넘은 경우는 2023·2024·2025년 모두 없었습니다.</span><br><span class="src">출처: 10-K FY2025, Note 2</span></div>
+<p class="nt">다만 클라우드 수주잔고 $560.8B 중 특정 AI 랩 비중은 공시되지 않습니다. <b>해당 자료에서 확인할 수 없습니다.</b></p>
+</div>
+</div>
+<h2>④ 고객 &amp; 경쟁사</h2>
+<div class="tw"><table>
+<thead><tr><th>구분</th><th class="l">내용</th></tr></thead>
+<tbody>
+<tr><td>돈 내는 쪽</td><td class="l">B2B가 대부분 — 광고주(전체의 73.2%)와 기업 클라우드 고객(14.6%). 일반 사용자는 구독·기기에서만 직접 지불(11.9%)</td></tr>
+<tr><td>경쟁 (검색·광고)</td><td class="l">10-K는 경쟁사를 구체적으로 열거하되, FY2025에 “AI가 광고 산업을 빠르게 재편하고 있다”는 문장을 새로 넣었습니다 — 경쟁 축이 검색엔진에서 AI 답변으로 이동 중</td></tr>
+<tr><td>경쟁 (클라우드)</td><td class="l">10-K는 “경쟁사들이 클라우드 서비스를 빠르게 개발·배포하고 있으며, 가격과 전환비용이 업계 전반에서 어렵다”고 기술</td></tr>
+<tr><td>경쟁 (AI 칩)</td><td class="l">자체 TPU를 설계하지만, FY2025 10-K는 <b>특수 AI 칩의 제조·공급이 소수의 인증된 공급업체에 한정</b>된다고 새로 밝혔습니다</td></tr>
+</tbody></table></div>
+<p class="nt"><span class="src">출처: 10-K FY2025, Item 1A Risk Factors / Item 1 Business</span></p>
+<h2>⑤ 이 업종의 핵심 KPI</h2>
+<p class="lead">매출·이익보다 이 회사의 현재 국면을 더 잘 보여주는 지표 2개입니다.</p>
+<h3>KPI 1 — 클라우드 수주잔고 (Revenue Backlog / RPO)</h3>
+<p>왜 보는가: <b>클라우드 매출은 이미 계약된 금액이 쌓여 있다가 나중에 인식됩니다. 수주잔고는 앞으로의 매출을 미리 보여주는 창입니다.</b></p>
+<div class="chart w"><svg viewBox="0 0 900 230" role="img" aria-label="분기별 클라우드 수주잔고 추이 막대그래프">
+<line class="ax" x1="58" y1="190" x2="890" y2="190"/>
+<g class="tk" text-anchor="end"><text x="50" y="26">600</text><text x="50" y="81">400</text><text x="50" y="136">200</text><text x="50" y="194">0</text></g>
+<line class="gl" x1="58" y1="22" x2="890" y2="22"/><line class="gl" x1="58" y1="77" x2="890" y2="77"/>
+<line class="gl" x1="58" y1="132" x2="890" y2="132"/>
+<g>
+<rect x="80" y="164.4" width="78" height="25.6" rx="4" fill="var(--b4)"><title>2024-12-31 $93.2B</title></rect>
+<rect x="186" y="164.6" width="78" height="25.4" rx="4" fill="var(--b4)"><title>2025-03-31 $92.4B</title></rect>
+<rect x="292" y="160.3" width="78" height="29.7" rx="4" fill="var(--b4)"><title>2025-06-30 $108.2B</title></rect>
+<rect x="398" y="146.7" width="78" height="43.3" rx="4" fill="var(--b4)"><title>2025-09-30 $157.7B</title></rect>
+<rect x="504" y="123.3" width="78" height="66.7" rx="4" fill="var(--b5)"><title>2025-12-31 $242.8B</title></rect>
+<rect x="610" y="61.6" width="78" height="128.4" rx="4" fill="var(--c2)"><title>2026-03-31 $467.6B — 이 분기에 집계 정의 변경</title></rect>
+<rect x="716" y="47.3" width="78" height="142.7" rx="4" fill="var(--c2)"><title>2026-06-30 $519.5B</title></rect>
+<rect x="822" y="34.1" width="78" height="155.9" rx="4" fill="var(--c2)"><title>2026-09-30 $567.7B (클라우드 $560.8B)</title></rect>
+</g>
+<g class="dl" text-anchor="middle">
+<text x="119" y="158">93</text><text x="225" y="158">92</text><text x="331" y="154">108</text>
+<text x="437" y="140">158</text><text x="543" y="117">243</text>
+<text x="649" y="55">468</text><text x="755" y="41">520</text><text x="861" y="28">568</text>
+</g>
+<g class="tk" text-anchor="middle">
+<text x="119" y="206">24Q4</text><text x="225" y="206">25Q1</text><text x="331" y="206">25Q2</text>
+<text x="437" y="206">25Q3</text><text x="543" y="206">25Q4</text><text x="649" y="206">26Q1</text>
+<text x="755" y="206">26Q2</text><text x="861" y="206">26Q3</text>
+</g>
+<line x1="610" y1="22" x2="610" y2="190" stroke="var(--c2)" stroke-width="1.2" stroke-dasharray="3 3"/>
+<text class="tk" x="616" y="18" fill="var(--c2)" font-weight="700">← 26Q1부터 집계 기준 변경 (1년 이하 계약 포함)</text>
+</svg></div>
+<div class="lg"><span><i style="background:#4e89cf"></i>구 기준</span><span><i style="background:#E66100"></i>신 기준 (직접 비교 불가)</span><span>단위 $B</span></div>
+<div class="interp"><b>[해석]</b><br>$93B → $568B는 6배지만, <b>2026년 1분기에 집계 기준이 바뀌었습니다.</b> 1년 이하 계약까지 포함하도록 변경됐고 증가분 중 정의 변경 효과는 분해 공시되지 않았습니다. 2025-12-31($242.8B)과 2026-03-31($467.6B) 사이 $225B 증가를 전부 수주 증가로 읽으면 과대평가입니다. <span class="src">출처: 10-Q Q1~Q3 FY2026, Note 2 Revenue Backlog</span></div>
+<h3>KPI 2 — 영업현금흐름 대비 CapEx 비율 (CapEx / OCF)</h3>
+<p>왜 보는가: <b>번 현금 중 몇 %를 설비에 다시 넣는지입니다. 이 비율이 100%를 넘으면 벌어서는 못 짓고 빌려서 짓는 단계입니다.</b></p>
+<div class="chart w"><svg viewBox="0 0 900 220" role="img" aria-label="연도별 CapEx 대비 영업현금흐름 비율 꺾은선">
+<line class="ax" x1="58" y1="180" x2="890" y2="180"/>
+<g class="tk" text-anchor="end"><text x="50" y="22">120%</text><text x="50" y="75">80%</text><text x="50" y="128">40%</text><text x="50" y="184">0%</text></g>
+<line class="gl" x1="58" y1="18" x2="890" y2="18"/><line class="gl" x1="58" y1="71" x2="890" y2="71"/><line class="gl" x1="58" y1="124" x2="890" y2="124"/>
+<line x1="58" y1="47.3" x2="890" y2="47.3" stroke="var(--c2)" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text class="tk" x="800" y="43" text-anchor="end" fill="var(--c2)" font-weight="700">100% = 번 현금 전액 재투자</text>
+<polyline fill="none" stroke="var(--c1)" stroke-width="2" points="108,134.7 238,144.3 368,134.4 498,138.0 628,124.4 758,107.0 888,42.3"/>
+<g fill="var(--c1)">
+<circle cx="108" cy="134.7" r="5"><title>2020 34.2%</title></circle>
+<circle cx="238" cy="144.3" r="5"><title>2021 26.9%</title></circle>
+<circle cx="368" cy="134.4" r="5"><title>2022 34.4%</title></circle>
+<circle cx="498" cy="138.0" r="5"><title>2023 31.7%</title></circle>
+<circle cx="628" cy="124.4" r="5"><title>2024 41.9%</title></circle>
+<circle cx="758" cy="107.0" r="5"><title>2025 55.5%</title></circle>
+<circle cx="888" cy="42.3" r="6" fill="var(--c2)"><title>2026년 9개월 103.8% — 번 현금보다 더 투자</title></circle>
+</g>
+<g class="dl" text-anchor="middle">
+<text x="108" y="126">34%</text><text x="238" y="136">27%</text><text x="368" y="126">34%</text>
+<text x="498" y="130">32%</text><text x="628" y="116">42%</text><text x="758" y="99">56%</text>
+<text x="862" y="34" fill="var(--c2)">104%</text>
+</g>
+<g class="tk" text-anchor="middle"><text x="108" y="198">2020</text><text x="238" y="198">2021</text><text x="368" y="198">2022</text>
+<text x="498" y="198">2023</text><text x="628" y="198">2024</text><text x="758" y="198">2025</text><text x="888" y="198">26년 9M</text></g>
+</svg></div>
+<p class="nt">2026년 9개월: 영업현금흐름 $127.1B, CapEx $132.0B → 비율 103.8%. <span class="src">출처: 10-Q Q3FY2026, Consolidated Statements of Cash Flows (112,311/127,149 · 63,596/131,953)</span></p>
+<h2>⑥ 경영진 &amp; 오너십</h2>
+<ul>
+<li><b>CEO 순다르 피차이(Sundar Pichai, 53)</b> — 2004년 구글 입사, 2015년 10월 구글 CEO, 2019년 12월 알파벳 CEO 취임. <span class="src">출처: DEF 14A 2026, Directors and Executive Officers</span></li>
+<li><b>창업자 관여</b> — 래리 페이지(Larry Page)와 세르게이 브린(Sergey Brin) 모두 2026년 주주총회 이사 선임 안건에 후보로 포함돼 이사회에 남아 있습니다. <span class="src">출처: DEF 14A 2026, Proposal 1</span></li>
+<li><b>지배구조</b> — Class A(의결권 있음) / Class B(창업자 보유, 다중의결권) / Class C(의결권 없음) 3종 구조. Class C 보유자는 주주총회 안건에 의결권이 전혀 없습니다. 창업자 2인의 정확한 총의결권 비율은 이번 추출에서 확정하지 못했습니다 — <b>확인 필요</b>. <span class="src">출처: DEF 14A 2026, Voting Information</span></li>
+</ul>
+<h2>⑦ 주주환원 — 2026년에 정책이 바뀌었습니다</h2>
+<div class="tw"><table>
+<thead><tr><th>항목</th><th>FY2023</th><th>FY2024</th><th>FY2025</th><th>26년 9개월</th></tr></thead>
+<tbody>
+<tr><td>자사주 매입 ($B)</td><td>62.2</td><td>62.0</td><td>45.4</td><td style="color:#E66100">0.0</td></tr>
+<tr><td>배당 지급 ($B)</td><td>0.0</td><td>7.4</td><td>—</td><td>8.2</td></tr>
+<tr><td>발행주식수 (백만주)</td><td>—</td><td>—</td><td>12,088</td><td>12,294</td></tr>
+</tbody></table></div>
+<ul>
+<li><b>배당</b>: 2024년 4월 분기 배당 개시. 현재 분기 $0.22/주 (직전 $0.21). 주가 $288.93 기준 연 배당수익률 약 0.30% — <span class="src">제가 계산한 값: $0.22×4÷$288.93</span></li>
+<li><b>자사주</b>: 2026년 9개월 매입액 <b>$0</b> (전년 동기 $39.8B). 동시에 주식 발행으로 발행주식수가 12,088 → 12,294백만주로 <b>+206백만주(+1.7%) 증가</b>했습니다. 자사주로 주식수를 줄이던 구조가 뒤집혔습니다.</li>
+<li>2029년 5월 의무전환우선주 1,900만주가 보통주로 전환 예정 — 추가 희석 요인.</li>
+</ul>
+<p class="nt"><span class="src">출처: 10-K FY2023~FY2025 Cash Flows / 10-Q Q3FY2026 Balance Sheets, Cash Flows, Note 11</span></p>
+<h2>⑧ 이 회사가 망하는 시나리오</h2>
+<p class="hero">사람들이 <em>“검색창에 입력하는 습관”</em>을 버리고 AI에게 바로 물어보기 시작하는데, 그 AI가 구글 것이 아닌 순간 — 매출의 73%가 동시에 사라집니다.</p>
+<p class="nt">그리고 지금 알파벳은 그 전환에 대비해 2026년 한 해에만 $195~205B(약 283~297조원)을 차입과 주식발행까지 동원해 쓰고 있습니다. 전환에서 이기면 투자는 회수되고, 지면 상각해야 할 자산만 남습니다.</p>
+<h3>리스크 3개</h3>
+<ol>
+<li><b>되돌릴 수 없는 선약정 $924.4B</b> — 구매 약정 등 계약상 의무 $924.4B 중 $802.1B가 기술 인프라·재고·에너지 take-or-pay·콘텐츠 라이선스 다년 약정이고, $213.4B가 12개월 내 지급 예정입니다. CapEx는 줄일 수 있지만 take-or-pay는 수요가 꺾여도 남습니다. 단 공시 금액은 <b>현행 계약의 최대 한도 가격·물량 기준</b>이라 실제 지출은 낮을 수 있습니다. <span class="src">출처: 10-Q Q3FY2026, MD&amp;A Purchase Commitments / Note 10</span></li>
+<li><b>검색 유통 구조에 이미 판결이 내려졌습니다</b> — 2024년 8월 DC 연방지방법원 패소, 2025년 12월 최종 판결로 서비스 유통 방식 제한 + 경쟁사에 검색 데이터 공유·신디케이션 제공 의무. 2026년 1월 항소. 광고기술 건은 2025년 4월 일부 패소 후 최종 판결 대기 중이며 DOJ 구제안에 구조적 분리가 포함돼 있습니다. 회사는 손실 가능액을 추정할 수 없다고 명시했습니다. <span class="src">출처: 10-K FY2025, Item 1A / Note — Antitrust Matters</span></li>
+<li><b>물리적 제약 — 전력·물·토지</b> — FY2025 10-K에 새로 들어간 문장입니다. 인프라 확장이 전력·물·토지 가용성에 점점 더 제약되고, 용량 확보에 장기 리드타임 계약이 필요하며, 적시에 용량을 확보하지 못하면 모델 학습과 클라우드 고객 서비스 능력이 제한된다고 밝혔습니다. <span class="src">출처: 10-K FY2025, Item 1A Risk Factors (신규 문장)</span></li>
+</ol>
+<h2>⑨ 핵심 재무 5년</h2>
+<div class="tw"><table>
+<thead><tr><th>지표 ($B)</th><th>2021</th><th>2022</th><th>2023</th><th>2024</th><th>2025</th></tr></thead>
+<tbody>
+<tr><td>매출 (Revenue)</td><td>257.6</td><td>282.8</td><td>307.4</td><td>350.0</td><td>402.8</td></tr>
+<tr class="yy"><td>YoY</td><td>—</td><td>+9.8%</td><td>+8.7%</td><td>+13.9%</td><td>+15.1%</td></tr>
+<tr><td>영업이익 (Operating Income)</td><td>78.7</td><td>74.8</td><td>84.3</td><td>112.4</td><td>129.0</td></tr>
+<tr class="yy"><td>영업이익률</td><td>30.6%</td><td>26.5%</td><td>27.4%</td><td>32.1%</td><td>32.0%</td></tr>
+<tr><td>잉여현금흐름 (FCF)</td><td>67.0</td><td>60.0</td><td>69.5</td><td>72.8</td><td>73.3</td></tr>
+<tr class="yy"><td>YoY</td><td>—</td><td>−10.4%</td><td>+15.8%</td><td>+4.7%</td><td>+0.7%</td></tr>
+<tr><td>장기차입금 (Long-term Debt)</td><td>—</td><td>—</td><td>12.1</td><td>10.9</td><td>46.5</td></tr>
+</tbody></table></div>
+<p class="nt">FCF는 <b>영업활동현금흐름 − 유형자산 취득액</b>으로 제가 계산한 파생값입니다 (공시에 직접 표기된 항목 아님). 예: FY2025 = $164,713M − $91,447M = $73,266M. <span class="src">출처: 10-K FY2025 p.현금흐름표 / 10-K FY2022·FY2023 현금흐름표</span></p>
+<div class="chart w"><svg viewBox="0 0 900 250" role="img" aria-label="매출 영업이익 FCF 5년 추이">
+<line class="ax" x1="58" y1="200" x2="890" y2="200"/>
+<g class="tk" text-anchor="end"><text x="50" y="22">400</text><text x="50" y="67">300</text><text x="50" y="112">200</text><text x="50" y="157">100</text><text x="50" y="204">0</text></g>
+<line class="gl" x1="58" y1="18" x2="890" y2="18"/><line class="gl" x1="58" y1="63" x2="890" y2="63"/>
+<line class="gl" x1="58" y1="108" x2="890" y2="108"/><line class="gl" x1="58" y1="153" x2="890" y2="153"/>
+<polyline fill="none" stroke="var(--c1)" stroke-width="2" points="130,84.1 320,72.7 510,61.6 700,42.4 870,18.3"/>
+<polyline fill="none" stroke="var(--c2)" stroke-width="2" points="130,169.5 320,172.7 510,168.4 700,166.9 870,166.6"/>
+<g fill="var(--c1)">
+<circle cx="130" cy="84.1" r="5"><title>2021 매출 $257.6B</title></circle>
+<circle cx="320" cy="72.7" r="5"><title>2022 매출 $282.8B</title></circle>
+<circle cx="510" cy="61.6" r="5"><title>2023 매출 $307.4B</title></circle>
+<circle cx="700" cy="42.4" r="5"><title>2024 매출 $350.0B</title></circle>
+<circle cx="870" cy="18.3" r="5"><title>2025 매출 $402.8B</title></circle>
+</g>
+<g fill="var(--c2)">
+<circle cx="130" cy="169.5" r="5"><title>2021 FCF $67.0B</title></circle>
+<circle cx="320" cy="172.7" r="5"><title>2022 FCF $60.0B</title></circle>
+<circle cx="510" cy="168.4" r="5"><title>2023 FCF $69.5B</title></circle>
+<circle cx="700" cy="166.9" r="5"><title>2024 FCF $72.8B</title></circle>
+<circle cx="870" cy="166.6" r="5"><title>2025 FCF $73.3B</title></circle>
+</g>
+<text class="dl" x="862" y="12" text-anchor="end" fill="var(--c1)">매출 402.8</text>
+<text class="dl" x="862" y="186" text-anchor="end" fill="var(--c2)">FCF 73.3 (거의 제자리)</text>
+<g class="tk" text-anchor="middle"><text x="130" y="218">2021</text><text x="320" y="218">2022</text><text x="510" y="218">2023</text><text x="700" y="218">2024</text><text x="870" y="218">2025</text></g>
+</svg></div>
+<div class="lg"><span><i style="background:#1A5FB4"></i>매출 (Revenue)</span><span><i style="background:#E66100"></i>잉여현금흐름 (FCF)</span><span>단위 $B</span></div>
+<div class="wn"><strong>⚠️ 이익과 FCF가 벌어졌습니다.</strong><br>매출은 2021→2025에 1.56배, 영업이익은 1.64배가 됐는데 <b>FCF는 $67.0B → $73.3B로 1.09배</b>입니다. 늘어난 이익이 전부 CapEx로 나갔기 때문입니다. 2026년 9개월에는 FCF가 −$4.8B로 적자 전환했습니다. 이익 지표만 보면 이 변화가 안 보입니다.</div>
+<h3>마진에 끼어 있는 회계 효과 — 반드시 알고 봐야 합니다</h3>
+<div class="fact"><b>[사실]</b><br>FY2023 10-K: 서버의 추정 내용연수를 4년→6년, 일부 네트워크 장비를 5년→6년으로 조정했고 FY2023부터 적용. 이 변경으로 <b>2023년 감가상각비가 $3.9B 감소</b>했습니다. <span class="src">출처: 10-K FY2023, Note 1 / MD&amp;A</span></div>
+<div class="interp"><b>[해석]</b><br>FY2023 영업이익 $84.3B 중 $3.9B(4.6%)가 회계추정 변경에서 나왔습니다. FY2022→FY2023 마진 개선(26.5%→27.4%)은 이 효과를 제거하면 대부분 사라집니다. 반대로, AI 칩 세대교체가 빨라져 6년이 과도하다고 판단되면 지금 쌓는 $200B 규모 자산에서 큰 감가상각 증가가 발생할 수 있습니다.</div>
+<h2>⑩ 이 카드로 답이 안 나온 것</h2>
+<ul>
+<li>클라우드 매출 $30.7B(26Q3) 중 전통적 구독·소비 기반 매출과 TPU 하드웨어 판매의 비중 — 제품별 재무는 공시되지 않습니다. <b>해당 자료에서 확인할 수 없습니다.</b></li>
+<li>창업자 2인의 정확한 총의결권 비율 — DEF 14A에 표로 존재하나 이번 추출에서 확정하지 못했습니다. <b>확인 필요</b></li>
+<li>2027년 CapEx 규모 — 회사는 “상당히 증가”라고만 말하고 Q4 콜에서 제시하겠다고 했습니다.</li>
+</ul>
+<details>
+<summary>📎 사용한 자료 전체 목록 (27건)</summary>
+<div class="grid2">
+<div>
+<h3>10-K 연간보고서 5건</h3>
+<ul>
+<li>GOOGL_10-K_FY2025 <span class="src">(기간 2025-12-31, 제출 2026-02-05)</span></li>
+<li>GOOGL_10-K_FY2024 <span class="src">(2024-12-31, 2025-02-05)</span></li>
+<li>GOOGL_10-K_FY2023 <span class="src">(2023-12-31, 2024-01-31)</span></li>
+<li>GOOGL_10-K_FY2022 <span class="src">(2022-12-31, 2023-02-03)</span></li>
+<li>GOOGL_10-K_FY2021 <span class="src">(2021-12-31, 2022-02-02)</span></li>
+</ul>
+<h3>DEF 14A 1건</h3>
+<ul><li>GOOGL_DEF14A_2026 <span class="src">(2026 주주총회, 제출 2026-04-24)</span></li></ul>
+<h3>10-Q 분기보고서 9건</h3>
+<ul>
+<li>Q3FY2026 · Q2FY2026 · Q1FY2026</li>
+<li>Q3FY2025 · Q2FY2025 · Q1FY2025</li>
+<li>Q3FY2024 · Q2FY2024 · Q1FY2024</li>
+</ul>
+</div>
+<div>
+<h3>어닝콜 트랜스크립트 12건</h3>
+<ul>
+<li>Q3 2026 · Q2 2026 · Q1 2026</li>
+<li>Q4 2025 · Q3 2025 · Q2 2025 · Q1 2025</li>
+<li>Q4 2024 · Q3 2024 · Q2 2024 · Q1 2024</li>
+<li>Q4 2023</li>
+</ul>
+<h3>처리 방식</h3>
+<p class="nt">10-K 5건 + 10-Q 9건의 inline XBRL 태그 19,172개를 파싱해 재무 수치를 추출하고, 인용한 핵심 수치는 각 문서 재무제표·주석 원문과 대조 검증했습니다. Item 1A는 전문을 문장 단위로 분해해 5단어 연속 중복률로 비교했습니다. 어닝콜 12건은 단어 빈도 집계 + 가이던스 발언 직접 추출.</p>
+<h3>외부 자료 (1건만 사용)</h3>
+<p class="nt">GOOGL 2026-11-04 종가 $288.93 — 역DCF의 필수 입력값이며 공시자료에 존재하지 않아 사용자 승인 후 웹 조회. 분석 내용·해석은 전부 공시자료 기반입니다.</p>
+</div>
+</div>
+</details>
+<p class="nt">매수/매도/보유 추천, 목표주가, 단기 주가 방향 예측은 포함하지 않았습니다. 환율 ₩1,450/$는 가정치입니다.</p>
+</div>
+</body></html>

@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Alphabet (GOOGL) — 가격 판독</title>
+<style>
+.an{--ink:#0b0b0b;--ink2:#52514e;--mut:#898781;--line:#e1e0d9;--blue:#2a78d6;--blue-d:#184f95;--blue-l:#cde2fb;--red:#d03b3b;--green:#0c8a2e;--amber:#b77a00;color:var(--ink);line-height:1.6;font-family:system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo",sans-serif}
+.an *{box-sizing:border-box}
+.an h1{font-size:1.5rem;font-weight:700;letter-spacing:-.02em;margin:0 0 4px}
+.an h2{font-size:1.05rem;font-weight:650;margin:32px 0 12px;padding-bottom:7px;border-bottom:2px solid var(--ink)}
+.an h3{font-size:.9rem;font-weight:650;margin:18px 0 8px}
+.an p{margin:0 0 10px;font-size:.86rem}
+.an ul{margin:0 0 10px;padding-left:18px;font-size:.86rem}
+.an li{margin-bottom:5px}
+.an .sub{color:var(--mut);font-size:.78rem;margin-bottom:14px}
+.an .mode{display:inline-block;font-size:.72rem;font-weight:600;color:var(--blue-d);background:var(--blue-l);border-radius:4px;padding:3px 9px;margin-bottom:12px}
+.an .drill{border-left:4px solid var(--blue);background:#f7fafe;padding:16px 18px;margin:14px 0 8px}
+.an .drill b{font-size:1.08rem;font-weight:650;line-height:1.55}
+.an .big{border:2px solid var(--ink);padding:16px 18px;margin:12px 0}
+.an .big p{font-size:1.02rem;font-weight:600;margin:0 0 8px}
+.an .big p:last-child{margin:0}
+.an .big em{font-style:normal;color:var(--blue-d);font-size:1.25rem}
+.an .verdict{padding:12px 16px;border-radius:6px;font-size:.92rem;font-weight:600;margin:10px 0}
+.an .verdict.g{background:#e8f5ea}.an .verdict.y{background:#fdf4d7}.an .verdict.r{background:#fbe6e6}
+.an .src{font-size:.7rem;color:var(--mut);margin:4px 0 10px}
+.an .src a,.an a{color:var(--blue-d)}
+.an .warn{border-left:4px solid var(--red);background:#fdf3f3;padding:10px 14px;font-size:.84rem;margin:10px 0}
+.an .note{border-left:4px solid var(--amber);background:#fdf8ea;padding:10px 14px;font-size:.84rem;margin:10px 0}
+.an .tag{display:inline-block;font-size:.68rem;font-weight:700;border-radius:3px;padding:1px 6px;margin-right:4px}
+.an .tag.f{background:var(--blue-l);color:var(--blue-d)}.an .tag.i{background:#f1e6c8;color:#6b4a00}
+.an table{border-collapse:collapse;width:100%;font-size:.8rem;margin:6px 0 4px}
+.an th,.an td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:right;vertical-align:top}
+.an th:first-child,.an td:first-child{text-align:left}
+.an thead th{border-bottom:2px solid var(--ink);font-weight:650;white-space:nowrap}
+.an td.l,.an th.l{text-align:left}
+.an .pos{color:var(--green)}.an .neg{color:var(--red)}
+.an .tw{overflow-x:auto}
+.an .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+.an .diff{border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin:8px 0;font-size:.84rem}
+.an .diff .h{font-weight:650;margin-bottom:4px}
+.an .diff q{font-style:italic;color:var(--ink2)}
+.an .tl{border-left:2px solid var(--ink);margin:8px 0 8px 6px;padding-left:14px}
+.an .tl div{position:relative;font-size:.84rem;margin-bottom:9px}
+.an .tl div:before{content:"";position:absolute;left:-19px;top:7px;width:8px;height:8px;border-radius:50%;background:var(--blue)}
+.an .tl b{display:inline-block;min-width:74px}
+.an details{border:1px solid var(--line);border-radius:6px;padding:8px 12px;margin:8px 0;font-size:.84rem}
+.an summary{cursor:pointer;font-weight:650}
+.an svg{max-width:100%;height:auto;display:block;margin:6px 0}
+.an li a,.an .src a{overflow-wrap:anywhere;word-break:break-all}
+.an svg text{font-family:inherit}
+.an{--c1:#1A5FB4;--c2:#E66100;--grid:#ebebe7;--gline:#e2e2de;--b1:#dce8f6;--b2:#b5cdec;--b3:#84ade0;--b4:#4e89cf;--b5:#1A5FB4;--b6:#113f78}.an .gcard{border:1px solid var(--gline);border-radius:10px;padding:16px 18px 6px;margin:6px 0 22px}.an .tagc{display:inline-block;font-size:.68rem;letter-spacing:.06em;font-weight:700;padding:3px 10px;border-radius:999px;background:var(--c1);color:#fff;margin-bottom:10px}.an .tagc.o{background:var(--c2)}.an .kick2{font-size:.78rem;letter-spacing:.08em;color:var(--mut);font-weight:600;margin:0 0 14px}.an p.hero{font-size:1.08rem;line-height:1.55;font-weight:650;letter-spacing:-.01em;margin:0 0 8px}.an .hero em{font-style:normal;color:var(--c2)}.an p.lead{font-size:.92rem;color:var(--ink2);margin:0 0 14px}.an p.nt{font-size:.78rem;color:var(--mut);margin:6px 0 10px}.an span.src{font-size:.7rem;color:var(--mut);margin:0}.an .fact{border-left:3px solid var(--c1);padding:2px 0 2px 12px;margin:0 0 12px;font-size:.86rem}.an .interp{border-left:3px solid var(--c2);padding:2px 0 2px 12px;margin:0 0 12px;font-size:.86rem}.an .fact>b:first-child,.an .interp>b:first-child{font-size:.7rem;letter-spacing:.06em}.an .qt{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.76rem;background:var(--grid);padding:9px 12px;border-radius:6px;margin:6px 0;color:var(--ink2);overflow-wrap:anywhere}.an .wn{border:1px solid var(--c2);border-radius:8px;padding:13px 15px;margin:14px 0 6px;font-size:.84rem}.an .wn strong{color:var(--c2)}.an .lg{display:flex;gap:6px 16px;flex-wrap:wrap;font-size:.76rem;color:var(--ink2);margin:2px 0 10px}.an .lg i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}.an .bign{font-size:2.4rem;font-weight:700;letter-spacing:-.03em;line-height:1}.an .bign .u{font-size:1.1rem;font-weight:600;color:var(--mut);margin-left:3px}.an .vd{display:inline-block;padding:7px 13px;border-radius:8px;font-weight:700;font-size:.92rem;border:2px solid var(--c2);color:var(--c2);margin:2px 0 12px}.an ol{margin:0 0 10px;padding-left:20px;font-size:.86rem}.an tr.hl td{background:var(--grid);font-weight:650}.an tr.yy td{font-size:.7rem;color:var(--mut)}.an code{font-size:.82em;background:var(--grid);border-radius:3px;padding:1px 4px}.an .chart{margin:10px 0 2px}.an .chart svg{width:100%;overflow:visible}.an .ax{stroke:var(--gline);stroke-width:1}.an .gl{stroke:var(--grid);stroke-width:1}.an .tk{fill:#6f7177;font-size:10.5px}.an .dl{fill:#17171a;font-size:11px;font-weight:650}.an .flowbox{fill:#fff;stroke:var(--c1);stroke-width:1.5}.an .flowbox2{fill:#fff;stroke:var(--c2);stroke-width:1.5}.an .flowtxt{fill:#17171a;font-size:11.5px;font-weight:600;text-anchor:middle}.an .flowsub{fill:#6f7177;font-size:10px;text-anchor:middle}.an .arr{stroke:#44464d;stroke-width:1.3;fill:none;marker-end:url(#gah)}.an details h3{margin-top:12px}.an .chart.w{overflow-x:auto}@media(max-width:640px){.an .chart.w svg{min-width:680px}}</style>
+</head><body>
+<div class="an">
+<h1>Alphabet (GOOGL) 통합 분석 — ③ 가격 판독</h1>
+<div class="sub">기업 해독기 · 기업 스토리 리더 · 가격 판독기 3종 통합 · 작성 2026-11-05<br>📄 공시자료 27건 기반 (10-K 5개년 · 10-Q 9분기 · DEF 14A · 어닝콜 12분기) · 페이지/섹션 출처 명시</div>
+<span class="tagc">③ 가격 판독기 (Price Decoder) — 역DCF</span>
+<div class="kick2">지금 이 가격이 되려면 얼마나 벌어야 하나</div>
+<h2>① 결론</h2>
+<p class="hero">지금 GOOGL 주가는 앞으로 10년간 매년 <em>약 17%</em>의 잉여현금흐름 성장을 가정하고 있습니다.</p>
+<p class="hero">지난 5년 실제 FCF 성장률은 <em>연 11.3%</em>였고, 최근 3년은 <em>연 6.9%</em>였습니다.</p>
+<div class="grid2" style="margin-top:18px">
+<div><div class="bign" style="color:#E66100">16.9<span class="u">%</span></div><p class="nt">시장이 요구하는 10년 FCF 성장률<br>(WACC 9%, FY2025 FCF $73.3B 기준)</p></div>
+<div><div class="bign" style="color:#1A5FB4">11.3<span class="u">%</span></div><p class="nt">실제 5년 FCF 성장률<br>(2020 $42.8B → 2025 $73.3B)</p></div>
+</div>
+<h2>② 판정</h2>
+<div class="vd">🔴 시장은 과거보다 훨씬 잘할 거라 기대하고 있습니다</div>
+<p>요구 성장률 16.9%는 5년 실제치 11.3%의 <b>1.50배</b>, 최근 3년 실제치 6.9%의 <b>2.45배</b>입니다. 판정 기준 “과거의 1.5배 초과”에 정확히 걸칩니다.</p>
+<p class="nt"><b>이 판정은 사라/팔아라가 아닙니다.</b> “어디를 더 파봐야 하는지”를 알려주는 것입니다. 지금 확인해야 할 질문은 하나입니다 — <b>$200B의 CapEx가 FCF 성장률을 과거의 2배 수준으로 끌어올릴 수 있는가.</b> 그 답은 숫자가 아니라 클라우드·AI 사업의 단위경제성에 있습니다.</p>
+<h2>③ 요구 성장률 vs 실제 성장률</h2>
+<div class="chart w"><svg viewBox="0 0 900 250" role="img" aria-label="시장 요구 성장률과 과거 실제 성장률 비교 막대">
+<line class="ax" x1="150" y1="205" x2="890" y2="205"/>
+<g class="tk" text-anchor="middle"><text x="150" y="222">0%</text><text x="335" y="222">5%</text><text x="520" y="222">10%</text><text x="705" y="222">15%</text><text x="890" y="222">20%</text></g>
+<line class="gl" x1="335" y1="14" x2="335" y2="205"/><line class="gl" x1="520" y1="14" x2="520" y2="205"/><line class="gl" x1="705" y1="14" x2="705" y2="205"/>
+<g>
+<rect x="150" y="22" width="625" height="34" rx="4" fill="var(--c2)"><title>시장 요구 10년 FCF 성장률 16.9%</title></rect>
+<text class="dl" x="783" y="44" fill="var(--c2)">16.9%</text>
+<text class="tk" x="142" y="44" text-anchor="end" style="font-size:12px">시장 요구 (WACC 9%)</text>
+<rect x="150" y="68" width="418" height="34" rx="4" fill="var(--c1)"><title>실제 FCF CAGR 5년 11.3%</title></rect>
+<text class="dl" x="576" y="90" fill="var(--c1)">11.3%</text>
+<text class="tk" x="142" y="90" text-anchor="end" style="font-size:12px">실제 FCF 5년 (20→25)</text>
+<rect x="150" y="114" width="255" height="34" rx="4" fill="var(--c1)"><title>실제 FCF CAGR 3년 6.9%</title></rect>
+<text class="dl" x="413" y="136" fill="var(--c1)">6.9%</text>
+<text class="tk" x="142" y="136" text-anchor="end" style="font-size:12px">실제 FCF 3년 (22→25)</text>
+<rect x="150" y="160" width="85" height="34" rx="4" fill="var(--c1)"><title>실제 FCF CAGR 2021→2025 2.3%</title></rect>
+<text class="dl" x="243" y="182" fill="var(--c1)">2.3%</text>
+<text class="tk" x="142" y="182" text-anchor="end" style="font-size:12px">실제 FCF 21→25 (고점 기준)</text>
+</g>
+</svg></div>
+<div class="lg"><span><i style="background:#E66100"></i>시장이 요구하는 성장률</span><span><i style="background:#1A5FB4"></i>공시 기준 실제 성장률</span></div>
+<p class="nt">참고: 같은 기간 <b>매출</b> CAGR은 5년 17.2%, 3년 12.5%, <b>영업현금흐름</b> CAGR은 5년 20.4%, 3년 21.6%입니다. 즉 요구 성장률 16.9%는 과거 매출·OCF 성장률과는 비슷한 수준입니다 — <b>차이는 전부 CapEx에서 발생합니다.</b></p>
+<h2>④ 민감도</h2>
+<div class="tw"><table>
+<thead><tr><th>FCF 기준</th><th>FCF ($B)</th><th>WACC 8%</th><th>WACC 9%</th><th>WACC 10%</th><th>WACC 12%</th></tr></thead>
+<tbody>
+<tr class="hl"><td>A. FY2025 (최근 회계연도)</td><td>73.3</td><td>14.3%</td><td>16.9%</td><td>19.3%</td><td>23.6%</td></tr>
+<tr><td>B. FY2023~25 3년 평균</td><td>71.8</td><td>14.6%</td><td>17.2%</td><td>19.5%</td><td>23.9%</td></tr>
+<tr><td>C. TTM (25Q4+26년 9M)</td><td>19.7</td><td>31.9%</td><td>35.0%</td><td>37.9%</td><td>43.1%</td></tr>
+</tbody></table></div>
+<p class="nt">영구성장률 민감도 (A기준, WACC 9%): 2.0% → 17.6% · <b>2.5% → 16.9%</b> · 3.0% → 16.1%</p>
+<h2>⑤ 이 숫자가 흔들리는 조건</h2>
+<ul>
+<li><b>FCF 기준을 최근 12개월로 바꾸면 요구 성장률은 16.9% → 35.0%로 뜁니다.</b> TTM FCF가 $19.7B에 불과하기 때문입니다. 반대로 CapEx가 정상화돼 FCF가 $100B대로 가면 요구 성장률은 10% 아래로 떨어집니다.</li>
+<li>할인율을 12%로 보면 23.6%가 필요합니다. 8%로 보면 14.3%입니다. 할인율 가정만으로 ±9%p가 움직입니다.</li>
+<li><b>이 역DCF의 가장 약한 지점은 FCF 기준값입니다.</b> 알파벳은 지금 FCF를 의도적으로 투자에 쓰는 국면이고, 이 스킬의 정규화 규칙(3년 평균 대비 ±40% 이탈 시 정규화)을 TTM에 적용하면 −73% 이탈로 정규화 대상입니다. 그래서 단일 숫자로 결론 내릴 수 없고, 위 3개 기준을 함께 봐야 합니다. <b>직설적으로 말하면, 지금 알파벳에 역DCF를 쓰면 답이 FCF 기준 선택에 거의 전부 좌우됩니다.</b></li>
+</ul>
+<details>
+<summary>⚙️ 계산 과정과 입력값 보기</summary>
+<h3>입력값 5개</h3>
+<div class="tw"><table>
+<thead><tr><th>값</th><th>수치</th><th class="l">출처</th></tr></thead>
+<tbody>
+<tr><td>현재 주가</td><td>$288.93</td><td class="l"><b>외부 자료</b> — GOOGL 2026-11-04 종가 (MarketBeat / Motley Fool). 조회 2026-11-05. 공시자료에 없는 유일한 입력값</td></tr>
+<tr><td>희석주식수</td><td>12,324백만주</td><td class="l">10-Q Q3FY2026, Note 12 — 9개월 희석 주당순이익 산정 주식수 (우선주 전환 24백만주 포함)</td></tr>
+<tr><td>총차입금</td><td>$126,118M</td><td class="l">10-Q Q3FY2026 — 장기차입금 $125,102M + 유동성 장기차입금 $1,016M (Note 7)</td></tr>
+<tr><td>현금성자산</td><td>$265,098M</td><td class="l">10-Q Q3FY2026, Balance Sheets — 현금 $56,334M + 시장성증권 $208,764M</td></tr>
+<tr><td>FY2025 FCF</td><td>$73,266M</td><td class="l">10-K FY2025 현금흐름표 — OCF $164,713M − 유형자산취득 $91,447M (제 파생 계산)</td></tr>
+</tbody></table></div>
+<p class="nt">시가총액 = 12,324백만주 × $288.93 = <b>$3,560.8B</b> · 순부채 = $126.1B − $265.1B = <b>−$139.0B (순현금)</b> · 기업가치(EV) = <b>$3,421.8B</b></p>
+<p class="nt">비마켓성 증권 $135.2B는 현금성자산에서 제외했습니다 (즉시 현금화 불가). 포함하면 EV가 그만큼 낮아져 요구 성장률도 내려갑니다.</p>
+<h3>모델 가정</h3>
+<ul>
+<li>1단계: 향후 10년 FCF가 매년 g로 성장 (g를 역산)</li>
+<li>2단계: 11년차부터 영구성장 2.5% (기본값)</li>
+<li>할인율: 대형 안정기업 기준 9%를 기본, 8/10/12% 민감도 병행</li>
+<li>해법: 이분법(bisection) 300회 반복. 암산 없음, 전부 코드 실행</li>
+</ul>
+<div class="qt">EV = Σ(t=1..10) FCF×(1+g)^t / (1+WACC)^t<br>&nbsp;&nbsp;&nbsp;&nbsp;+ [FCF×(1+g)^10 × 1.025 / (WACC − 0.025)] / (1+WACC)^10</div>
+<p class="nt">FCF 정규화: FY2025 $73.3B는 3년 평균 $71.8B 대비 +2.1% 이탈로 정규화 불필요. 단 TTM $19.7B는 −72.6% 이탈로 정규화 대상이며, 별도 기준(C)으로 분리 제시했습니다.</p>
+</details>
+<div class="wn">
+<strong>⚠️ 이 숫자는 판단의 시작이지 답이 아닙니다.</strong>
+<ul style="margin:10px 0 0">
+<li>가정(할인율, 성장 기간, 영구성장률, FCF 기준)이 바뀌면 결과가 바뀝니다. 위 민감도 표에서 14.3%~43.1%까지 움직입니다.</li>
+<li>역DCF는 “시장이 뭘 기대하는가”를 보여줄 뿐, “얼마가 적정한가”를 말하지 않습니다.</li>
+<li>그 기대가 타당한지는 사업 모델과 경쟁 환경을 직접 확인해야 알 수 있습니다 — 위 ① 해독기와 ② 스토리 카드가 그 재료입니다.</li>
+<li>투자 판단과 그 결과는 본인 책임입니다.</li>
+</ul>
+</div>
+<details>
+<summary>📎 사용한 자료 전체 목록 (27건)</summary>
+<div class="grid2">
+<div>
+<h3>10-K 연간보고서 5건</h3>
+<ul>
+<li>GOOGL_10-K_FY2025 <span class="src">(기간 2025-12-31, 제출 2026-02-05)</span></li>
+<li>GOOGL_10-K_FY2024 <span class="src">(2024-12-31, 2025-02-05)</span></li>
+<li>GOOGL_10-K_FY2023 <span class="src">(2023-12-31, 2024-01-31)</span></li>
+<li>GOOGL_10-K_FY2022 <span class="src">(2022-12-31, 2023-02-03)</span></li>
+<li>GOOGL_10-K_FY2021 <span class="src">(2021-12-31, 2022-02-02)</span></li>
+</ul>
+<h3>DEF 14A 1건</h3>
+<ul><li>GOOGL_DEF14A_2026 <span class="src">(2026 주주총회, 제출 2026-04-24)</span></li></ul>
+<h3>10-Q 분기보고서 9건</h3>
+<ul>
+<li>Q3FY2026 · Q2FY2026 · Q1FY2026</li>
+<li>Q3FY2025 · Q2FY2025 · Q1FY2025</li>
+<li>Q3FY2024 · Q2FY2024 · Q1FY2024</li>
+</ul>
+</div>
+<div>
+<h3>어닝콜 트랜스크립트 12건</h3>
+<ul>
+<li>Q3 2026 · Q2 2026 · Q1 2026</li>
+<li>Q4 2025 · Q3 2025 · Q2 2025 · Q1 2025</li>
+<li>Q4 2024 · Q3 2024 · Q2 2024 · Q1 2024</li>
+<li>Q4 2023</li>
+</ul>
+<h3>처리 방식</h3>
+<p class="nt">10-K 5건 + 10-Q 9건의 inline XBRL 태그 19,172개를 파싱해 재무 수치를 추출하고, 인용한 핵심 수치는 각 문서 재무제표·주석 원문과 대조 검증했습니다. Item 1A는 전문을 문장 단위로 분해해 5단어 연속 중복률로 비교했습니다. 어닝콜 12건은 단어 빈도 집계 + 가이던스 발언 직접 추출.</p>
+<h3>외부 자료 (1건만 사용)</h3>
+<p class="nt">GOOGL 2026-11-04 종가 $288.93 — 역DCF의 필수 입력값이며 공시자료에 존재하지 않아 사용자 승인 후 웹 조회. 분석 내용·해석은 전부 공시자료 기반입니다.</p>
+</div>
+</div>
+</details>
+<p class="nt">매수/매도/보유 추천, 목표주가, 단기 주가 방향 예측은 포함하지 않았습니다. 환율 ₩1,450/$는 가정치입니다.</p>
+</div>
+</body></html>

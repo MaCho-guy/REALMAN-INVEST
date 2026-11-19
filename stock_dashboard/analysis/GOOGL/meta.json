@@ -1,0 +1,11 @@
+{
+  "name": "Alphabet (GOOGL)",
+  "generated": "2026-11-05",
+  "mode": "filing",
+  "sources": [
+    "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=1652044&type=10-K",
+    "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=1652044&type=10-Q",
+    "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=1652044&type=DEF+14A"
+  ],
+  "note": "2026-11-05 에 만든 'GOOGL 통합 분석 — 해독기·스토리·가격 판독기' 를 화면 셋으로 나눠 옮긴 것입니다 (본문 · 숫자 · 그림은 그대로, 모양만 이 대시보드에 맞춤). 공시자료 27건 기반 — 10-K FY2021~FY2025, 10-Q 9분기(Q1 FY2024~Q3 FY2026), DEF 14A 2026, 어닝콜 12분기(Q4 2023~Q3 2026). 주가는 2026-11-04 종가 $288.93 (공시 밖 자료는 이 하나). 환율 ₩1,450/$ 는 가정치. 분석 시점 이후의 실적 · 주가는 반영되지 않았습니다."
+}

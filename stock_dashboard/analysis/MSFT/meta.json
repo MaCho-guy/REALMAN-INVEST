@@ -1,7 +1,11 @@
 {
-  "name": "Microsoft",
-  "generated": "",
-  "mode": "",
-  "sources": [],
-  "note": "분석 미생성 — Claude 스킬로 생성 후 이 파일을 채우십시오."
+  "name": "Microsoft (MSFT)",
+  "generated": "2026-11-04",
+  "mode": "filing",
+  "sources": [
+    "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=789019&type=10-K",
+    "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=789019&type=10-Q",
+    "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=789019&type=DEF+14A"
+  ],
+  "note": "2026-11-04 에 만든 'MSFT 분석 3종 — 해독기 · 스토리 · 가격 판독기' 를 PDF 에서 그대로 옮긴 것입니다 (본문 · 숫자 · 그림은 그대로, 모양만 이 대시보드에 맞춤). 공시 원문 기반 — 10-K FY2022~FY2026, 10-Q Q1 FY2027, DEF 14A 2026, 어닝콜 12분기. 주가는 2026-11-03 종가 $520.99. 분석 시점 이후의 실적 · 주가는 반영되지 않았습니다."
 }

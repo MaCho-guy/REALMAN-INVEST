@@ -9,7 +9,7 @@
     2. 시장           — 한국: 섹터 온도 / 미국: 공포탐욕 + VIX 기간구조
     3. 메모리 사이클  — 국면 판정 기록 + DIO 방향
     4. 후보           — 몇 종목, 앞 셋
-    5. 꼭 읽을 뉴스   — 몇 건, 내 종목이 걸렸나 (한국)
+    5. 꼭 읽을 뉴스   — 몇 건, 내 종목이 걸렸나 (그 시장의 뉴스)
     6. 전일 장        — 마지막으로 마감한 날의 지수
     7. 다가오는 일정  — 가장 가까운 것
 
@@ -274,11 +274,13 @@ def row_picks(picks=None, when: str = "", market: str = "kr") -> Row:
     return row
 
 
-def row_news(must=None, worth=None) -> Row:
-    """5. 꼭 읽을 뉴스 (한국 섹터 뉴스) — 몇 건이고 내 종목이 걸렸나.
+def row_news(must=None, worth=None, market: str = "kr") -> Row:
+    """5. 꼭 읽을 뉴스 — 몇 건이고 내 종목이 걸렸나. **그 시장의 뉴스**입니다
+    (한국: 섹터 뉴스 / 미국: 주제별 뉴스 — 11/19 "미국장은 미국 걸로").
 
     must · worth = news.triage 의 결과(Picked 목록). None 이면 아직 받는 중."""
-    row = Row(key="news", title="꼭 읽을 뉴스", goto="kr_flows")
+    row = Row(key="news", title="꼭 읽을 뉴스",
+              goto="us_news" if market == "us" else "kr_flows")
     if must is None:
         row.level = "unknown"
         row.headline = "받는 중"
@@ -393,9 +395,9 @@ def build(*, urgent=None, soon=None, holdings_total: int = 0,
     둘째 줄에 둘 이유가 약하고, 한국에서 매일 보는 건 '어느 업종으로
     돈이 가나' 입니다.
 
-    news = (꼭 읽기, 볼 만함) 또는 None. 섹터 뉴스는 한국 것이라 **한국 화면에만** 줄을
-    둡니다 (11/19 점검: 미국 요약에 한국 뉴스가 나왔습니다). extras=False 면 뒤의
-    네 줄(후보 · 뉴스 · 전일 장 · 일정)을 만들지 않습니다.
+    news = (꼭 읽기, 볼 만함) 또는 None — **그 시장의 뉴스**를 넘깁니다 (11/19 점검:
+    미국 요약에 한국 섹터 뉴스가 나왔습니다 → 미국은 미국 주제 뉴스). extras=False 면
+    뒤의 네 줄(후보 · 뉴스 · 전일 장 · 일정)을 만들지 않습니다.
     """
     second = (row_sector(sector_rows) if market == "kr"
               else row_sentiment(fg, vix_state))
@@ -407,9 +409,8 @@ def build(*, urgent=None, soon=None, holdings_total: int = 0,
     ]
     if extras:
         rows.append(row_picks(picks, picks_when, market))
-        if market == "kr":
-            must, worth = news if news is not None else (None, None)
-            rows.append(row_news(must, worth))
+        must, worth = news if news is not None else (None, None)
+        rows.append(row_news(must, worth, market))
         rows.append(row_sessions(sessions, market))
         rows.append(row_calendar(events, today, market))
     return Summary(rows=rows)

@@ -404,7 +404,7 @@ import discover as _disc  # noqa: E402
 _tabs = dict(config.tab_labels())
 # 2026-11-11: 시장이 최상위 축이 되면서 탭이 '시장마다 다른 목록' 이
 # 됐습니다. 전체 목록은 두 시장의 합집합이고, 시장마다 보이는 게 다릅니다.
-check_true("전체 화면 18개 (11/13 찾기 + 17:04 모의 매수 · 11/17 한국 거래 스크리너를 차트에서 다시 나눔 · 품질 깔때기 · 밸류에이션은 근거 안 · 차트 조건은 차트 안 · 실적 탭은 내 종목으로 · 11/19 종목 상세 추가)", len(_tabs) == 18, f"{len(_tabs)}개: {list(_tabs)}")
+check_true("전체 화면 19개 (11/13 찾기 + 17:04 모의 매수 · 11/17 한국 거래 스크리너를 차트에서 다시 나눔 · 품질 깔때기 · 밸류에이션은 근거 안 · 차트 조건은 차트 안 · 실적 탭은 내 종목으로 · 11/19 종목 상세 · 미국 뉴스 추가)", len(_tabs) == 19, f"{len(_tabs)}개: {list(_tabs)}")
 # 11/19 구조 점검 → 사용자 승인: 화면은 18개 그대로 두고 **메뉴만 7칸**으로 묶음
 check_true("메뉴는 시장마다 7칸 — 화면 수와 다르다",
            all(len(config.tab_groups(_m7)) == 7 for _m7 in ("kr", "us")),
@@ -635,14 +635,17 @@ _rd2 = _macro.build_readings(config.macro_series(), _ser2, _err2)
 _s2 = _sm.build(urgent=[], soon=[], holdings_total=9, fg=_fg2,
                 vix_state=_vx2, trends=_tr2, macro_readings=_rd2)
 # 11/19: 요약은 카드만 — 섹터 막대 · 후보 3 · 뉴스 5 · 일정 · 전일 장 블록이 한 줄씩으로.
-# 미국 6줄(뉴스 줄은 한국 섹터 뉴스라 한국에만), 한국 7줄.
-check_true("미국 요약 여섯 줄", len(_s2.rows) == 6, f"{len(_s2.rows)}줄")
+# 두 시장 모두 7줄 — 뉴스 줄은 그 시장의 뉴스 (11/19 "미국장은 미국 걸로").
+check_true("미국 요약 일곱 줄", len(_s2.rows) == 7, f"{len(_s2.rows)}줄")
 check_true("줄 키가 고정",
            [r.key for r in _s2.rows]
-           == ["holdings", "sentiment", "cycle", "picks", "sessions", "calendar"],
+           == ["holdings", "sentiment", "cycle", "picks", "news", "sessions", "calendar"],
            str([r.key for r in _s2.rows]))
+check_true("뉴스 줄은 그 시장의 뉴스 화면으로 — 미국은 us_news, 한국은 kr_flows",
+           [r.goto for r in _s2.rows if r.key == "news"] == ["us_news"]
+           and [r.goto for r in _sm.build(market="kr").rows if r.key == "news"] == ["kr_flows"])
 _s2k = _sm.build(urgent=[], soon=[], holdings_total=4, market="kr")
-check_true("한국 요약 일곱 줄 — 뉴스 줄이 더 있다",
+check_true("한국 요약 일곱 줄",
            [r.key for r in _s2k.rows]
            == ["holdings", "sector", "cycle", "picks", "news", "sessions", "calendar"],
            str([r.key for r in _s2k.rows]))

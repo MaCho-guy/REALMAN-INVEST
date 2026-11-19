@@ -126,8 +126,15 @@ for market in config.MARKETS:
     targets = [re.search(r"s=([a-z_]+)", h).group(1) for h in hrefs]
     check(f"{market}: 링크가 그 시장에 실제로 있는 화면으로 간다",
           all(t in config.market_tab_keys(market) for t in targets), str(targets))
-check("미국 요약에 한국 섹터 뉴스가 없다", "꼭 읽을 뉴스" not in PAGES[("us", "summary")]
-      and "꼭 읽을 뉴스" in PAGES[("kr", "summary")])
+check("두 시장 요약 모두 뉴스 줄이 있고, 각자 그 시장의 뉴스 화면으로 간다",
+      "s=us_news" in PAGES[("us", "summary")] and "s=kr_flows" not in PAGES[("us", "summary")]
+      and "s=kr_flows" in PAGES[("kr", "summary")])
+kr_only = [lbl for _k, lbl, _q in config.KR_SECTORS
+           if lbl not in {l2 for _k2, l2, _q2 in config.US_SECTORS}]
+check("미국 뉴스 화면에는 미국 주제만 (한국 섹터 이름이 없다)",
+      all(lbl in PAGES[("us", "us_news")] for _k, lbl, _q in config.US_SECTORS[:-1])
+      and not [lbl for lbl in kr_only if f">{lbl}<" in PAGES[("us", "us_news")]],
+      str([lbl for lbl in kr_only if f">{lbl}<" in PAGES[("us", "us_news")]]))
 check("전일 장 숫자는 읽기 › 아침 브리핑에", "전일 장 마감 숫자" in PAGES[("kr", "briefing")]
       and "전일 장 마감 숫자" not in PAGES[("kr", "summary")])
 

@@ -1133,6 +1133,27 @@ def load_sector_news(use_demo: bool):
         return {}, {"_": f"{type(exc).__name__}: {exc}"}
 
 
+@swr.cached(1_800, version=1)
+def load_us_news(use_demo: bool):
+    """미국 주제별 헤드라인 (config.US_SECTORS). 한국 섹터 뉴스와 같은 틀 · 30분 캐시.
+
+    11/19 사용자: "미국장은 왜 한국 뉴스가 뜨지 — 미국 걸로". 구글 뉴스를 한국어로 부르되
+    주제가 미국입니다 (연준 · 물가 · 뉴욕증시 · 빅테크 · 반도체 · 헬스케어 · 리츠 · 스테이블코인 · 정책).
+    """
+    if use_demo:
+        return demo_mod.demo_sector_news(config.US_SECTORS)
+    try:
+        return news.fetch_sector_news(config.US_SECTORS,
+                                      limit=config.SECTOR_NEWS_POOL,
+                                      max_days=config.SECTOR_NEWS_DAYS,
+                                      rank=True,
+                                      must=config.SECTOR_NEWS_MUST,
+                                      avoid=config.SECTOR_NEWS_AVOID,
+                                      tier=config.NEWS_TIER_SOURCES)
+    except Exception as exc:  # noqa: BLE001
+        return {}, {"_": f"{type(exc).__name__}: {exc}"}
+
+
 def _news_mine(use_demo: bool) -> dict[str, tuple[str, ...]]:
     """'내 종목' 이름표 — 보유(Secrets) + 관심종목. {표시 이름: (제목에서 찾을 낱말, …)}.
 
@@ -1671,14 +1692,18 @@ def render_summary_tab(data: dict[str, dict[str, Quote]], fx,
         except Exception:  # noqa: BLE001 - 요약은 이것 때문에 깨지면 안 됩니다
             picks = None
     news_pair = None
-    if market == "kr":
-        try:
+    try:
+        # 그 시장의 뉴스 — 한국은 섹터 뉴스, 미국은 주제별 뉴스 (11/19)
+        if market == "us":
+            got = (load_us_news(use_demo) if use_demo
+                   else _soft(load_us_news, use_demo, default=None))
+        else:
             got = (load_sector_news(use_demo) if use_demo
                    else _soft(load_sector_news, use_demo, default=None))
-            if got is not None:
-                news_pair = _news_triage(got[0], use_demo)
-        except Exception:  # noqa: BLE001
-            news_pair = None
+        if got is not None:
+            news_pair = _news_triage(got[0], use_demo)
+    except Exception:  # noqa: BLE001
+        news_pair = None
     sessions: dict = {}
     for m in [market] + [k for k in config.DAILY_BRIEF if k != market]:
         try:
@@ -4811,6 +4836,40 @@ def _render_market_filings(use_demo: bool) -> None:
                     unsafe_allow_html=True)
 
 
+def render_us_news_tab(use_demo: bool) -> None:
+    """읽기 › 뉴스 (미국) — 주제별 뉴스. 한국 섹터 뉴스와 같은 판정 · 같은 모양 (11/19)."""
+    st.markdown(
+        ui.render_section_head(
+            "미국 — 주제별 뉴스", "연준 · 물가 · 뉴욕증시 · 빅테크 · 반도체 · 내 종목이 걸린 업종",
+            len(config.US_SECTORS)),
+        unsafe_allow_html=True)
+    topic_news, topic_errors = load_us_news(use_demo)
+    must, worth = _news_triage(topic_news, use_demo)
+    labels = {k: lbl for k, lbl, _q in config.US_SECTORS}
+    st.markdown(
+        ui.render_legend(
+            "구글 뉴스(한국어 기사) · 30분마다 새로 · 중요도 = 사건 종류(실적 · 규제 · 금리 · "
+            "가격 급변 …) + <b>내 종목</b>(보유 · 관심) + 금액 규모 + 3일 안 일정 + "
+            "보도 매체 수 · 새로움 · 칼럼 · 행사 기사는 뺌 · 꼬리표가 고른 이유"),
+        unsafe_allow_html=True)
+    st.markdown(ui.render_news_triage(must, worth, labels), unsafe_allow_html=True)
+    with st.expander(f"주제별 전체 보기 — 주제당 {config.SECTOR_NEWS_PER}건 · 최근 "
+                     f"{config.SECTOR_NEWS_DAYS}일"):
+        shown = news.rest_by_sector(topic_news or {}, must + worth,
+                                    light=config.NEWS_LIGHT_WORDS,
+                                    per=config.SECTOR_NEWS_PER)
+        errs = dict(topic_errors or {})
+        for k, v in shown.items():
+            if not v and (topic_news or {}).get(k):
+                errs[k] = "이 주제 기사는 위 ① 꼭 읽기 · ② 볼 만함에 있습니다."
+        st.markdown(ui.render_sector_news(config.US_SECTORS, shown, errs),
+                    unsafe_allow_html=True)
+    st.markdown(ui.render_footnote(
+        "<b>한국어로 쓰인 미국 기사</b>입니다 — 제목을 바로 읽을 수 있고 사건 판정 낱말이 "
+        "한국어라서입니다. 영문 원문 · 공시는 내 종목의 '공시 원문' 링크로 봅니다. "
+        "제목과 링크만 가져옵니다."), unsafe_allow_html=True)
+
+
 def _flows_korea(use_demo: bool) -> None:
     st.markdown(
         ui.render_section_head(
@@ -6002,7 +6061,7 @@ FETCH_LABELS = {
     "load_kr_flows": "수급", "load_kr_quarters": "분기 실적",
     "load_us_earnings": "미국 실적", "load_dividends": "배당",
     "load_sector_heat": "섹터 온도", "load_sector_names": "섹터 구성",
-    "load_sector_news": "섹터 기사", "load_news": "헤드라인",
+    "load_sector_news": "섹터 기사", "load_us_news": "미국 기사", "load_news": "헤드라인",
     "load_close_headlines": "마감 기사", "load_research": "리포트",
     "load_chart_bars": "차트 봉",
     "load_semi_research": "반도체 리포트",
@@ -6952,6 +7011,7 @@ SECTION_LOADING = {
     "sector_heat": "섹터 온도 — 업종 ETF 14개 일봉 (처음 10~20초)",
     "kr_flows": "뉴스·공시·지표 — 섹터 뉴스·DART 공시·한국 지표 (처음 20~40초)",
     "us_flows": "물가·유동성 — FRED 물가 6 · 유동성 6 (처음 10~20초)",
+    "us_news": "뉴스 — 미국 주제별 헤드라인 (처음 10~20초)",
     "valuation": "밸류에이션 — 스크리닝 결과로 역DCF 를 계산합니다 (처음 1~3분)",
     "cycle": "메모리 사이클 — 재고 추이를 받아옵니다 (처음 20~60초)",
 }
@@ -7016,6 +7076,7 @@ def _section_jobs(section: str, market: str, use_demo: bool) -> dict:
         else:
             jobs["공포탐욕"] = lambda: load_feargreed(use_demo)
             jobs["VIX"] = lambda: load_vix(use_demo)
+            jobs["미국 뉴스"] = lambda: load_us_news(use_demo)
         jobs.update({
             "전일 브리핑 (한국)": lambda: load_daily_brief("kr", use_demo),
             "전일 브리핑 (미국)": lambda: load_daily_brief("us", use_demo),
@@ -7030,6 +7091,8 @@ def _section_jobs(section: str, market: str, use_demo: bool) -> dict:
             "주요 공시": lambda: load_market_filings(use_demo, dfp),
             "국내 지표": lambda: load_kr_macro(use_demo, ffp),
         })
+    elif section == "us_news":
+        jobs["미국 뉴스"] = lambda: load_us_news(use_demo)
     elif section == "us_flows":
         jobs.update({
             "물가": lambda: load_inflation(use_demo, ffp),
@@ -7572,6 +7635,8 @@ def render_body(opts: dict) -> None:
                 _flows_korea(opts["demo"])
             elif active == "us_flows":
                 _flows_us(opts["demo"])
+            elif active == "us_news":
+                render_us_news_tab(opts["demo"])
             elif active == "macro":
                 render_macro_tab(data, fx, opts["demo"], market=market)
             elif active == "cycle":

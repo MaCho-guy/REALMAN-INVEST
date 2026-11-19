@@ -199,9 +199,27 @@ check("요약 뉴스 줄 — 건수 · 내 종목 건수 · 내 종목 제목이
       and "SK하이닉스" in _r.detail and _r.level == "watch" and _r.goto == "kr_flows", str(vars(_r)))
 check("내 종목이 안 걸리면 조용함", _smn.row_news([_etc], []).level == "quiet")
 check("아직 못 받았으면 '받는 중'", _smn.row_news(None, None).level == "unknown")
-check("미국 요약에는 한국 섹터 뉴스 줄이 없다 (11/19 점검: 미국 요약에 한국 뉴스)",
-      "news" not in [r.key for r in _smn.build(market="us").rows]
-      and "news" in [r.key for r in _smn.build(market="kr").rows])
+# 11/19 사용자: "미국장은 왜 한국 뉴스가 뜨지 — 미국 걸로"
+check("미국 요약의 뉴스 줄은 미국 뉴스 화면으로, 한국은 한국 뉴스 화면으로",
+      _smn.row_news([_etc], [], "us").goto == "us_news"
+      and _smn.row_news([_etc], [], "kr").goto == "kr_flows")
+check("미국 요약은 미국 뉴스를 받는다 (한국 섹터 뉴스가 아니라)",
+      "_soft(load_us_news, use_demo, default=None)" in app_src
+      and 'if market == "us":\n            got = (load_us_news(use_demo)' in app_src)
+check("미국 주제는 한국 섹터와 키가 겹치지 않는다 (감점 · 가점 낱말을 키로 찾음)",
+      not ({k for k, _l, _q in config.US_SECTORS} & {k for k, _l, _q in config.KR_SECTORS})
+      and all(k in config.SECTOR_NEWS_MUST for k, _l, _q in config.US_SECTORS))
+check("미국 주제마다 검색어가 '주제 + 사건' 꼴 (낱말을 늘어놓으면 AND 라 0건 — 11/13)",
+      all("OR" in q for _k, _l, q in config.US_SECTORS))
+check("미국 관심종목의 한국어 이름이 다 있다 (ETF 포함) — 내 종목 꼬리표가 붙게",
+      all(i.symbol in config.NEWS_NAME_KO for i in config.SECTION_WATCHLIST.instruments
+          if i.source == "yahoo"),
+      str([i.symbol for i in config.SECTION_WATCHLIST.instruments
+           if i.source == "yahoo" and i.symbol not in config.NEWS_NAME_KO]))
+check("미국 뉴스 화면이 미국 '읽기' 메뉴에 있다",
+      "us_news" in dict(config.MARKET_TABS["us"])["읽기"]
+      and "us_news" not in config.market_tab_keys("kr")
+      and 'render_us_news_tab(opts["demo"])' in app_src)
 check("요약은 기다리지 않음 (_soft)", "_soft(load_sector_news, use_demo, default=None)" in app_src)
 check("요약 화면 미리 받기에 섹터 뉴스", '"섹터 뉴스": lambda: load_sector_news(use_demo)' in app_src)
 check("캐시 버전 올림 (모양 바뀜)", "@swr.cached(1_800, version=1)\ndef load_sector_news" in app_src)

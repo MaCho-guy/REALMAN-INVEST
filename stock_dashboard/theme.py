@@ -3674,6 +3674,14 @@ def build_menu_rules() -> str:
   /* 메뉴에 화면이 하나뿐이면 알약에 '›' 뒤가 비어 있습니다 */
   .dash-crumb.solo span { color: var(--dash-ink); font-weight: 650; }
 
+  /* 메뉴 이름이 길면 두 줄로 — 11/19 실제 앱(800px)에서 '차트 · 스크리너 · …' 로 잘렸습니다 */
+  div[data-testid="stColumn"]:has(.dash-navmark) button,
+  div[data-testid="stColumn"]:has(.dash-navmark) button div,
+  div[data-testid="stColumn"]:has(.dash-navmark) button p {
+    white-space: normal !important; overflow: visible !important;
+    text-overflow: clip !important; line-height: 1.3; word-break: keep-all; }
+  div[data-testid="stColumn"]:has(.dash-navmark) button { height: auto !important; }
+
   /* ── 화면 성격 띠 — 차트 조건(상태) · 거래 스크리너(목록) · 실험(검증) ── */
   .dash-kinds { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
     gap: 6px; margin: 2px 0 12px; }

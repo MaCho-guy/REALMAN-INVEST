@@ -1820,7 +1820,7 @@ def _render_holding_checks(shown, use_demo: bool, market: str) -> None:
     ok = [c for c in items if not c.notes.get("flags")]
     st.markdown(ui.render_section_head(
         "기준 점검 — 내 종목",
-        f"{config.where('picks', market)}와 같은 기준 · 점검 필요 {len(warn)} · "
+        f"{config.where('picks', market)} 화면과 같은 기준 · 점검 필요 {len(warn)} · "
         f"가격 {_when_kst(meta.get('p'))} 수집", len(items)), unsafe_allow_html=True)
     if warn:
         st.markdown(ui.render_holding_checks(warn), unsafe_allow_html=True)
@@ -1831,7 +1831,7 @@ def _render_holding_checks(shown, use_demo: bool, market: str) -> None:
         "<b>점검 필요</b> = 나빠지는 신호 — 선행 EPS 90일 −5% 이하(추정이 깎이는 중) · 실적 추세 "
         "악화(매출 · 영업이익 3년 연속 감소). 품질 미달 · 가격 부담 높음은 업종 · 성장 단계에 따라 "
         "원래 그럴 수 있어 등 색(주의)으로만 보입니다. <b>매도 신호가 아니라 공시를 다시 읽어 볼 "
-        f"이유</b>입니다. 등은 {config.where('picks', market)}와 같음"
+        f"이유</b>입니다. 등은 {config.where('picks', market)} 화면과 같음"
         + (f" · 품질 심사 대상이 아닌 {skipped}종목(ETF · 지수 밖)은 뺐습니다" if skipped else "")),
         unsafe_allow_html=True)
     if ok:
@@ -1921,7 +1921,7 @@ def render_holdings_tab(data: dict[str, dict[str, Quote]], fx,
                             unsafe_allow_html=True)
                 st.markdown(ui.render_notice(
                     (f"<b>{chart_from}</b> · " if chart_from else "")
-                    + f"기준은 '{config.where('timing', market)}' 과 같습니다."
+                    + f"기준은 '{config.where('timing', market)}' 화면과 같습니다."
                     + (f" {missing}종목은 차트 계산 대상이 아닙니다 (ETF · 지수 밖 종목)."
                        if chart_from and missing else "")), unsafe_allow_html=True)
 
@@ -2089,7 +2089,7 @@ def render_stock_tab(data: dict[str, dict[str, Quote]], fx, use_demo: bool,
     # ── 차트 ──────────────────────────────────────────────────────────────
     def part_chart() -> None:
         st.markdown(ui.anchor("st-cht") + ui.render_section_head(
-            "차트", f"일봉 지표의 지금 상태 — 기준은 {config.where('timing', market)}과 같음",
+            "차트", f"일봉 지표의 지금 상태 — 기준은 {config.where('timing', market)} 화면과 같음",
             None), unsafe_allow_html=True)
         row = None
         got = load_chart_rows.peek(market, use_demo) if hasattr(load_chart_rows, "peek") else None

@@ -1,7 +1,7 @@
 {
  ".streamlit/config.toml": "828c4b602b76",
  "analysis_store.py": "7d31ffeea27a",
- "app.py": "2d77cfd476dd",
+ "app.py": "1915c58b0219",
  "brief.py": "cb909160287c",
  "briefing_store.py": "3a29fc4cca93",
  "buffett.py": "ed1096e0da91",
@@ -66,7 +66,7 @@
  "summary.py": "26b4d917b386",
  "swr.py": "f0f535b85f76",
  "techtest.py": "4b775101de88",
- "theme.py": "57959e07afe8",
+ "theme.py": "0536db78f50d",
  "tools/__init__.py": "85eaac1f90b0",
  "tools/app_preview.py": "23aa519edf02",
  "tools/check_dart.py": "fac9a6358934",

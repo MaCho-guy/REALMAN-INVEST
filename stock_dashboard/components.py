@@ -2625,9 +2625,14 @@ def render_summary(summary, market: str = "kr") -> str:
     것(alert·watch)이 앞에 오고, 조용한 칸은 흐리게 둡니다."""
     order = {"alert": 0, "watch": 1}
     rows = sorted(summary.rows, key=lambda r: order.get(r.level, 2))
+    # 11/19 "컴퓨터로 보면 오른쪽이 남음": 카드 7장이 두 칸에 놓여 마지막 줄 반이 비었습니다.
+    # 넓으면 4칸 · 중간 3칸 · 좁으면 2칸으로 놓고, **맨 앞(가장 급한) 카드**가 남는 칸만큼
+    # 넓어져 마지막 줄까지 꽉 찹니다 (7장: 4칸에선 2칸 차지 → 4 + 4).
+    n = len(rows)
+    span = {c: ((c - n % c) % c) + 1 for c in (4, 3, 2)} if n else {4: 1, 3: 1, 2: 1}
     return (
         render_summary_band(summary)
-        + '<div class="dash-sgrid">'
+        + f'<div class="dash-sgrid a{span[4]} b{span[3]} c{span[2]}">'
         + "".join(render_summary_row(r, market) for r in rows)
         + "</div>"
     )
@@ -3363,44 +3368,74 @@ def _tri_link(h) -> str:
             f'rel="noopener noreferrer">{title}</a>' if url.startswith("http") else title)
 
 
-def render_news_triage(must, worth, labels: dict, *, compact: bool = False) -> str:
-    """오늘 꼭 읽기(카드) → 볼 만함(목록). must · worth = news.Picked 목록 (11/16).
+def _fill_cls(n: int) -> str:
+    """카드 n 장을 **줄마다 고르게** 놓는 클래스 (11/19 "오른쪽 공간이 남음").
 
-    줄마다 출처(매체 · 한국 시각 · 섹터)와 '왜 골랐나' 꼬리표. compact 는 요약 탭용 —
-    꼭 읽기만, 비면 한 줄.
+    격자(auto-fill)는 마지막 줄에 한 장만 남으면 오른쪽이 비었습니다. 넓은 화면(w) 은
+    한 줄 최대 4장, 중간(m) 은 최대 3장으로 줄 수를 먼저 정하고 장 수를 줄에 고르게
+    나눕니다 (5장 → 3 + 2, 9장 → 3 + 3 + 3). 남는 폭은 그 줄의 카드가 나눠 가집니다."""
+    def per(cap: int) -> int:
+        if n <= 0:
+            return 1
+        lines = -(-n // cap)
+        return -(-n // lines)
+    return f"dash-fill w{per(4)} m{per(3)}"
+
+
+def render_news_rule(html: str, label: str = "고른 기준") -> str:
+    """뉴스 화면의 '어떻게 골랐나' — 접힌 한 줄 (11/19: 화면 위 설명 문단이 줄글로 읽혔음)."""
+    return (f'<details class="dash-newsrule"><summary>{_esc(label)}</summary>'
+            f'<div class="nr-body">{_safe_inline(html)}</div></details>') if html else ""
+
+
+def render_news_triage(must, worth, labels: dict, *, compact: bool = False) -> str:
+    """오늘 꼭 읽기 → 볼 만함. 둘 다 **카드** (11/19 사용자: "줄글만 있어서 잘 안 읽힘").
+    must · worth = news.Picked 목록 (11/16).
+
+    카드 한 장 = 맨 위 줄(섹터 칩 · 시각) → 제목(굵게, 밑줄 없음) → 아래 줄(매체 · 꼬리표).
+    읽는 순서가 '어느 업종 · 언제 → 무슨 일 → 왜 골랐나' 입니다. 섹터 칩 색은 섹터마다
+    다르고(labels 순서), 넓은 화면에서는 카드가 줄을 꽉 채웁니다. 볼 만함은 같은 틀의
+    작은 카드입니다 — 전에는 불릿 목록 한 줄에 제목 · 매체 · 꼬리표가 이어져 있었습니다.
+    compact 는 꼭 읽기만(비면 한 줄).
     """
-    def meta(h) -> str:
-        bits = [getattr(h, "source", "") or "", _tri_when(h),
-                labels.get(getattr(h, "sector", ""), "")]
-        return " · ".join(_esc(b) for b in bits if b)
+    order = {k: i for i, k in enumerate(labels)}
 
     def chips(tags) -> str:
         return "".join(
             f'<span class="dash-tri-tag{" mine" if t.startswith("내 종목") else ""}">'
             f"{_esc(t)}</span>" for t in tags)
 
+    def card(p, small: bool = False) -> str:
+        h = p.head
+        key = getattr(h, "sector", "") or ""
+        sec = labels.get(key, "")
+        tone = order.get(key, 0) % 7
+        when = _tri_when(h)
+        src = getattr(h, "source", "") or ""
+        top = ((f'<span class="dash-tri-sec t{tone}">{_esc(sec)}</span>' if sec else "")
+               + (f'<span class="dash-tri-when">{_esc(when)}</span>' if when else ""))
+        mine = any(str(t).startswith("내 종목") for t in p.tags)
+        return (f'<li class="dash-tri-card{" small" if small else ""}{" mine" if mine else ""}">'
+                f'<div class="dash-tri-top">{top}</div>'
+                f'<div class="dash-tri-title">{_tri_link(h)}</div>'
+                f'<div class="dash-tri-meta">'
+                + (f'<span class="dash-tri-src">{_esc(src)}</span>' if src else "")
+                + f'<span class="dash-tri-tags">{chips(p.tags)}</span></div></li>')
+
     parts = []
     if must:
-        cards = "".join(
-            '<li class="dash-tri-card">'
-            f'<div class="dash-tri-title">{_tri_link(p.head)}</div>'
-            f'<div class="dash-tri-meta">{meta(p.head)}</div>'
-            f'<div class="dash-tri-tags">{chips(p.tags)}</div></li>'
-            for p in must)
-        head = "" if compact else '<div class="dash-tri-h">① 오늘 꼭 읽기</div>'
-        parts.append(f'{head}<ol class="dash-tri-must">{cards}</ol>')
+        head = ("" if compact else
+                f'<div class="dash-tri-h"><b>① 오늘 꼭 읽기</b><span>{len(must)}건</span></div>')
+        parts.append(f'{head}<ol class="dash-tri-must {_fill_cls(len(must))}">'
+                     f'{"".join(card(p) for p in must)}</ol>')
     else:
         parts.append('<div class="dash-tri-empty">오늘 꼭 읽을 만한 사건 기사가 '
                      '아직 없습니다 (사건 종류 · 내 종목 기준).</div>')
     if worth and not compact:
-        rows = "".join(
-            f"<li>{_tri_link(p.head)} "
-            f'<span class="dash-tri-wmeta">{meta(p.head)}</span>'
-            + (f' <span class="dash-tri-tags">{chips(p.tags)}</span>' if p.tags else "")
-            + "</li>"
-            for p in worth)
-        parts.append('<div class="dash-tri-h">② 볼 만함</div>'
-                     f'<ul class="dash-tri-worth">{rows}</ul>')
+        parts.append(
+            f'<div class="dash-tri-h"><b>② 볼 만함</b><span>{len(worth)}건</span></div>'
+            f'<ol class="dash-tri-must dash-tri-more {_fill_cls(len(worth))}">'
+            f'{"".join(card(p, small=True) for p in worth)}</ol>')
     return f'<div class="dash-tri">{"".join(parts)}</div>'
 
 
@@ -3434,7 +3469,7 @@ def render_sector_news(sectors, headlines: dict, errors: dict) -> str:
             f'<div class="dash-sector-name dash-sector-head">{_esc(label)}'
             f'<span class="dash-sector-q">{_esc(_query_hint(query))}</span></div>'
             f'<ul class="dash-sector-list">{lis}</ul></div>')
-    return f'<div class="dash-sectors">{"".join(blocks)}</div>'
+    return f'<div class="dash-sectors {_fill_cls(len(blocks))}">{"".join(blocks)}</div>'
 
 
 def _filing_type_cell(f) -> str:

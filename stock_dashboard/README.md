@@ -61,9 +61,9 @@ python -m tools.preview --light  # preview-light.html
 | **오늘** | 요약 `summary` | 판정 한 줄 + 눌리는 카드 7장. 카드만 있습니다 |
 | **내 종목** | 전체 `holdings` · 종목 상세 `stock` · 수급 `supply`(한국) | 가진 것 · 보는 것. 종목 상세는 한 종목의 변한 것 → 공시 → 재무 기준 → 차트 → 수급 → 일정 |
 | **후보** | 후보 목록 `picks` · 근거 `basis` | 품질 · 가격 · 선행 EPS 로 거른 목록과 한 종목의 근거 |
-| **시장** | 한국: 섹터 온도 `sector_heat` · 매크로 `macro` · 주요 일정 `calendar` / 미국: 매크로 · 물가·유동성 `us_flows` · 주요 일정 | 배경 |
+| **시장** | 한국: 섹터 온도 `sector_heat` · 매크로 `macro` · 한국 지표 `kr_macro` · 주요 일정 `calendar` / 미국: 매크로 · 물가·유동성 `us_flows` · 주요 일정 | 배경 |
 | **반도체** | 메모리 사이클 `cycle` · 반도체 리포트 `semi_research`(한국) | 사이클 국면과 증권사 리포트 |
-| **읽기** | 아침 브리핑 `briefing` · 한국: 뉴스·공시·지표 `kr_flows` · 산업 리포트 `research` / 미국: 뉴스 `us_news` | 글. 전일 장 마감 숫자는 아침 브리핑 아래. 뉴스는 그 시장의 것 (미국 주제는 `config.US_SECTORS`) |
+| **읽기** | 아침 브리핑 `briefing` · 한국: 뉴스 `kr_flows` · 공시 `kr_filings` · 산업 리포트 `research` / 미국: 뉴스 `us_news` | 글. 전일 장 마감 숫자는 아침 브리핑 아래. 뉴스는 그 시장의 것 (미국 주제는 `config.US_SECTORS`) |
 | **차트 · 스크리너 · 실험** | 차트 조건 `timing` · 거래 스크리너 `screener`(한국) · 실험 `paper` | 참고용 셋 — 아래 |
 
 **차트 조건 · 거래 스크리너 · 실험은 한 메뉴에 있어도 서로 다른 화면입니다.** 화면 맨 위

@@ -1137,7 +1137,9 @@ TAB_ORDER: tuple[str, ...] = (
     "sector_heat",  # 한국 — 섹터 온도 (KODEX 업종 ETF)
     "research",     # 한국 — 증권사 산업분석 리포트 목록 (업종별)
     "semi_research",  # 한국 — 반도체 리포트 (산업 · 삼성전자 · SK하이닉스) 요약
-    "kr_flows",     # 한국 — 섹터 뉴스 · 주요 공시 · 경제지표
+    "kr_flows",     # 한국 — 섹터 뉴스 (11/19 공시 · 지표를 떼어 냄 — 주소 key 는 그대로)
+    "kr_filings",   # 한국 — 시장 전체 주요 공시 (11/19 뉴스 · 공시 · 지표에서 나눔)
+    "kr_macro",     # 한국 — 경제지표 (11/19 뉴스 · 공시 · 지표에서 나눔)
     "us_news",      # 미국 — 주제별 뉴스 (11/19 "미국장은 미국 뉴스로")
     "macro",        # 미국 중심 매크로 — 금리·환율·원자재·VIX·FRED
     "us_flows",     # 미국 — 물가 속도 · 글로벌 유동성
@@ -1214,9 +1216,12 @@ MARKET_TABS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
         ("오늘", ("summary",)),
         ("내 종목", ("holdings", "stock", "supply")),
         ("후보", ("picks", "basis")),
-        ("시장", ("sector_heat", "macro", "calendar")),
+        # 11/19 사용자: "뉴스 · 공시 · 지표를 다른 탭으로 나눠줘" — 한 화면 한 질문.
+        # 뉴스(kr_flows — 주소는 그대로) · 공시(kr_filings)는 읽기, 한국 경제지표(kr_macro)는
+        # 매크로 옆(시장). 미국의 물가 · 유동성이 시장 메뉴에 있는 것과 같은 자리입니다.
+        ("시장", ("sector_heat", "macro", "kr_macro", "calendar")),
         ("반도체", ("cycle", "semi_research")),
-        ("읽기", ("briefing", "kr_flows", "research")),
+        ("읽기", ("briefing", "kr_flows", "kr_filings", "research")),
         # 사용자(11/19): "일부러 나눈 것 — 묶어서 보되 확실히 분별 가게". 한 칸에 모으되
         # 안쪽 탭마다 '무엇을 하는 화면인가' 띠(SCREEN_KINDS)를 답니다.
         ("차트 · 스크리너 · 실험", ("timing", "screener", "paper")),
@@ -1235,6 +1240,8 @@ MARKET_TABS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
 #: 안쪽 탭에 적는 이름 — 메뉴 이름과 겹치지 않게, 그 화면이 '무엇' 인지로 적습니다.
 #: 없으면 SPECIAL_TAB_LABELS 의 이름을 그대로 씁니다.
 SUBTAB_LABELS: dict[str, str] = {
+    "kr_flows": "뉴스",
+    "us_news": "뉴스",
     "holdings": "전체",
     "stock": "종목 상세",
     "picks": "후보 목록",
@@ -1280,8 +1287,10 @@ SPECIAL_TAB_LABELS = {
     "paper": "실험",
     "macro": "매크로",
     "sector_heat": "섹터 온도",
-    "kr_flows": "뉴스 · 공시 · 지표",
-    "us_news": "뉴스",
+    "kr_flows": "한국 뉴스",       # 안쪽 탭에는 '뉴스' (SUBTAB_LABELS) — 화면 이름은 겹치지 않게
+    "kr_filings": "공시",
+    "kr_macro": "한국 지표",
+    "us_news": "미국 뉴스",
     "us_flows": "물가 · 유동성",
     "valuation": "밸류에이션",
     "chart": "차트 조건",

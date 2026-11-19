@@ -38,6 +38,8 @@ FILE_SCREENS = ("picks", "basis", "timing", "screener", "paper")
 VIEW_VARIANTS = {
     "timing": ("chart_view2_{m}", ("chart",)),
     "paper": ("lab_view_{m}", ("test",)),
+    "kr_flows": ("news_view_{m}", ("all",)),
+    "us_news": ("news_view_{m}", ("all",)),
 }
 
 SHELL_CSS = """

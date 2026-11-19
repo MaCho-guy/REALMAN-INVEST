@@ -131,10 +131,37 @@ check("두 시장 요약 모두 뉴스 줄이 있고, 각자 그 시장의 뉴�
       and "s=kr_flows" in PAGES[("kr", "summary")])
 kr_only = [lbl for _k, lbl, _q in config.KR_SECTORS
            if lbl not in {l2 for _k2, l2, _q2 in config.US_SECTORS}]
+# 11/19: 뉴스 화면 = 보기 둘 (오늘 중요한 것 · 섹터/주제별 전체). 주제 이름 전부는 '전체' 보기에.
+US_ALL = fakest.render_screen(app, st, "us", "us_news", state={"news_view_us": "all"})
+KR_ALL = fakest.render_screen(app, st, "kr", "kr_flows", state={"news_view_kr": "all"})
 check("미국 뉴스 화면에는 미국 주제만 (한국 섹터 이름이 없다)",
-      all(lbl in PAGES[("us", "us_news")] for _k, lbl, _q in config.US_SECTORS[:-1])
-      and not [lbl for lbl in kr_only if f">{lbl}<" in PAGES[("us", "us_news")]],
-      str([lbl for lbl in kr_only if f">{lbl}<" in PAGES[("us", "us_news")]]))
+      all(lbl in US_ALL for _k, lbl, _q in config.US_SECTORS[:-1])
+      and not [lbl for lbl in kr_only if f">{lbl}<" in US_ALL + PAGES[("us", "us_news")]],
+      str([lbl for lbl in kr_only if f">{lbl}<" in US_ALL + PAGES[("us", "us_news")]]))
+check("뉴스 화면: 기본 보기는 카드(꼭 읽기), 전체 보기는 섹터 카드 — 서로 섞이지 않는다",
+      all('class="dash-tri"' in PAGES[k] and 'class="dash-sectors ' not in PAGES[k]
+          for k in (("kr", "kr_flows"), ("us", "us_news")))
+      and all('class="dash-sectors ' in p and 'class="dash-tri"' not in p for p in (US_ALL, KR_ALL)))
+check("뉴스 화면: 설명 문단이 화면 위에 펼쳐져 있지 않다 (접힌 '고른 기준')",
+      all('details class="dash-newsrule"' in PAGES[k] and "dash-legend" not in PAGES[k]
+          for k in (("kr", "kr_flows"), ("us", "us_news"))))
+_sg = re.search(r'class="dash-sgrid ([^"]*)"', PAGES[("kr", "summary")])
+check("요약 카드 격자: 장 수에 맞춰 맨 앞 카드가 남는 칸을 채운다 (7장 → 4칸에서 2칸 차지)",
+      bool(_sg) and _sg.group(1) == "a2 b3 c2" and PAGES[("kr", "summary")].count("dash-srow ") == 7,
+      str(_sg and _sg.group(1)))
+import components as _ui  # noqa: E402
+check("카드 줄 채우기: 5장 → 3 + 2, 9장 → 3 + 3 + 3, 4장 → 넓으면 4 · 중간 2 + 2",
+      [_ui._fill_cls(n) for n in (1, 4, 5, 6, 9)]
+      == ["dash-fill w1 m1", "dash-fill w4 m2", "dash-fill w3 m3", "dash-fill w3 m3", "dash-fill w3 m3"],
+      str([_ui._fill_cls(n) for n in (1, 4, 5, 6, 9)]))
+check("한국: 뉴스 · 공시 · 지표가 화면 셋으로 나뉘었다 (내용은 그대로)",
+      "주요 공시" not in PAGES[("kr", "kr_flows")] and "경제지표" not in PAGES[("kr", "kr_flows")]
+      and "한국 — 주요 공시" in PAGES[("kr", "kr_filings")] and 'class="dash-tri"' not in PAGES[("kr", "kr_filings")]
+      and "한국 — 경제지표" in PAGES[("kr", "kr_macro")] and "주요 공시" not in PAGES[("kr", "kr_macro")])
+check("한국 읽기 메뉴 안쪽 탭 = 아침 브리핑 · 뉴스 · 공시 · 산업 리포트, 한국 지표는 시장 메뉴",
+      [config.subtab_label(k, "kr") for k, _l in dict(config.tab_groups("kr"))["읽기"]]
+      == ["아침 브리핑", "뉴스", "공시", "산업 리포트"]
+      and "kr_macro" in [k for k, _l in dict(config.tab_groups("kr"))["시장"]])
 check("전일 장 숫자는 읽기 › 아침 브리핑에", "전일 장 마감 숫자" in PAGES[("kr", "briefing")]
       and "전일 장 마감 숫자" not in PAGES[("kr", "summary")])
 

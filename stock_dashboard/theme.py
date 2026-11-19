@@ -280,7 +280,7 @@ def build_density_rules() -> str:
   [data-testid="stMain"] .block-container,
   div[data-testid="stMainBlockContainer"] {{
     padding-top: 3.9rem !important;
-    padding-bottom: 2.5rem !important; max-width: 1560px;
+    padding-bottom: 2.5rem !important; max-width: clamp(1760px, 80vw, 2200px);
   }}
   /* <style> 만 든 칸은 높이가 0 이어도 블록 간격을 한 번씩 먹습니다 (2칸) */
   div[data-testid="stElementContainer"]:has([data-testid="stMarkdownContainer"] > style:only-child) {{
@@ -3712,6 +3712,103 @@ def build_menu_rules() -> str:
   .dash-srow-detail { display: -webkit-box; -webkit-line-clamp: 2;
     -webkit-box-orient: vertical; overflow: hidden; }
 
+  /* ── 뉴스 카드 (11/19 "줄글만 있어서 잘 안 읽힘" · "컴퓨터로 보면 오른쪽이 남음") ──
+     카드 한 장 = 섹터 칩 · 시각 → 제목 → 매체 · 꼬리표. 카드는 줄을 꽉 채웁니다(flex):
+     격자(auto-fill)는 마지막 줄에 한 장만 남으면 오른쪽이 비었습니다. */
+  .dash-tri-h { display: flex; align-items: baseline; gap: 8px;
+    font-size: var(--fs-4); margin: var(--sp-3) 0 var(--sp-2); }
+  .dash-tri-h b { font-weight: 750; color: var(--dash-ink); }
+  .dash-tri-h span { font-size: var(--fs-1); color: var(--dash-ink-muted); }
+  /* 줄 채우기 — 한 줄 장 수는 components._fill_cls 가 정합니다 (w = 넓음 · m = 중간) */
+  .dash-fill { display: flex; flex-wrap: wrap; gap: 10px; grid-template-columns: none; }
+  .dash-fill > * { flex: 1 1 100%; min-width: 0; box-sizing: border-box; }
+  /* 폭은 화면 폭 기준입니다 — 왼쪽 메뉴(약 250px)를 뺀 본문에서 카드 한 장이 300px 안팎이 되게 */
+  @media (min-width: 900px) {
+    .dash-fill > * { flex-basis: calc(50% - 5px); }
+    .dash-fill.m1 > *, .dash-fill.w1 > * { flex-basis: 100%; }
+  }
+  @media (min-width: 1200px) {
+    .dash-fill.m1 > * { flex-basis: 100%; }
+    .dash-fill.m2 > * { flex-basis: calc(50% - 5px); }
+    .dash-fill.m3 > * { flex-basis: calc(33.333% - 7px); }
+  }
+  @media (min-width: 1500px) {
+    .dash-fill.w1 > * { flex-basis: 100%; }
+    .dash-fill.w2 > * { flex-basis: calc(50% - 5px); }
+    .dash-fill.w3 > * { flex-basis: calc(33.333% - 7px); }
+    .dash-fill.w4 > * { flex-basis: calc(25% - 8px); }
+  }
+  ol.dash-tri-must { list-style: none; margin: 0; padding: 0; }
+  ol.dash-tri-must > li.dash-tri-card { margin: 0;
+    display: flex; flex-direction: column; gap: 6px; padding: 12px 14px;
+    border-left: 3px solid var(--dash-divider); }
+  ol.dash-tri-must > li.dash-tri-card.mine { border-left-color: var(--dash-accent); }
+  ol.dash-tri-more > li.dash-tri-card { padding: 9px 12px; gap: 4px; background: transparent; }
+  .dash-tri-top { display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; min-height: 20px; }
+  .dash-tri-sec { font-size: var(--fs-1); font-weight: 700; color: var(--dash-ink);
+    border-radius: var(--r-pill); padding: 1px 9px; background: var(--dash-raised);
+    white-space: nowrap; }
+  .dash-tri-sec.t0 { background: #d3e3ef; } .dash-tri-sec.t1 { background: #d5e5d9; }
+  .dash-tri-sec.t2 { background: #eedcc6; } .dash-tri-sec.t3 { background: #cfe2e0; }
+  .dash-tri-sec.t4 { background: #d9dfe9; } .dash-tri-sec.t5 { background: #e4e0c8; }
+  .dash-tri-sec.t6 { background: #e0dfda; }
+  .dash-tri-when { font-size: var(--fs-1); color: var(--dash-ink-muted);
+    font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .dash-tri-card .dash-tri-title { font-size: var(--fs-5); font-weight: 700; line-height: 1.4;
+    color: var(--dash-ink); word-break: keep-all; overflow-wrap: anywhere;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .dash-tri-card.small .dash-tri-title { font-size: var(--fs-4); font-weight: 650;
+    -webkit-line-clamp: 2; }
+  /* 스트림릿 링크 규칙(밑줄 · 링크색)보다 구체적으로 — 제목은 글자색, 올리면 밑줄 */
+  .dash-tri .dash-tri-card .dash-tri-title a.dash-inline-link {
+    color: var(--dash-ink) !important; text-decoration: none !important; }
+  .dash-tri .dash-tri-card .dash-tri-title a.dash-inline-link:hover {
+    text-decoration: underline !important; }
+  .dash-tri-card .dash-tri-meta { display: flex; flex-wrap: wrap; align-items: center;
+    gap: 4px 8px; margin-top: auto; padding-top: 2px; }
+  .dash-tri-src { font-size: var(--fs-1); color: var(--dash-ink-muted); }
+  .dash-tri-card .dash-tri-tags { margin-top: 0; }
+  /* 고른 기준 — 접힌 한 줄 */
+  details.dash-newsrule { margin: 0 0 6px; font-size: var(--fs-2); color: var(--dash-ink-muted); }
+  details.dash-newsrule > summary { cursor: pointer; display: inline-block; list-style: none;
+    border: 1px solid var(--dash-divider); border-radius: var(--r-pill); padding: 1px 10px;
+    color: var(--dash-ink-2); }
+  details.dash-newsrule > summary::-webkit-details-marker { display: none; }
+  details.dash-newsrule > summary::after { content: " ▾"; }
+  details.dash-newsrule[open] > summary::after { content: " ▴"; }
+  details.dash-newsrule .nr-body { margin-top: 6px; line-height: 1.6; max-width: 64em;
+    word-break: keep-all; }
+  /* ── 요약 카드 — 넓으면 4칸 · 중간 3칸 · 좁으면 2칸 · 폰 1칸 (11/19) ──
+     맨 앞 카드가 남는 칸만큼 넓어져 마지막 줄이 비지 않습니다 (a = 4칸 · b = 3칸 · c = 2칸일 때
+     맨 앞 카드가 차지할 칸 수 — components.render_summary 가 장 수로 계산). */
+  .dash-sgrid { gap: 10px; }
+  @media (min-width: 761px) {
+    .dash-sgrid.c2 > :first-child { grid-column: span 2; }
+  }
+  @media (min-width: 1200px) {
+    .dash-sgrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .dash-sgrid > :first-child { grid-column: auto; }
+    .dash-sgrid.c2 > :first-child { grid-column: auto; }
+    .dash-sgrid.b2 > :first-child { grid-column: span 2; }
+    .dash-sgrid.b3 > :first-child { grid-column: span 3; }
+  }
+  @media (min-width: 1500px) {
+    .dash-sgrid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .dash-sgrid.b2 > :first-child, .dash-sgrid.b3 > :first-child { grid-column: auto; }
+    .dash-sgrid.a2 > :first-child { grid-column: span 2; }
+    .dash-sgrid.a3 > :first-child { grid-column: span 3; }
+    .dash-sgrid.a4 > :first-child { grid-column: span 4; }
+  }
+
+  /* ── 주요 일정 — 넓은 화면에서는 두 단 (11/19: 긴 목록이 왼쪽 40% 만 쓰고 있었음) ──
+     신문 단처럼 왼쪽 단을 다 읽고 오른쪽 단으로 갑니다. 하루치(.cal-day)는 단 사이에서 안 잘립니다. */
+  @media (min-width: 1500px) {
+    .dash-cal:has(> .cal-day) { columns: 2; column-gap: 28px;
+      column-rule: 1px solid var(--dash-divider); }
+    .dash-cal > .cal-day { break-inside: avoid; }
+  }
+
   /* ── 받은 시각 — 한 줄로 접힘 (누르면 전부) ── */
   details.dash-times { display: block; margin: 0 0 10px; }
   details.dash-times > summary { list-style: none; cursor: pointer; display: flex;
@@ -3774,6 +3871,12 @@ def build_menu_rules() -> str:
     .dash-sgrid .dash-srow.quiet, .dash-sgrid .dash-srow.unknown { padding: 6px 10px; }
     .dash-sgrid .dash-srow.quiet .dash-srow-head { font-size: var(--fs-3); }
     .dash-verdict-band { padding: 9px 12px; margin: 0 0 8px; }
+    .dash-sgrid { gap: 6px; }
+    .dash-fill { gap: 6px; }
+    .dash-fill > * { flex-basis: 100%; }
+    ol.dash-tri-must > li.dash-tri-card { padding: 9px 11px; }
+    .dash-tri-card .dash-tri-title { font-size: var(--fs-4); }
+    .dash-tri-card.small .dash-tri-title { font-size: var(--fs-3); }
     /* ③ 화면 성격 띠 — 지금 화면 한 칸만 (나머지 둘은 안쪽 탭이 이미 보여 줌) */
     .dash-kinds { grid-auto-flow: row; gap: 4px; margin-bottom: 8px; }
     .dk-cell:not(.dk-on) { display: none; }

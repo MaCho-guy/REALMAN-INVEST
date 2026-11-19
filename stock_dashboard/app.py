@@ -4836,89 +4836,82 @@ def _render_market_filings(use_demo: bool) -> None:
                     unsafe_allow_html=True)
 
 
-def render_us_news_tab(use_demo: bool) -> None:
-    """읽기 › 뉴스 (미국) — 주제별 뉴스. 한국 섹터 뉴스와 같은 판정 · 같은 모양 (11/19)."""
-    st.markdown(
-        ui.render_section_head(
-            "미국 — 주제별 뉴스", "연준 · 물가 · 뉴욕증시 · 빅테크 · 반도체 · 내 종목이 걸린 업종",
-            len(config.US_SECTORS)),
-        unsafe_allow_html=True)
-    topic_news, topic_errors = load_us_news(use_demo)
+_NEWS_RULE = (
+    "구글 뉴스(한국어 기사) · 30분마다 새로 · <b>중요도</b> = 사건 종류(실적 · 수주 · 규제 · "
+    "금리 · 가격 급변 …) + <b>내 종목</b>(보유 · 관심) + 금액 규모 + 3일 안 일정 + 보도 매체 수 "
+    "· 새로움. 칼럼 · 행사 기사는 뺍니다. 카드 아래 꼬리표가 고른 이유입니다. "
+    # 문턱은 config.NEWS_TRIAGE_RULES 를 그대로 읽습니다 — 손으로 적으면 숫자를 바꿀 때 낡습니다
+    f"<b>꼭 읽기</b> = 점수 {config.NEWS_TRIAGE_RULES['must_min']:g} 이상 · "
+    f"{config.NEWS_TRIAGE_RULES['must_hours']:g}시간 안 (최대 "
+    f"{config.NEWS_TRIAGE_RULES['must_n']:g}건), "
+    f"<b>볼 만함</b> = 점수 {config.NEWS_TRIAGE_RULES['worth_min']:g} 이상 · "
+    f"{config.NEWS_TRIAGE_RULES['worth_hours']:g}시간 안 (최대 "
+    f"{config.NEWS_TRIAGE_RULES['worth_n']:g}건) · 월요일은 "
+    f"{config.NEWS_TRIAGE_RULES['weekend_hours']:g}시간(일요일은 그 절반) 더 거슬러 봅니다. "
+    "제목과 링크만 가져옵니다.")
+_NEWS_RULE_KR = (" 종목 뉴스와 다릅니다 — 종목 뉴스는 '내 종목에 무슨 일이' 고, 이건 "
+                 "'내 종목이 속한 업종에 무슨 바람이' 입니다.")
+_NEWS_RULE_US = (" <b>한국어로 쓰인 미국 기사</b>입니다 — 제목을 바로 읽을 수 있고 사건 판정 "
+                 "낱말이 한국어라서입니다. 영문 원문 · 공시는 내 종목의 '공시 원문' 링크로 봅니다.")
+
+
+def _render_news_block(sectors, loaded, use_demo: bool, *, key: str,
+                       title: str, sub: str, unit: str = "섹터", rule: str = "") -> None:
+    """뉴스 한 화면 — 한국 섹터 뉴스 · 미국 주제 뉴스가 같이 씁니다 (11/19).
+
+    보기 둘: ① 오늘 중요한 것(꼭 읽기 · 볼 만함 카드) ② 섹터별 전체. 전에는 한 화면에
+    설명 문단 → 카드 → 불릿 목록 → 접는 칸이 이어져 줄글로 읽혔습니다. 고른 기준은
+    접힌 한 줄(ui.render_news_rule)로 옮겼습니다.
+    """
+    topic_news, topic_errors = loaded
     must, worth = _news_triage(topic_news, use_demo)
-    labels = {k: lbl for k, lbl, _q in config.US_SECTORS}
-    st.markdown(
-        ui.render_legend(
-            "구글 뉴스(한국어 기사) · 30분마다 새로 · 중요도 = 사건 종류(실적 · 규제 · 금리 · "
-            "가격 급변 …) + <b>내 종목</b>(보유 · 관심) + 금액 규모 + 3일 안 일정 + "
-            "보도 매체 수 · 새로움 · 칼럼 · 행사 기사는 뺌 · 꼬리표가 고른 이유"),
-        unsafe_allow_html=True)
-    st.markdown(ui.render_news_triage(must, worth, labels), unsafe_allow_html=True)
-    with st.expander(f"주제별 전체 보기 — 주제당 {config.SECTOR_NEWS_PER}건 · 최근 "
-                     f"{config.SECTOR_NEWS_DAYS}일"):
+    labels = {k: lbl for k, lbl, _q in sectors}
+    st.markdown(ui.render_section_head(title, sub, None), unsafe_allow_html=True)
+    views = {"top": f"오늘 중요한 것 ({len(must) + len(worth)})",
+             "all": f"{unit}별 전체 ({len(sectors)})"}
+    pick = _view_pick(views, f"news_view_{key}", "top")
+    st.markdown(ui.render_news_rule(_NEWS_RULE + rule), unsafe_allow_html=True)
+    if pick == "all":
+        # 11/16 '중복 · 가벼운 기사 빼기': 위 ①② 에 나온 사건 · 칼럼 · 행사는 빼고 다음 순위로
         shown = news.rest_by_sector(topic_news or {}, must + worth,
                                     light=config.NEWS_LIGHT_WORDS,
                                     per=config.SECTOR_NEWS_PER)
         errs = dict(topic_errors or {})
         for k, v in shown.items():
             if not v and (topic_news or {}).get(k):
-                errs[k] = "이 주제 기사는 위 ① 꼭 읽기 · ② 볼 만함에 있습니다."
-        st.markdown(ui.render_sector_news(config.US_SECTORS, shown, errs),
-                    unsafe_allow_html=True)
-    st.markdown(ui.render_footnote(
-        "<b>한국어로 쓰인 미국 기사</b>입니다 — 제목을 바로 읽을 수 있고 사건 판정 낱말이 "
-        "한국어라서입니다. 영문 원문 · 공시는 내 종목의 '공시 원문' 링크로 봅니다. "
-        "제목과 링크만 가져옵니다."), unsafe_allow_html=True)
+                errs[k] = f"이 {unit} 기사는 '오늘 중요한 것' 에 있습니다."
+        st.markdown(ui.render_notice(
+            f"{unit}당 {config.SECTOR_NEWS_PER}건 · 최근 {config.SECTOR_NEWS_DAYS}일 · "
+            "'오늘 중요한 것' 에 나온 기사와 칼럼 · 행사는 빼고 순위대로 · 같은 사건은 한 줄"
+            "(<b>관련 N곳</b>)"), unsafe_allow_html=True)
+        st.markdown(ui.render_sector_news(sectors, shown, errs), unsafe_allow_html=True)
+    else:
+        st.markdown(ui.render_news_triage(must, worth, labels), unsafe_allow_html=True)
+
+
+def render_us_news_tab(use_demo: bool) -> None:
+    """읽기 › 뉴스 (미국) — 주제별 뉴스. 한국 섹터 뉴스와 같은 판정 · 같은 모양 (11/19)."""
+    _render_news_block(config.US_SECTORS, load_us_news(use_demo), use_demo, key="us",
+                       title="미국 뉴스",
+                       sub="연준 · 물가 · 뉴욕증시 · 빅테크 · 반도체 · 내 종목이 걸린 업종",
+                       unit="주제", rule=_NEWS_RULE_US)
 
 
 def _flows_korea(use_demo: bool) -> None:
-    st.markdown(
-        ui.render_section_head(
-            "한국 — 섹터별 뉴스", "업종 바람이 먼저 불고 종목이 따라갑니다",
-            len(config.KR_SECTORS)),
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        ui.render_footnote(
-            "종목 뉴스와 다릅니다. 종목 뉴스는 '내 종목에 무슨 일이' 고, "
-            "이건 '내 종목이 속한 업종에 무슨 바람이' 입니다. "
-            "구글 뉴스를 한국어로 부르며 <b>제목과 링크만</b> 가져옵니다."),
-        unsafe_allow_html=True,
-    )
-    sector_news, sector_errors = load_sector_news(use_demo)
-    # 11/16 '중요도 순으로 오늘 꼭 읽을 것': 꼭 읽기 → 볼 만함 → 섹터별 전체(접는 칸)
-    must, worth = _news_triage(sector_news, use_demo)
-    labels = {k: lbl for k, lbl, _q in config.KR_SECTORS}
-    st.markdown(
-        ui.render_legend(
-            "구글 뉴스 · 30분마다 새로 · 중요도 = 사건 종류(실적 · 수주 · 규제 · 금리 · "
-            "가격 급변 …) + <b>내 종목</b>(보유 · 관심) + 금액 규모 + 3일 안 일정 + "
-            "보도 매체 수 · 새로움 · 칼럼 · 행사 기사는 뺌 · 꼬리표가 고른 이유"),
-        unsafe_allow_html=True,
-    )
-    st.markdown(ui.render_news_triage(must, worth, labels), unsafe_allow_html=True)
-    with st.expander(f"섹터별 전체 보기 — 섹터당 {config.SECTOR_NEWS_PER}건 · 최근 "
-                     f"{config.SECTOR_NEWS_DAYS}일"):
-        st.markdown(
-            ui.render_legend(
-                "위 ①②에 나온 기사와 칼럼 · 행사는 빼고 섹터 순위대로 · "
-                "같은 사건은 한 줄(<b>관련 N곳</b>)"),
-            unsafe_allow_html=True,
-        )
-        # 11/16 '중복 · 가벼운 기사 빼기': 위 ①② 에 나온 사건 · 칼럼 · 행사는 빼고 다음 순위로
-        shown = news.rest_by_sector(sector_news or {}, must + worth,
-                                    light=config.NEWS_LIGHT_WORDS,
-                                    per=config.SECTOR_NEWS_PER)
-        errs = dict(sector_errors or {})
-        for k, v in shown.items():
-            if not v and (sector_news or {}).get(k):
-                errs[k] = "이 섹터 기사는 위 ① 꼭 읽기 · ② 볼 만함에 있습니다."
-        st.markdown(
-            ui.render_sector_news(config.KR_SECTORS, shown, errs),
-            unsafe_allow_html=True,
-        )
+    """읽기 › 뉴스 (한국) — 섹터 뉴스만. 11/19 사용자 "뉴스 · 공시 · 지표를 다른 탭으로":
+    공시는 render_kr_filings_tab, 경제지표는 render_kr_macro_tab 으로 나눴습니다."""
+    _render_news_block(config.KR_SECTORS, load_sector_news(use_demo), use_demo, key="kr",
+                       title="한국 뉴스", sub="업종 바람이 먼저 불고 종목이 따라갑니다",
+                       rule=_NEWS_RULE_KR)
 
+
+def render_kr_filings_tab(use_demo: bool) -> None:
+    """읽기 › 공시 (한국) — 시장 전체 주요 공시 (11/19 뉴스 · 공시 · 지표에서 나눔)."""
     _render_market_filings(use_demo)
 
+
+def render_kr_macro_tab(use_demo: bool) -> None:
+    """시장 › 한국 지표 — 한국 경제지표 (11/19 뉴스 · 공시 · 지표에서 나눔)."""
     kr_rows = load_kr_macro(use_demo, fred.key_fingerprint())
     st.markdown(
         ui.render_section_head("한국 — 경제지표", "FRED 경유 · 전년동월비 병기",
@@ -7009,7 +7002,9 @@ SECTION_LOADING = {
     "supply": "수급 — 종목별 외국인·기관 순매매 (처음 5~15초)",
     "earnings": "실적 — 분기 실적과 추정치 (처음 5~15초)",
     "sector_heat": "섹터 온도 — 업종 ETF 14개 일봉 (처음 10~20초)",
-    "kr_flows": "뉴스·공시·지표 — 섹터 뉴스·DART 공시·한국 지표 (처음 20~40초)",
+    "kr_flows": "뉴스 — 섹터 뉴스 (처음 10~20초)",
+    "kr_filings": "공시 — 시장 전체 DART 주요 공시 (처음 10~30초)",
+    "kr_macro": "한국 지표 — FRED 한국 계열 (처음 5~15초)",
     "us_flows": "물가·유동성 — FRED 물가 6 · 유동성 6 (처음 10~20초)",
     "us_news": "뉴스 — 미국 주제별 헤드라인 (처음 10~20초)",
     "valuation": "밸류에이션 — 스크리닝 결과로 역DCF 를 계산합니다 (처음 1~3분)",
@@ -7086,11 +7081,11 @@ def _section_jobs(section: str, market: str, use_demo: bool) -> dict:
             "발표 일정": lambda: load_release_dates(use_demo, ffp),
         })
     elif section == "kr_flows":
-        jobs.update({
-            "섹터 뉴스": lambda: load_sector_news(use_demo),
-            "주요 공시": lambda: load_market_filings(use_demo, dfp),
-            "국내 지표": lambda: load_kr_macro(use_demo, ffp),
-        })
+        jobs["섹터 뉴스"] = lambda: load_sector_news(use_demo)
+    elif section == "kr_filings":
+        jobs["주요 공시"] = lambda: load_market_filings(use_demo, dfp)
+    elif section == "kr_macro":
+        jobs["국내 지표"] = lambda: load_kr_macro(use_demo, ffp)
     elif section == "us_news":
         jobs["미국 뉴스"] = lambda: load_us_news(use_demo)
     elif section == "us_flows":
@@ -7633,6 +7628,10 @@ def render_body(opts: dict) -> None:
                 render_sector_heat_tab(opts["demo"])
             elif active == "kr_flows":
                 _flows_korea(opts["demo"])
+            elif active == "kr_filings":
+                render_kr_filings_tab(opts["demo"])
+            elif active == "kr_macro":
+                render_kr_macro_tab(opts["demo"])
             elif active == "us_flows":
                 _flows_us(opts["demo"])
             elif active == "us_news":

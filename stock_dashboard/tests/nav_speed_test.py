@@ -181,7 +181,7 @@ def run_sub(market, active, session=None):
 
 st, ns = run_sub("kr", "macro")
 check("메뉴에 화면이 여럿이면 안쪽 탭을 그린다", len(st.segs) == 1
-      and st.segs[0][1] == ["sector_heat", "macro", "calendar"], str(st.segs[:1]))
+      and st.segs[0][1] == ["sector_heat", "macro", "kr_macro", "calendar"], str(st.segs[:1]))
 check("안쪽 탭 표식이 있다 (CSS 가 이 표식으로 찾음)", any("dash-submark" in h for h in st.md))
 check("지금 화면이 골라진 채로 그려진다", st.session_state.get(st.segs[0][0]) == "macro")
 check("안쪽 탭 이름은 화면이 '무엇' 인지로 (메뉴 이름과 안 겹치게)",

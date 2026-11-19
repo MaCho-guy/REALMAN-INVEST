@@ -171,7 +171,16 @@ labels = {k: lbl for k, lbl, _q in config.KR_SECTORS}
 must, worth = run(POOL)
 html = ui.render_news_triage(must, worth, labels)
 check("화면: ① 꼭 읽기 · ② 볼 만함", "① 오늘 꼭 읽기" in html and "② 볼 만함" in html)
-check("화면: 매체 · 한국 시각 · 섹터", "헤럴드경제 · 11/16 11:42 · 2차전지" in html, html[:400])
+# 11/19 "줄글만 있어서 잘 안 읽힘": 한 줄에 이어 쓰지 않고 카드 안 자리로 나눔 —
+# 맨 위 줄(섹터 칩 · 시각) → 제목 → 아래 줄(매체 · 꼬리표)
+check("화면: 매체 · 한국 시각 · 섹터가 카드 안 제자리에",
+      '<span class="dash-tri-sec t3">2차전지</span><span class="dash-tri-when">11/16 11:42</span>' in html
+      and '<span class="dash-tri-src">헤럴드경제</span>' in html, html[:400])
+check("화면: 볼 만함도 카드 (불릿 목록이 아니다)", "dash-tri-worth" not in html
+      and html.count('dash-tri-card small') == len(worth) and "<ul" not in html)
+check("화면: 건수를 머리에", f"<span>{len(must)}건</span>" in html and f"<span>{len(worth)}건</span>" in html)
+check("고른 기준은 접힌 한 줄", ui.render_news_rule("가 <b>나</b>").startswith('<details class="dash-newsrule">')
+      and ui.render_news_rule("") == "")
 check("화면: 내 종목 꼬리표 강조", 'dash-tri-tag mine' in html)
 compact = ui.render_news_triage(must, worth, labels, compact=True)
 check("요약용: 볼 만함 안 그림", "② 볼 만함" not in compact and "dash-tri-card" in compact)
@@ -182,12 +191,24 @@ check("링크는 http 만", "javascript:" not in ui.render_news_triage(
 # ── 9. 연결 ────────────────────────────────────────────────────────────────
 app_src = open("app.py", encoding="utf-8").read()
 check("섹터 뉴스는 후보 8개를 받음", "limit=config.SECTOR_NEWS_POOL" in app_src)
-check("섹터 칸 = rest_by_sector(①② 빼고 3개)", "news.rest_by_sector(sector_news or {}, must + worth" in app_src
+check("섹터 칸 = rest_by_sector(①② 빼고 3개)", "news.rest_by_sector(topic_news or {}, must + worth" in app_src
       and "per=config.SECTOR_NEWS_PER" in app_src)
 check("triage 에 일정 · 금액 넘김", "upcoming=_news_upcoming(use_demo)" in app_src
       and "amount_rules=config.NEWS_AMOUNT_RULES" in app_src)
-check("뉴스 탭: 꼭 읽기 → 섹터별 전체(접는 칸)", app_src.index("ui.render_news_triage(must, worth, labels)")
-      < app_src.index('st.expander(f"섹터별 전체 보기'))
+# 11/19: 접는 칸 대신 화면 안 보기 둘 (오늘 중요한 것 · 섹터별 전체) — 한국 · 미국이 같은 함수
+_nb = app_src.split("def _render_news_block")[1].split("\ndef ")[0]
+check("뉴스 화면: 보기 둘 — 오늘 중요한 것(기본) · 섹터별 전체", '_view_pick(views, f"news_view_{key}", "top")' in _nb
+      and "ui.render_news_triage(must, worth, labels)" in _nb and "ui.render_sector_news(sectors, shown, errs)" in _nb)
+check("뉴스 화면: 설명 문단은 접힌 '고른 기준' 으로", "ui.render_news_rule(_NEWS_RULE + rule)" in _nb
+      and "render_legend" not in _nb and "render_footnote" not in _nb)
+check("한국 · 미국 뉴스가 같은 화면 틀을 쓴다", app_src.count("_render_news_block(config.") == 2)
+check("미국 뉴스의 '한국어로 쓰인 미국 기사' 안내는 고른 기준 안에 남아 있다",
+      "한국어로 쓰인 미국 기사" in app_src and "rule=_NEWS_RULE_US" in app_src and "rule=_NEWS_RULE_KR" in app_src)
+_fk = app_src.split("def _flows_korea")[1].split("\ndef ")[0]
+check("뉴스 화면에는 뉴스만 — 공시 · 지표는 다른 화면",
+      "_render_market_filings" not in _fk and "load_kr_macro" not in _fk
+      and "_render_market_filings(use_demo)" in app_src.split("def render_kr_filings_tab")[1].split("\ndef ")[0]
+      and "load_kr_macro(use_demo" in app_src.split("def render_kr_macro_tab")[1].split("\ndef ")[0])
 # 11/19: 요약에는 뉴스 목록이 아니라 **한 줄**(몇 건 · 내 종목이 걸렸나)만 — 목록은 뉴스 화면에
 check("요약에는 꼭 읽기 한 줄만 (목록은 뉴스 화면)", "_render_news_must" not in app_src
       and "news=news_pair" in app_src and "news_pair = _news_triage(got[0], use_demo)" in app_src)
@@ -282,7 +303,8 @@ check("다른 섹터의 같은 사건도 빠짐", [x.title for x in rest["fx"]] 
       str([x.title for x in rest["fx"]]))
 rest2 = news.rest_by_sector({"x": [pool["semi"][0]]}, picked, per=3)
 check("다 빠지면 빈 목록", rest2["x"] == [])
-check("앱: 빈 섹터엔 '위 ①②에 있습니다'", "위 ① 꼭 읽기 · ② 볼 만함에 있습니다" in app_src)
+# 11/19: ①② 가 같은 화면 위가 아니라 옆 보기('오늘 중요한 것')에 있으므로 문구도 그쪽을 가리킴
+check("앱: 빈 섹터엔 '오늘 중요한 것에 있습니다'", "기사는 '오늘 중요한 것' 에 있습니다." in app_src)
 
 # ── 13. 섹터 카드 모양 ─────────────────────────────────────────────────────
 html = ui.render_sector_news([("fx", "환율", "원달러 환율 (마감 OR 전망)")],

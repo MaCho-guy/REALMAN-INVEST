@@ -84,6 +84,10 @@ class Thresholds:
     earnings_days: int = 14
     #: 분석 생성 후 이 일수를 넘으면 노후화
     stale_days: int = 90
+    #: 새 공시 알림 창 — 공시일이 이 일수 안일 때만 '지금' 으로 올립니다 (11/19 사용자 선택).
+    #: 전에는 '분석보다 새 공시' 전부였는데, 분석이 없는 종목은 모든 공시가 '새 공시' 라
+    #: 알림이 꺼지지 않았습니다 (분석 파일이 있는 종목은 11개 중 1개).
+    new_filing_days: int = 7
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -236,36 +240,56 @@ def detect(
         quote = quotes.get(inst.symbol)
         analysis_date = _parse_date(doc.generated)
 
-        # ── 1) 분석보다 새로운 공시 ──────────────────────────────────────────
+        # ── 1) 새 공시 — 최근 N일 (11/19) ────────────────────────────────────
+        # '지금' 으로 올리는 건 공시일이 창(new_filing_days) 안인 것뿐입니다. 창을 지나면
+        # 저절로 꺼집니다. 분석이 있는 종목은 그 분석보다 뒤에 나온 공시만 셉니다.
+        # 창은 지났지만 분석보다 뒤인 공시는 '참고'(심각도 1) 한 줄로만 남깁니다 —
+        # 분석을 다시 돌릴 때 필요한 정보이지 오늘 볼 일은 아닙니다.
         inst_filings = filings.get(key) or []
         if inst_filings:
-            if analysis_date is None:
-                newer = [f for f in inst_filings if f.importance >= 2][:4]
-            else:
-                newer = [
-                    f for f in inst_filings
-                    if f.importance >= 2
-                    and (_parse_date(f.filing_date) or today) > analysis_date
-                ][:4]
+            window = max(0, int(th.new_filing_days))
 
-            if newer:
-                latest = newer[0]
-                ago = latest.days_ago
-                ago_text = f"{ago}일 전" if ago is not None else latest.filing_date
+            def _filed(f):
+                return _parse_date(f.filing_date)
+
+            major = [f for f in inst_filings if f.importance >= 2]
+            if analysis_date is not None:
+                major = [f for f in major if (_filed(f) or today) > analysis_date]
+            recent = [f for f in major
+                      if _filed(f) is not None and 0 <= (today - _filed(f)).days <= window]
+            older = [f for f in major if f not in recent] if analysis_date is not None else []
+            tail = (f" · 기존 분석 {doc.generated}" if doc.generated else " · 분석 없음")
+
+            def _latest_text(f) -> str:
+                ago = f.days_ago
+                ago_text = f"{ago}일 전" if ago is not None else f.filing_date
+                return (f"가장 최근: {f.form} ({f.label}) · {ago_text}"
+                        + (f" · 항목 {f.items}" if f.items else ""))
+
+            if recent:
+                newer = recent[:4]
                 out.append(Signal(
                     kind="new_filing",
-                    severity=3 if (ago is not None and ago <= 30) else 2,
+                    severity=3,
                     inst=inst,
-                    title=f"새 공시 {len(newer)}건 — 분석보다 최신",
-                    detail=(
-                        f"가장 최근: {latest.form} ({latest.label}) · {ago_text}"
-                        + (f" · 항목 {latest.items}" if latest.items else "")
-                        + (f" · 기존 분석 {doc.generated}" if doc.generated else " · 분석 없음")
-                    ),
-                    url=latest.url,
+                    title=f"새 공시 {len(newer)}건 — 최근 {window}일",
+                    detail=_latest_text(newer[0]) + tail,
+                    url=newer[0].url,
                     prompt=_prompt_new_filing(inst, newer, doc),
                     tags=[f.form for f in newer],
                     wants_news=True,
+                ))
+            elif older:
+                newer = older[:4]
+                out.append(Signal(
+                    kind="new_filing",
+                    severity=1,
+                    inst=inst,
+                    title=f"분석 뒤 공시 {len(newer)}건",
+                    detail=_latest_text(newer[0]) + tail,
+                    url=newer[0].url,
+                    prompt=_prompt_new_filing(inst, newer, doc),
+                    tags=[f.form for f in newer],
                 ))
 
         # ── 2) 실적 발표 임박 ────────────────────────────────────────────────

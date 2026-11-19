@@ -218,12 +218,18 @@ check("요약용 compact 카드는 근거 줄 없음",
 check("빠진 종목 목록", "가격 부담 높음" in ui.render_candidate_excluded(out))
 check("빈 입력에도 깨지지 않음", integrate.build([], {}, {}, {}) == []
       and ui.render_candidate_cards([]) == "")
-check("한국 찾기 = 후보 · 근거 · 차트 · 거래 스크리너 · 모의 매수 (11/17 차트 · 거래 스크리너 나눔)",
-      dict(config.MARKET_TABS["kr"])["찾기"] == ("picks", "basis", "timing", "screener", "paper")
+# 11/19 메뉴 7칸 (사용자 승인) — 화면 key 는 그대로, 묶음만 바뀜
+check("한국: 후보(후보 · 근거) / 차트 · 스크리너 · 실험(차트 조건 · 거래 스크리너 · 실험) — "
+      "11/17 에 나눈 화면은 그대로 따로",
+      dict(config.MARKET_TABS["kr"])["후보"] == ("picks", "basis")
+      and dict(config.MARKET_TABS["kr"])["차트 · 스크리너 · 실험"] == ("timing", "screener", "paper")
       and [config.SPECIAL_TAB_LABELS[k] for k in ("picks", "basis", "timing", "screener", "paper")]
-      == ["후보", "근거", "차트", "거래 스크리너", "모의 매수"])
-check("아침 브리핑은 공통 묶음 (11/13 17:03)",
-      all("briefing" in dict(config.MARKET_TABS[m])["공통"]
+      == ["후보", "근거", "차트 조건", "거래 스크리너", "실험"])
+check("메뉴는 시장마다 7칸 (11/19 — 전 한국 16 · 미국 11)",
+      all(len(config.tab_groups(m)) == 7 for m in ("kr", "us")),
+      str({m: len(config.tab_groups(m)) for m in ("kr", "us")}))
+check("아침 브리핑은 두 시장 모두 '읽기' 에 (11/13 17:03 시장과 무관한 글 · 11/19 메뉴 7칸)",
+      all("briefing" in dict(config.MARKET_TABS[m])["읽기"]
           and "briefing" not in dict(config.MARKET_TABS[m])["오늘"] for m in ("kr", "us")))
 check("예전 탭은 옮긴 곳으로 (주소 · 세션)",
       config.KR_TAB_MOVED == {"discover": "basis", "valuation": "basis", "chart": "timing"}
@@ -235,11 +241,12 @@ check("옮긴 화면을 지우지 않고 스위치로 부름",
       and "data, fx, use_demo, phone, market=market)" in app_src
       and "render_chart_tab(use_demo, market=market, today=False)" in app_src
       and 'render_screener_tab(opts["demo"], market=market)' in app_src)
-check("미국 찾기도 같은 3칸 · 셋째 칸 이름은 '차트' (11/13)",
-      dict(config.MARKET_TABS["us"])["찾기"] == ("picks", "basis", "timing", "paper")
-      and config.market_labels("us")["timing"] == "차트"
-      and config.market_labels("kr")["timing"] == "차트"
-      and dict(config.tab_groups("us"))["찾기"][2] == ("timing", "차트"))
+check("미국도 같은 묶음 — 거래 스크리너만 없음 · 화면 이름은 두 시장이 같다 (11/19)",
+      dict(config.MARKET_TABS["us"])["후보"] == ("picks", "basis")
+      and dict(config.MARKET_TABS["us"])["차트 · 실험"] == ("timing", "paper")
+      and config.market_labels("us")["timing"] == "차트 조건"
+      and config.market_labels("kr")["timing"] == "차트 조건"
+      and dict(config.tab_groups("us"))["차트 · 실험"][0] == ("timing", "차트 조건"))
 check("미국 예전 주소도 옮긴 탭으로", config.TAB_MOVED["us"]["discover"] == "basis"
       and config.TAB_MOVED["us"]["chart"] == "timing"
       and "config.TAB_MOVED.get(market" in app_src)
@@ -741,9 +748,12 @@ col = pathlib.Path("tools/collect.py").read_text(encoding="utf-8")
 check("수집기가 실험 단계를 부르고 워크플로가 이어받음",
       "pp = build_paper(out_dir, markets" in col and "paper_portfolio.json" in wf
       and "paper_portfolio.json" in real)
-check("모의 매수 탭이 실험을 그림 (17:04 후보 탭에서 뺌)",
-      '_render_paper(market, opts["demo"])' in app_src
-      and "_render_paper(market, use_demo)" not in app_src)
+check("실험 화면이 모의 매수 + 차트 전략 백테스트를 그림 (11/13 17:04 후보 탭에서 뺌 · "
+      "11/19 '검증' 둘을 한 화면에)",
+      'render_lab_tab(opts["demo"], market=market)' in app_src
+      and "_render_paper(market, use_demo)" in app_src.split("def render_lab_tab(")[1][:1500]
+      and "_render_backtest(market, use_demo)" in app_src.split("def render_lab_tab(")[1][:1500]
+      and "_render_paper(market, use_demo)" not in app_src.split("def render_picks_tab(")[1][:6000])
 
 print("\n== 성장형 문턱 6 · 더 나은 기업 순서 · 모의 매수 규칙 변경 (11/13 17:02)")
 import growth as _g  # noqa: E402
@@ -829,6 +839,9 @@ check("폰: 접는 메뉴 줄이 있을 때만 세로 메뉴 숨김 · PC 에서
       and "def _mobile_nav(market" in app_src and "_section_nav(market, labels, mobile=True)" in app_src)
 check("접는 메뉴 버튼은 key 를 따로(_m) · 색 규칙도 popover 범위", "navbtn_kr_picks_m" in
       theme.nav_group_css("kr", config.tab_groups("kr"), mobile=True))
+check("내비 색 규칙은 메뉴마다 하나 — 그 메뉴의 첫 화면 key (11/19)",
+      "navbtn_kr_basis" not in theme.nav_group_css("kr", config.tab_groups("kr"))
+      and "navbtn_kr_timing" in theme.nav_group_css("kr", config.tab_groups("kr")))
 
 print("\n== 리포트 요약 평일 오전 실행 (11/16)")
 _wf = pathlib.Path("../.github/workflows/summarize.yml")
@@ -1007,9 +1020,11 @@ check("차트 위치 — 쪽 · 20일선 대비 · 60/120일선 · 상태 · 진
       "과매도" in _cp and "20일선 대비 -5.0%" in _cp and "60일선 위" in _cp and "120일선 아래" in _cp
       and "CCI 과매도 진입" in _cp and "과매도 진입</span>" in _cp and "차트 계산 없음" in _cp
       and "빈 묶음" not in _cp and "과매도 쪽 1 · 과매수 쪽 0 · 과매도 진입 1" in _cp)
-check("차트 탭 — 보기 셋(위치 기본 · 전체 목록 · 전략 실험)",
-      '"pos": "후보 · 내 종목 위치"' in app_src and 'default="pos"' in app_src
-      and "_render_chart_position(market, use_demo)" in app_src)
+check("차트 조건 화면 — 보기 둘(위치 기본 · 전체 목록). 전략 백테스트는 실험 화면으로 (11/19)",
+      '"pos": "후보 · 내 종목 위치"' in app_src
+      and '_view_pick(views, f"chart_view2_{market}", "pos")' in app_src
+      and "_render_chart_position(market, use_demo)" in app_src
+      and "_render_backtest" not in app_src.split("def render_timing_tab(")[1].split("\ndef ")[0])
 _bt = {"variants": {"A": {"trades": 400, "excess": -0.02, "avg": -0.02},
                     "S_vol": {"trades": 103, "excess": 0.01, "avg": 0.042},
                     "S": {"trades": 280, "excess": -0.014, "avg": -0.019}}}

@@ -1630,10 +1630,10 @@ def render_premium_tab(data: dict[str, dict[str, Quote]], fx,
 
 def render_summary_tab(data: dict[str, dict[str, Quote]], fx,
                        use_demo: bool, *, market: str = "all") -> None:
-    """요약. 다른 탭에서 이미 캐시된 것만 씁니다 — 휴대폰에서 느려지면 안 됩니다.
+    """요약 — 판정 한 줄 + 눌리는 카드. 다른 화면이 이미 받아 둔 값만 씁니다.
 
-    발굴·밸류에이션은 일부러 빼둡니다. 68종목의 10년 재무를 받아오는 작업이라
-    휴대폰 글랜스에 맞지 않습니다 — 어디로 가면 되는지만 적습니다.
+    11/19: 이 화면에는 카드만 둡니다. 전에는 섹터 막대 · 후보 · 뉴스 · 일정 · 전일 장 ·
+    신호 상세가 쌓여 휴대폰 6화면 길이였습니다 (같은 내용이 각자 화면에도 있었음).
     """
     found, instruments, trends, _filings, _errors = _detect_signals(
         data, use_demo, market=market, soft=True)
@@ -1658,39 +1658,54 @@ def render_summary_tab(data: dict[str, dict[str, Quote]], fx,
     series_map, errors = load_macro(use_demo, fred.key_fingerprint())
     readings = macro_mod.build_readings(config.macro_series(), series_map, errors)
 
+    # ── 카드 한 줄씩만 (11/19) ────────────────────────────────────────────
+    # 섹터 막대 · 후보 3 · 뉴스 5 · 일정 · 전일 장 · 신호 상세는 각자 화면에만 있습니다.
+    # 여기서는 그 화면들이 이미 받아 둔 값으로 **한 줄**만 만들고, 카드를 누르면 갑니다.
+    # 넷 다 기다리지 않습니다(_soft) — 아직 없으면 그 줄만 '받는 중'.
+    picks, picks_when = None, ""
+    if not use_demo:
+        try:
+            cands, meta = _integrated(use_demo, market)
+            picks, _out = integrate.split(cands)
+            picks_when = _when_kst(meta.get("p"))
+        except Exception:  # noqa: BLE001 - 요약은 이것 때문에 깨지면 안 됩니다
+            picks = None
+    news_pair = None
+    if market == "kr":
+        try:
+            got = (load_sector_news(use_demo) if use_demo
+                   else _soft(load_sector_news, use_demo, default=None))
+            if got is not None:
+                news_pair = _news_triage(got[0], use_demo)
+        except Exception:  # noqa: BLE001
+            news_pair = None
+    sessions: dict = {}
+    for m in [market] + [k for k in config.DAILY_BRIEF if k != market]:
+        try:
+            sessions[m] = (load_daily_brief(m, use_demo) if use_demo
+                           else _soft(load_daily_brief, m, use_demo, default=None))
+        except Exception:  # noqa: BLE001
+            sessions[m] = None
+    events, today = None, _today_kst()
+    try:
+        evs, _w, today = _calendar_events(data, use_demo, days=7, soft=True)
+        # 중요한 것 + 고른 시장의 이틀 안 일정(월물 만기처럼 평소엔 작은 것도)
+        events = [e for e in evs if e.importance >= 2
+                  or (e.market == market and (e.day - today).days <= 2)][:6]
+    except Exception:  # noqa: BLE001
+        events = None
+
     summary = sm.build(
         urgent=urgent, soon=soon, holdings_total=len(instruments),
         fg=fg, vix_state=vix_state, trends=trends, macro_readings=readings,
         market=market, sector_rows=sector_rows,
         # 데모 재고 숫자로 기록을 대조하면 가짜 '기록과 다름' 이 뜹니다
-        phase=load_phase(), today=_today_kst(), phase_check=not use_demo,
+        phase=load_phase(), today=today, phase_check=not use_demo,
+        picks=picks, picks_when=picks_when, news=news_pair,
+        sessions=sessions, events=events,
     )
 
-    st.markdown(ui.render_summary(summary), unsafe_allow_html=True)
-    if sector_rows:
-        st.markdown(ui.render_sector_bars(sector_rows), unsafe_allow_html=True)
-
-    # 통합 후보 앞 3종목 — 등만 (2026-11-13 "가시성 돋보이게"). 파일만 읽습니다.
-    if market in ("kr", "us") and not use_demo:
-        try:
-            cands, meta = _integrated(use_demo, market)
-            picks, _out = integrate.split(cands)
-        except Exception:  # noqa: BLE001 - 요약은 이것 때문에 깨지면 안 됩니다
-            picks, meta = [], {}
-        if picks:
-            st.markdown(ui.render_section_head(
-                f"후보 · {'한국' if market == 'kr' else '미국'}",
-                f"품질 · 가격 · 선행 EPS · {_when_kst(meta.get('p'))} 수집 · "
-                "자세히는 찾기 › 후보", len(picks)), unsafe_allow_html=True)
-            st.markdown(ui.render_candidate_cards(picks, 3, compact=True),
-                        unsafe_allow_html=True)
-
-    _render_news_must(use_demo)
-    _render_upcoming(data, use_demo, market)
-    _render_daily_briefs(use_demo, market)
-
-    # 브리핑 한 줄은 11/13 18:25 사용자 요청으로 요약에서 뺌 — 아침 브리핑은 공통 묶음의 자기
-    # 탭에서 봄. 함수(ui.render_briefing_line)는 그대로 둠.
+    st.markdown(ui.render_summary(summary, market), unsafe_allow_html=True)
 
     if summary.all_quiet:
         st.markdown(
@@ -1701,21 +1716,6 @@ def render_summary_tab(data: dict[str, dict[str, Quote]], fx,
             ),
             unsafe_allow_html=True,
         )
-
-    # 긴급 신호는 요약에서 바로 펼쳐 봅니다 (탭 이동 없이)
-    if urgent:
-        st.markdown(
-            ui.render_section_head("지금 확인할 것", "내 종목", len(urgent)),
-            unsafe_allow_html=True,
-        )
-        news_targets = tuple(sig_mod.news_targets(
-            urgent, limit=config.NEWS_MAX_TICKERS))
-        headlines = load_news(news_targets, use_demo)
-        for sig in urgent[:6]:
-            st.markdown(
-                ui.render_signal_card(sig, headlines.get(sig.inst.symbol)),
-                unsafe_allow_html=True,
-            )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1794,7 +1794,8 @@ def _render_holding_checks(shown, use_demo: bool, market: str) -> None:
     warn = [c for c in items if c.notes.get("flags")]
     ok = [c for c in items if not c.notes.get("flags")]
     st.markdown(ui.render_section_head(
-        "기준 점검 — 내 종목", f"찾기 › 후보와 같은 기준 · 점검 필요 {len(warn)} · "
+        "기준 점검 — 내 종목",
+        f"{config.where('picks', market)}와 같은 기준 · 점검 필요 {len(warn)} · "
         f"가격 {_when_kst(meta.get('p'))} 수집", len(items)), unsafe_allow_html=True)
     if warn:
         st.markdown(ui.render_holding_checks(warn), unsafe_allow_html=True)
@@ -1805,7 +1806,7 @@ def _render_holding_checks(shown, use_demo: bool, market: str) -> None:
         "<b>점검 필요</b> = 나빠지는 신호 — 선행 EPS 90일 −5% 이하(추정이 깎이는 중) · 실적 추세 "
         "악화(매출 · 영업이익 3년 연속 감소). 품질 미달 · 가격 부담 높음은 업종 · 성장 단계에 따라 "
         "원래 그럴 수 있어 등 색(주의)으로만 보입니다. <b>매도 신호가 아니라 공시를 다시 읽어 볼 "
-        "이유</b>입니다. 등은 찾기 › 후보와 같음"
+        f"이유</b>입니다. 등은 {config.where('picks', market)}와 같음"
         + (f" · 품질 심사 대상이 아닌 {skipped}종목(ETF · 지수 밖)은 뺐습니다" if skipped else "")),
         unsafe_allow_html=True)
     if ok:
@@ -1868,7 +1869,9 @@ def render_holdings_tab(data: dict[str, dict[str, Quote]], fx,
         [(inst, pick_quote(inst, data),
           [s for s in found if getattr(s.inst, "symbol", None) == inst.symbol])
          for inst in shown], chart_rows=chart_rows,
-        phase=load_phase(), today=_today_kst()), unsafe_allow_html=True)
+        phase=load_phase(), today=_today_kst(),
+        detail_href=((lambda i: config.screen_href(market, "stock", c=i.symbol))
+                     if market in config.MARKETS else None)), unsafe_allow_html=True)
     if market in ("kr", "us") and not use_demo:
         try:
             _render_holding_checks(shown, use_demo, market)
@@ -1893,7 +1896,7 @@ def render_holdings_tab(data: dict[str, dict[str, Quote]], fx,
                             unsafe_allow_html=True)
                 st.markdown(ui.render_notice(
                     (f"<b>{chart_from}</b> · " if chart_from else "")
-                    + "기준은 '찾기 › 차트 조건' 과 같습니다."
+                    + f"기준은 '{config.where('timing', market)}' 과 같습니다."
                     + (f" {missing}종목은 차트 계산 대상이 아닙니다 (ETF · 지수 밖 종목)."
                        if chart_from and missing else "")), unsafe_allow_html=True)
 
@@ -1934,6 +1937,210 @@ def render_holdings_tab(data: dict[str, dict[str, Quote]], fx,
     summary = _analysis_summary()
     with st.expander(f"공시 분석 — {summary}", expanded=False):
         render_analysis_tab(embed=True, phone=phone)
+
+
+def _stock_pick(market: str, shown: list) -> str:
+    """종목 상세에서 볼 종목 — 주소(?c=)로 들어오면 그 종목, 아니면 고른 것, 없으면 첫 종목."""
+    syms = [i.symbol for i in shown]
+    names = {i.symbol: i.name for i in shown}
+    key = f"stock_pick_{market}"
+    if st.session_state.get(key) not in syms:
+        try:
+            want = st.query_params.get("c", "")
+        except Exception:  # noqa: BLE001
+            want = ""
+        last = st.session_state.get(f"_{key}_last")
+        st.session_state[key] = (want if want in syms else last if last in syms else syms[0])
+    choice = None
+    picker = getattr(st, "segmented_control", None)
+    if picker is not None:
+        try:
+            choice = picker("종목", syms, key=key, format_func=lambda t: names.get(t, t),
+                            label_visibility="collapsed")
+        except Exception:  # noqa: BLE001
+            choice = None
+    if choice not in syms and picker is None:
+        choice = st.selectbox("종목", syms, key=f"{key}_s",
+                              format_func=lambda t: f"{names.get(t, t)} · {t}")
+    if choice not in syms:                      # 고른 칸을 다시 눌러 선택이 풀림 → 직전 종목
+        choice = st.session_state.get(f"_{key}_last")
+    if choice not in syms:
+        choice = syms[0]
+    st.session_state[f"_{key}_last"] = choice
+    try:
+        if st.query_params.get("c") != choice:
+            st.query_params["c"] = choice
+    except Exception:  # noqa: BLE001
+        pass
+    return choice
+
+
+def render_stock_tab(data: dict[str, dict[str, Quote]], fx, use_demo: bool,
+                     *, market: str = "kr") -> None:
+    """종목 상세 — 종목 하나에 대한 것을 한 페이지에 (2026-11-19).
+
+    구조 점검: 삼성전자 하나를 보려면 내 종목 → 수급 → 차트 → 반도체 리포트 → 메모리
+    사이클 → 주요 일정, 메뉴 여섯 곳을 돌아야 했습니다. 여기서는 **이미 다른 화면이 받아
+    둔 값**을 그 종목 것만 추려 세로로 쌓습니다 — 새로 만든 계산은 없습니다.
+    순서: 변한 것 → 최근 공시 → 재무 기준 → 차트 → 수급(한국) → 일정.
+    구역 하나가 실패해도 나머지는 그립니다.
+    """
+    shown = config.filter_instruments(config.SECTION_WATCHLIST.instruments, market)
+    if not shown:
+        st.markdown(ui.render_notice("이 시장에는 보유 · 관심 종목이 없습니다."),
+                    unsafe_allow_html=True)
+        return
+    sym = _stock_pick(market, shown)
+    inst = next(i for i in shown if i.symbol == sym)
+    quote = pick_quote(inst, data)
+    key = inst.analysis_key or inst.symbol
+
+    def guard(name: str, fn) -> None:
+        try:
+            fn()
+        except Exception as exc:  # noqa: BLE001 - 구역 하나가 화면 전체를 무너뜨리지 않게
+            st.markdown(ui.render_notice(
+                f"<b>{name}</b> 구역을 그리지 못했습니다 ({type(exc).__name__})."),
+                unsafe_allow_html=True)
+
+    try:
+        found, _insts, _trends, filings, _errors = _detect_signals(
+            data, use_demo, market=market, soft=True)
+    except Exception:  # noqa: BLE001
+        found, filings = [], {}
+    sigs = [s for s in found
+            if getattr(s.inst, "symbol", None) == sym and not s.aggregate]
+    held = sym in (_kr_held_codes(use_demo) if market == "kr" else _us_held_symbols(use_demo))
+    try:
+        chips = ui.phase_chips_html(load_phase(), sym, _today_kst())
+    except Exception:  # noqa: BLE001
+        chips = ""
+    st.markdown(ui.render_stock_head(
+        inst, quote, ["보유" if held else "관심", getattr(inst, "exchange", "") or ""], chips),
+        unsafe_allow_html=True)
+
+    toc = [("st-sig", "변한 것"), ("st-fil", "최근 공시"), ("st-chk", "재무 기준"),
+           ("st-cht", "차트"), ("st-flw", "수급"), ("st-cal", "일정")]
+    if market != "kr":
+        toc = [t for t in toc if t[0] != "st-flw"]
+    st.markdown(ui.render_stock_toc(toc), unsafe_allow_html=True)
+
+    # ── 변한 것 ───────────────────────────────────────────────────────────
+    def part_signals() -> None:
+        st.markdown(ui.anchor("st-sig") + ui.render_section_head(
+            "변한 것", "최근 7일 새 공시 · 실적 임박 · 급변 · 52주 위치 — 내 종목 화면과 같은 판정",
+            None), unsafe_allow_html=True)
+        if not sigs:
+            st.markdown(ui.render_notice("이 종목에 올라온 것이 없습니다 — 조용함이 정상입니다."),
+                        unsafe_allow_html=True)
+            return
+        targets = tuple(sig_mod.news_targets(sigs, limit=1))
+        heads = (load_news(targets, use_demo) if use_demo
+                 else _soft(load_news, targets, use_demo, default={})) or {}
+        for sig in sigs:
+            st.markdown(ui.render_signal_card(sig, heads.get(sym)), unsafe_allow_html=True)
+
+    # ── 최근 공시 ─────────────────────────────────────────────────────────
+    def part_filings() -> None:
+        rows = list(filings.get(key) or [])
+        st.markdown(ui.anchor("st-fil") + ui.render_section_head(
+            "최근 공시", "DART · SEC EDGAR — '새' 는 최근 7일 안의 주요 공시", None),
+            unsafe_allow_html=True)
+        html = ui.render_filing_list(rows)
+        st.markdown(html or ui.render_notice(
+            "공시 목록을 아직 못 받았거나 공시 대상이 아닙니다 (ETF 등)."),
+            unsafe_allow_html=True)
+
+    # ── 재무 기준 (후보와 같은 등) ────────────────────────────────────────
+    def part_checks() -> None:
+        st.markdown(ui.anchor("st-chk"), unsafe_allow_html=True)
+        if use_demo:
+            st.markdown(ui.render_section_head("재무 기준", "품질 · 가격 · 선행 EPS", None)
+                        + ui.render_notice("데모에는 수집기 파일이 없습니다."),
+                        unsafe_allow_html=True)
+            return
+        _render_holding_checks([inst], use_demo, market)
+
+    # ── 차트 ──────────────────────────────────────────────────────────────
+    def part_chart() -> None:
+        st.markdown(ui.anchor("st-cht") + ui.render_section_head(
+            "차트", f"일봉 지표의 지금 상태 — 기준은 {config.where('timing', market)}과 같음",
+            None), unsafe_allow_html=True)
+        row = None
+        got = load_chart_rows.peek(market, use_demo) if hasattr(load_chart_rows, "peek") else None
+        if got:
+            row = next((r for r in got if r.ticker == sym), None)
+        if row is None and not use_demo:
+            payload = load_universe(f"chart_{market}", use_demo) or {}
+            for d in payload.get("rows") or []:
+                r = chart_signals.row_from_dict(d)
+                if r is not None and r.ticker == sym:
+                    row = r
+                    break
+        if row is None:
+            st.markdown(ui.render_notice(
+                "차트 조건 값이 아직 없습니다 (ETF · 지수 밖 종목이거나 일봉을 받는 중)."),
+                unsafe_allow_html=True)
+        else:
+            st.markdown(ui.render_chart_table([row], limit=1), unsafe_allow_html=True)
+        if st.toggle("캔들 차트 보기 (일봉을 새로 받습니다)", value=False,
+                     key=f"stock_kchart_{market}"):
+            ohlc, err = load_chart_bars(market, sym, use_demo)
+            if not ohlc:
+                st.markdown(ui.render_notice(
+                    f"<b>일봉을 받지 못했습니다.</b> {_esc_plain(err)}"), unsafe_allow_html=True)
+            else:
+                bars = chart_signals.CHART_BARS[1]
+                series = chart_signals.chart_series(sym, inst.name, ohlc, int(bars))
+                link, link_name = _chart_link(sym, market)
+                st.markdown(ui.render_kchart(series, link=link, link_label=link_name),
+                            unsafe_allow_html=True)
+
+    # ── 수급 (한국) ───────────────────────────────────────────────────────
+    def part_flows() -> None:
+        st.markdown(ui.anchor("st-flw") + ui.render_section_head(
+            "수급 — 외국인 · 기관", "5일 · 20일 누적, 금액은 근사 — 수급 화면과 같은 값", None),
+            unsafe_allow_html=True)
+        codes = tuple(_kr_watch_codes(use_demo))
+        raw = (load_kr_flows(codes, use_demo) if use_demo
+               else _soft(load_kr_flows, codes, use_demo, default=None))
+        if raw is None:
+            st.markdown(ui.render_notice("수급을 받는 중입니다 — 받으면 자동으로 채워집니다."),
+                        unsafe_allow_html=True)
+            return
+        rows, src, err = raw.get(sym, ([], "", "받지 못함"))
+        one = flows.summarize(sym, rows, name=inst.name, source=src, error=err, held=held)
+        st.markdown(ui.render_flow_table([one]), unsafe_allow_html=True)
+
+    # ── 일정 ──────────────────────────────────────────────────────────────
+    def part_calendar() -> None:
+        st.markdown(ui.anchor("st-cal") + ui.render_section_head(
+            "일정", "앞으로 45일 — 이 종목의 실적 · 배당락 (전체는 "
+            f"{config.where('calendar', market)})", None), unsafe_allow_html=True)
+        events, _w, today = _calendar_events(data, use_demo, days=45, soft=True)
+        words = [w for w in (inst.name, sym) if w]
+        mine = [e for e in events if any(w in f"{e.title} {e.note}" for w in words)]
+        if not mine:
+            st.markdown(ui.render_notice("앞으로 45일 안에 이 종목의 일정이 없습니다."),
+                        unsafe_allow_html=True)
+            return
+        st.markdown(ui.render_calendar(mine, today, market=market, compact=True),
+                    unsafe_allow_html=True)
+
+    guard("변한 것", part_signals)
+    guard("최근 공시", part_filings)
+    guard("재무 기준", part_checks)
+    guard("차트", part_chart)
+    if market == "kr":
+        guard("수급", part_flows)
+    guard("일정", part_calendar)
+
+    doc = analysis_store.load_all(ANALYSIS_PATH, [key]).get(key) if inst.analysis_key else None
+    if doc is not None and not doc.is_empty:
+        st.markdown(ui.render_notice(
+            f"<b>공시 분석</b>이 있습니다 ({doc.generated or '날짜 없음'}) — "
+            f"{config.where('holdings', market)} 맨 아래 '공시 분석' 에서 엽니다."),
+            unsafe_allow_html=True)
 
 
 def _analysis_summary() -> str:
@@ -2100,8 +2307,10 @@ def render_picks_tab(use_demo: bool, *, market: str = "kr") -> None:
         f"<b>등</b> — 품질: 9개 기준 중 {'확인된 미달 2개 이하' if kr else '7개 이상 통과'} · "
         "가격: 역DCF 요구 성장률 ≤ 과거 (낮음=충족, 경계·판정 안 함=보통) · 선행 EPS: 90일 "
         "상향=충족, 보합·소폭 하향=보통 · <b>타이밍</b>: CCI · 스토캐스틱이 최근 3거래일 안에 "
-        "과매도로 들어감(순서에서는 맨 마지막 — 단독 효과가 약함, 찾기 › 차트 전략 실험 T). 한 종목의 자세한 근거는 찾기 › 근거, "
-        + ("차트 · 거래 패턴은 찾기 › 차트·거래" if kr else "차트는 찾기 › 차트")),
+        "과매도로 들어감(순서에서는 맨 마지막 — 단독 효과가 약함, "
+        f"{config.where('paper', market)}의 차트 전략 백테스트 T). 한 종목의 자세한 근거는 "
+        f"{config.where('basis', market)}, 차트는 {config.where('timing', market)}"
+        + (f", 거래 패턴은 {config.where('screener', market)}" if kr else "")),
         unsafe_allow_html=True)
     if out:
         with st.expander(f"관문에서 빠진 품질 통과 종목 {len(out)}개 — 이유", expanded=False):
@@ -2120,7 +2329,8 @@ def _picks_history_line(market: str, use_demo: bool) -> None:
     st.markdown(ui.render_legend(
         f"<b>후보 기록</b> {n}일치" + (f" ({first}부터)" if first else "")
         + " — 날마다 안정형 · 성장형 후보와 종가를 남깁니다. 4주 넘게 쌓이면 '후보에 오른 종목이 "
-        "이후 시장 대비 어땠나' 를 비교해 규칙을 고칩니다. 모의 매수 실험은 찾기 › 모의 매수."),
+        "이후 시장 대비 어땠나' 를 비교해 규칙을 고칩니다. 모의 매수 기록은 "
+        f"{config.where('paper', market)}."),
         unsafe_allow_html=True)
 
 
@@ -2144,7 +2354,7 @@ def _render_paper(market: str, use_demo: bool) -> None:
     # 규칙 — 두 줄에서 접히는 legend 대신 잘리지 않는 상자 (11/13 17:20 "밑에 글자 잘림")
     import growth  # noqa: PLC0415
     st.markdown(ui.render_rule_box("규칙", [
-        f"<b>무엇을</b> — 첫 회차(11/13 16:44)에 시장마다 찾기 › 후보의 <b>안정형 1~{paper.STABLE_N}위 · "
+        f"<b>무엇을</b> — 첫 회차(11/13 16:44)에 시장마다 후보 목록의 <b>안정형 1~{paper.STABLE_N}위 · "
         f"성장형 1~{paper.GROWTH_N}위</b>를 그대로 — 사람이 고르지 않고 그 회차의 후보 순서로 정함(11/13 당시 순서: 충족 수 → "
         "타이밍 → 선행 EPS → 가격 여유 · 성장형은 PEG. 11/17 부터 후보 탭은 타이밍을 맨 뒤로 — "
         "이미 산 묶음은 그대로). 이후 추가 매수 없음",
@@ -2385,36 +2595,56 @@ def render_basis_tab(data, fx, use_demo: bool, phone: bool = False, *,
             data, fx, use_demo, phone, market=market)
 
 
-def render_timing_tab(use_demo: bool, *, market: str = "kr") -> None:
-    """찾기 › 차트 (한 · 미) — 가격 패턴 참고용.
-
-    11/17 사용자 "차트·거래에서 거래 스크리너, 차트 조건은 나눠줘" — 한국 거래
-    스크리너는 자기 탭(찾기 › 거래 스크리너, render_screener_tab)으로 나가고, 여기는
-    차트만. 보기 셋: ① 후보 · 내 종목 위치(기본, 사용자 선택 A) ② 차트 조건 전체 목록
-    ③ 전략 실험(사용자 선택 C — 단순 보유보다 나은 변형 수 한 줄 + 위 2개, 나머지 접기).
-    """
-    st.markdown(ui.render_section_head(
-        f"차트 · {'한국' if market == 'kr' else '미국'}",
-        "참고용 — 가격 패턴만 봅니다 (재무 판단은 후보 · 근거에서)"),
-        unsafe_allow_html=True)
-    views = {"pos": "후보 · 내 종목 위치", "chart": "차트 조건 (전체 목록)", "test": "전략 실험"}
+def _view_pick(views: dict, key: str, default: str) -> str:
+    """화면 안의 보기 고르기 (가로 칸). 고른 칸을 다시 누르면 None 이 와서 기본값으로."""
     pick = None
     picker = getattr(st, "segmented_control", None)
     if picker is not None:
         try:
-            pick = picker("보기", list(views), default="pos", key=f"chart_view_{market}",
+            pick = picker("보기", list(views), default=default, key=key,
                           format_func=lambda k: views[k], label_visibility="collapsed")
+            if pick not in views:
+                pick = default
         except Exception:  # noqa: BLE001
             pick = None
     if pick not in views:
-        pick = st.radio("보기", list(views), horizontal=True, key=f"chart_view_r_{market}",
+        pick = st.radio("보기", list(views), horizontal=True, key=f"{key}_r",
                         format_func=lambda k: views[k], label_visibility="collapsed")
+    return pick if pick in views else default
+
+
+def render_timing_tab(use_demo: bool, *, market: str = "kr") -> None:
+    """차트 조건 (한 · 미) — 일봉 지표로 본 **지금 상태**. 참고용.
+
+    11/19 사용자: "차트 조건 · 거래 스크리너 · 실험은 일부러 나눈 것 — 묶어서 보되 확실히
+    분별 가게". 한 메뉴의 안쪽 탭 셋이 됐고, 이 화면은 '상태' 만 봅니다:
+    ① 후보 · 내 종목 위치(기본, 11/17 사용자 선택 A) ② 차트 조건 전체 목록.
+    과거에 돌려 본 결과(전략 백테스트)는 '검증' 이라 실험 화면으로 옮겼습니다.
+    """
+    st.markdown(ui.render_section_head(
+        f"차트 조건 · {'한국' if market == 'kr' else '미국'}",
+        "참고용 — 지금 차트가 어디쯤인지만 봅니다 (재무 판단은 후보 · 근거에서)"),
+        unsafe_allow_html=True)
+    views = {"pos": "후보 · 내 종목 위치", "chart": "전체 목록"}
+    pick = _view_pick(views, f"chart_view2_{market}", "pos")
     if pick == "chart":
         render_chart_tab(use_demo, market=market, today=False)
-    elif pick == "test":
-        _render_backtest(market, use_demo)
     else:
         _render_chart_position(market, use_demo)
+
+
+def render_lab_tab(use_demo: bool, *, market: str = "kr") -> None:
+    """실험 (한 · 미) — 규칙이 통했는지 **검증한 기록**. 실제 매매가 아닙니다 (11/19).
+
+    둘을 한 화면에: ① 모의 매수(후보 규칙을 가상으로 사고판 기록, 11/13)
+    ② 차트 전략 백테스트(CCI · −DMI · OBV 규칙을 과거 1년 일봉에, 11/13).
+    """
+    views = {"paper": "모의 매수 (후보 규칙)", "test": "차트 전략 백테스트"}
+    pick = _view_pick(views, f"lab_view_{market}", "paper")
+    if pick == "test":
+        _render_backtest(market, use_demo)
+    else:
+        _render_paper(market, use_demo)
 
 
 def _render_chart_position(market: str, use_demo: bool) -> None:
@@ -2475,7 +2705,8 @@ def _render_chart_position(market: str, use_demo: bool) -> None:
         "기준은 '차트 조건 (전체 목록)' 과 같음) · <b>과매도 진입</b> = 최근 3봉 안에 기준선 아래로(후보 "
         "'타이밍' 꼬리표와 같은 판정) · <b>20일선 대비</b> = 종가 ÷ 20일 이동평균 − 1 · "
         "<b>참고</b> — 지난 1년 백테스트에서 이 신호들이 종목 고르기에 보탠 차이는 작았습니다"
-        "(전략 실험 · T 카드). 시장 전체가 과매도 쪽으로 쏠린 날에는 '과매도 쪽' 이 흔해서 구별력이 "
+        f"({config.where('paper', market)}의 차트 전략 백테스트 · T 카드). 시장 전체가 과매도 "
+        "쪽으로 쏠린 날에는 '과매도 쪽' 이 흔해서 구별력이 "
         "더 낮습니다."), unsafe_allow_html=True)
 
 
@@ -2487,7 +2718,7 @@ def _render_backtest(market: str, use_demo: bool) -> None:
     res = bt.get(market) or {}
     win = res.get("window") or {}
     st.markdown(ui.render_section_head(
-        "차트 전략 실험",
+        "차트 전략 백테스트",
         f"과거 일봉 백테스트 · 기간 {win.get('from', '—')} ~ {win.get('to', '—')} · 후보 "
         f"{res.get('n_syms', 0)}종목 · 계산 {_when_kst(bt.get('made'))} · 출처 "
         f"{'네이버 금융' if market == 'kr' else 'Yahoo Finance'} 일봉"), unsafe_allow_html=True)
@@ -2833,7 +3064,7 @@ def _discover_us(use_demo: bool) -> None:
             "낮음(할인율 8~12% 전 구간에서 요구 ≤ 과거) · 경계(10% 에서만 성립) · 판정 안 함은 남김 · "
             f"③ <b>선행 EPS 90일</b> −{abs(config.EPS_DOWN_WARN) * 100:g}% 이하 · <b>실적 추세 악화</b>"
             "(매출 · 영업이익 3년 연속 동반 감소)를 뺌 — 업종 · 통과 수를 기본값으로 두면 ③ 의 수가 "
-            "찾기 › 후보 수와 같음 · 과거 성장률은 앞 3년 평균 → 뒤 3년 평균, "
+            "후보 목록의 수와 같음 · 과거 성장률은 앞 3년 평균 → 뒤 3년 평균, "
             f"연 {config.FUNNEL_HIST_GROWTH_CAP * 100:g}% 까지만 인정 · FCF 에서 주식보상비용 차감 · "
             "금융업은 판정하지 않음 · "
             "<b>선행 EPS 90일</b> = 향후 12개월 EPS 추정(애널리스트 평균 · 야후)이 90일 전보다 "
@@ -2968,7 +3199,7 @@ def _kr_quality_block(use_demo: bool) -> None:
         f"과거 실제 성장률(연 {config.FUNNEL_HIST_GROWTH_CAP * 100:g}% 까지만 인정)을 넘는 '높음' 만 뺌 · 낮음 · "
         "경계 · 판정 안 함은 남김) · ③ <b>선행 EPS 90일</b> "
         f"−{abs(config.EPS_DOWN_WARN) * 100:g}% 이하 · <b>실적 추세 악화</b>(매출 · 영업이익 3년 연속 동반 "
-        "감소)를 뺌 — ③ 의 수 = 찾기 › 후보 수 · "
+        "감소)를 뺌 — ③ 의 수 = 후보 목록의 수 · "
         f"<b>선행 EPS 90일</b> = 향후 12개월 EPS 추정(야후)의 90일 변화"),
         unsafe_allow_html=True)
     stage = _stage_now("disc_kr_stage")
@@ -3315,7 +3546,7 @@ def _render_skill_buttons(code: str, name: str, cli) -> None:
                         skill_commands=st.session_state.get("skill_commands"),
                     )
                     st.rerun()
-        st.caption(f"이 컴퓨터에서 바로 실행합니다 ({cli.label}). "
+        st.caption(f"이 컴퓨터에서 바로 실행합니다 ({cli.summary}). "
                    "결과는 `analysis/` 폴더에 쌓이고 '공시 분석' 탭에서 읽힙니다.")
     else:
         st.caption(
@@ -3804,24 +4035,6 @@ def _calendar_events(data, use_demo: bool, days: int = 45, soft: bool = False):
     return events, warns, today
 
 
-def _render_upcoming(data, use_demo: bool, market: str) -> None:
-    """요약 — 앞으로 7일의 중요한 일정 (실패해도 요약은 계속)."""
-    try:
-        events, _w, today = _calendar_events(data, use_demo, days=7, soft=True)
-        # 중요한 것 + 고른 시장의 이틀 안 일정(월물 만기처럼 평소엔 작은 것도)
-        top = [e for e in events if e.importance >= 2
-               or (e.market == market and (e.day - today).days <= 2)][:6]
-        if not top:
-            return
-        st.markdown(ui.render_section_head(
-            "다가오는 일정", "앞으로 7일 — 전체는 '주요 일정'", len(top)),
-            unsafe_allow_html=True)
-        st.markdown(ui.render_calendar(top, today, market=market, compact=True),
-                    unsafe_allow_html=True)
-    except Exception:  # noqa: BLE001
-        pass
-
-
 def render_calendar_tab(data, use_demo: bool, *, market: str = "kr") -> None:
     """주요 일정 — 통화정책 · 지표 발표 · 만기 · 휴장 · 실적, 앞으로 45일.
 
@@ -3871,27 +4084,6 @@ def render_calendar_tab(data, use_demo: bool, *, market: str = "kr") -> None:
                     unsafe_allow_html=True)
 
 
-def _render_news_must(use_demo: bool) -> None:
-    """요약 — 오늘 꼭 읽을 뉴스 (11/16). 기다리지 않습니다: 아직 없으면 한 줄만."""
-    try:
-        got = (load_sector_news(use_demo) if use_demo
-               else _soft(load_sector_news, use_demo, default=None))
-        if got is None:
-            st.markdown(ui.render_section_head("오늘 꼭 읽을 뉴스", "받는 중", None),
-                        unsafe_allow_html=True)
-            return
-        must, worth = _news_triage(got[0], use_demo)
-        st.markdown(ui.render_section_head(
-            "오늘 꼭 읽을 뉴스",
-            f"사건 종류 · 내 종목 기준 · 볼 만함 {len(worth)}건은 한국 › 뉴스", len(must)),
-            unsafe_allow_html=True)
-        labels = {k: lbl for k, lbl, _q in config.KR_SECTORS}
-        st.markdown(ui.render_news_triage(must, [], labels, compact=True),
-                    unsafe_allow_html=True)
-    except Exception:  # noqa: BLE001 - 요약은 이것 때문에 깨지면 안 됩니다
-        return
-
-
 def _render_daily_briefs(use_demo: bool, market: str) -> None:
     """전일 장 브리핑 — 고른 시장이 먼저, 다른 시장이 그다음.
 
@@ -3914,15 +4106,15 @@ def _render_daily_briefs(use_demo: bool, market: str) -> None:
                       for m in order}
         st.markdown(
             ui.render_section_head(
-                "전일 장 브리핑", "마지막으로 마감한 거래일 — 숫자만, 해석 없이",
-                len(order)),
+                "전일 장 마감 숫자", "마지막으로 마감한 거래일 — 일봉에서 뽑은 숫자만, 해석 없이",
+                None),
             unsafe_allow_html=True,
         )
         for m in order:
             brief = briefs.get(m)
             if brief is None:
                 st.markdown(ui.render_notice(
-                    f"<b>{config.MARKETS.get(m, m)} 전일 브리핑을 받는 중입니다.</b> "
+                    f"<b>{config.MARKETS.get(m, m)} 전일 장 숫자를 받는 중입니다.</b> "
                     "받으면 자동으로 채워집니다."), unsafe_allow_html=True)
                 continue
             key = config.DAILY_BRIEF[m]["news"][0]
@@ -3941,7 +4133,7 @@ def _render_daily_briefs(use_demo: bool, market: str) -> None:
         )
     except Exception as exc:  # noqa: BLE001
         st.markdown(ui.render_notice(
-            f"<b>전일 장 브리핑을 그리지 못했습니다.</b> {type(exc).__name__}"),
+            f"<b>전일 장 마감 숫자를 그리지 못했습니다.</b> {type(exc).__name__}"),
             unsafe_allow_html=True)
 
 
@@ -4056,7 +4248,7 @@ def render_supply_tab(use_demo: bool) -> None:
     held = _kr_held_codes(use_demo)
     names = _kr_name_map()
     mine = _kr_watch_codes(use_demo)
-    wide = st.toggle("차트 조건 후보 전체 (약 50종목 — 처음 30~60초)",
+    wide = st.toggle(f"심사 대상 전체도 보기 (약 {len(config.chart_candidates('kr'))}종목 — 오래 걸림)",
                      value=False, key="supply_wide")
     codes = list(mine)
     if wide:
@@ -5835,7 +6027,7 @@ def _fetched_line(times: dict, now: float | None = None) -> str:
     """
     now = time.time() if now is None else now
     today = dt.datetime.fromtimestamp(now, KST).date()
-    chips = []
+    chips, old, oldest_all = [], [], None
     for name, label in FETCH_LABELS.items():
         if name not in times:
             continue
@@ -5844,14 +6036,28 @@ def _fetched_line(times: dict, now: float | None = None) -> str:
         clock = (f"{when:%H:%M}" if when.date() == today
                  else f"{when.month}/{when.day:02d} {when:%H:%M}")
         age = max(0.0, now - oldest)
+        if oldest_all is None or oldest < oldest_all[0]:
+            oldest_all = (oldest, clock)
         if age >= FETCH_OLD_SEC:
-            chips.append(f'<span class="old">{label} {clock} '
-                         f'<i>{_age_text(age)} 전</i></span>')
+            chip = (f'<span class="old">{label} {clock} '
+                    f'<i>{_age_text(age)} 전</i></span>')
+            old.append(chip)
         else:
-            chips.append(f"<span>{label} {clock}</span>")
+            chip = f"<span>{label} {clock}</span>"
+        chips.append(chip)
     if not chips:
         return ""
-    return ('<div class="dash-times"><b>받은 시각</b>' + "".join(chips) + "</div>")
+    # 11/19: 한 줄로 접습니다 — 휴대폰에서 이 줄이 여섯 줄을 차지해 본문을 밀어냈습니다.
+    # 접힌 줄에는 **오래된 것만**(없으면 '모두 최근') 적고, 누르면 전부 나옵니다
+    # (11/12 "모든 지표 언제 받았는지" 는 그대로 — 한 번 눌러서 봅니다).
+    if old:
+        head = f"<span>오래된 것 {len(old)}</span>" + "".join(old[:3])
+        if len(old) > 3:
+            head += f"<span>외 {len(old) - 3}</span>"
+    else:
+        head = f"<span>{len(chips)}개 모두 최근 (가장 이른 것 {oldest_all[1]})</span>"
+    return ('<details class="dash-times"><summary><b>받은 시각</b>' + head + "</summary>"
+            '<div class="dt-all">' + "".join(chips) + "</div></details>")
 
 
 def _soft(loader, *args, default):
@@ -6032,7 +6238,8 @@ def render_signals_tab(data: dict[str, dict[str, Quote]], use_demo: bool,
             if (cli.available and not sig.aggregate
                     and sig.kind in ("new_filing", "stale", "never", "partial")
                     and sig.inst.analysis_key):
-                st.caption(f"또는 '공시 분석' 탭에서 {sig.inst.name} 를 바로 실행할 수 있습니다.")
+                st.caption(f"또는 이 화면 맨 아래 '공시 분석' 에서 {sig.inst.name} 를 바로 "
+                           "실행할 수 있습니다.")
 
     for sig in urgent:
         draw(sig, st)
@@ -6728,12 +6935,13 @@ SECTION_LOADING = {
     "summary": "요약 — 시세·공포탐욕·VIX·FRED 를 불러옵니다 (처음 10~30초)",
     "holdings": "내 종목 — 시세와 공시를 불러옵니다 (처음 10~30초)",
     "briefing": "아침 브리핑 — 오늘 아침 글을 받습니다",
+    "stock": "종목 상세 — 시세 · 공시 · 수급 · 차트를 한 종목에 모읍니다 (처음 10~30초)",
     "discover": "종목 발굴 — 아침 수집기가 심사해 둔 결과를 읽습니다",
     "screener": "거래 스크리너 — 아침 수집기가 심사해 둔 결과를 읽습니다",
     "picks": "후보 — 수집기 파일을 읽습니다",
     "basis": "근거 — 수집기 파일을 읽습니다",
-    "timing": "차트 — 수집기 파일을 읽습니다 (차트 전체 목록은 처음 10~30초)",
-    "paper": "모의 매수 — 수집기 파일을 읽습니다",
+    "timing": "차트 조건 — 수집기 파일을 읽습니다 (전체 목록은 처음 10~30초)",
+    "paper": "실험 — 모의 매수 · 차트 전략 백테스트 기록을 읽습니다",
     "macro": "매크로 — FRED 13종·VIX·공포탐욕 (처음 10~20초)",
     "chart": "차트 조건 — 후보 종목의 1년 일봉 (처음 10~30초)",
     "research": "산업 리포트 — 증권사 리포트 목록 (처음 5~10초)",
@@ -6874,9 +7082,24 @@ def _section_jobs(section: str, market: str, use_demo: bool) -> dict:
             tuple(i.symbol for i in config.SECTION_WATCHLIST.instruments
                   if i.source == "yahoo"), use_demo)
     elif section == "briefing":
-        jobs["아침 브리핑"] = lambda: load_remote_briefings(use_demo)
+        jobs.update({
+            "아침 브리핑": lambda: load_remote_briefings(use_demo),
+            "전일 브리핑 (한국)": lambda: load_daily_brief("kr", use_demo),
+            "전일 브리핑 (미국)": lambda: load_daily_brief("us", use_demo),
+            "마감 기사": lambda: load_close_headlines(use_demo),
+            "시황 리포트": lambda: load_research("market", use_demo),
+        })
     elif section == "holdings":
         jobs["일봉 (차트 조건)"] = lambda: load_chart_rows(market, use_demo)
+    elif section == "stock":
+        jobs.update({
+            "미국 공시": lambda: load_filings(use_demo),
+            "국내 공시": lambda: load_dart_disclosures(use_demo, dfp),
+            "발표 일정": lambda: load_release_dates(use_demo, ffp),
+        })
+        if market == "kr":
+            jobs["수급"] = lambda: load_kr_flows(
+                tuple(_kr_watch_codes(use_demo)), use_demo)
     elif section == "chart":
         jobs["일봉 (차트 조건)"] = lambda: load_chart_rows(market, use_demo)
     elif section == "screener" or (section == "discover" and market == "kr"):
@@ -7021,9 +7244,7 @@ def _mobile_nav(market: str, labels: dict) -> None:
     if pop is None:
         return
     cur = _peek_section(market)
-    groups = config.tab_groups(market)
-    gname = next((g for g, items in groups if any(k == cur for k, _l in items)), "")
-    label = f"{gname} › {labels.get(cur, cur)}   ·   다른 화면"
+    label = f"{config.where(cur, market)}   ·   다른 메뉴"
     try:
         box = st.container(key="mnav_bar")
     except TypeError:                      # key 를 못 받는 예전 스트림릿
@@ -7047,24 +7268,27 @@ def _nav_button(label: str, key: str, active: bool, on_click, args) -> None:
 
 
 def _section_nav(market: str, labels: dict, *, mobile: bool = False) -> str:
-    """왼쪽 섹션 목록 — **진짜 버튼**으로 그립니다. 고른 섹션 키를 돌려줍니다.
+    """왼쪽 메뉴 — **진짜 버튼**으로 그립니다. 지금 화면 key 를 돌려줍니다.
+
+    2026-11-19: 버튼 하나가 화면 하나가 아니라 **메뉴(묶음) 하나**입니다 (16칸 → 7칸).
+    메뉴를 누르면 그 메뉴의 첫 화면으로 가고, 메뉴 안의 다른 화면은 본문 위 안쪽 탭
+    (_sub_nav)으로 고릅니다. 화면 key 와 주소(?s=)는 그대로입니다.
 
     2026-11-11: 라디오를 CSS 로 목록처럼 꾸몄는데 실제 앱에서는 버튼
-    모양이 안 보였습니다. 동그라미를 숨기고 나니 선택 안 된 항목은 그냥
-    글자였고, 선택 표시는 스트림릿 내부 구조(:has(input:checked))에
-    기대고 있어 보장이 없었습니다. 스트림릿 버튼은 테마가 직접 그리므로
-    테두리가 항상 보이고, 지금 섹션은 남색으로 채워집니다.
+    모양이 안 보였습니다. 스트림릿 버튼은 테마가 직접 그리므로
+    테두리가 항상 보이고, 지금 메뉴는 묶음 색으로 채워집니다.
     """
     key = f"nav_{market}"
     groups = config.tab_groups(market)
     ordered = [k for _g, items in groups for k, _l in items]
     cur = _peek_section(market)
     st.session_state[key] = cur
+    cur_gi = config.menu_of(market, cur)
 
     def pick(k: str) -> None:
         st.session_state[key] = k
 
-    # 묶음마다 옅은 색 (11/13) — 표식과 같은 칸에 규칙을 실어 요소를 늘리지 않습니다
+    # 메뉴마다 옅은 색 (11/13) — 표식과 같은 칸에 규칙을 실어 요소를 늘리지 않습니다
     import theme  # noqa: PLC0415
 
     sfx = "_m" if mobile else ""          # 폰 접는 메뉴(11/13 19:43)는 버튼 key 를 따로
@@ -7074,20 +7298,54 @@ def _section_nav(market: str, labels: dict, *, mobile: bool = False) -> str:
     for gi, (gname, items) in enumerate(groups):
         if not items:
             continue
-        if gi:
-            # 폰에서 묶음마다 새 줄로 (11/13) — PC 에서는 CSS 로 숨김
-            st.markdown('<div class="dash-navbr"></div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="dash-navhead"><i style="--dot:{theme.group_tone(gi)[3]}">'
-                    f"</i>{gname}</div>", unsafe_allow_html=True)
-        for k, _lbl in items:
-            _nav_button(labels.get(k, k), f"navbtn_{market}_{k}{sfx}",
-                        k == cur, pick, (k,))
+        first = items[0][0]
+        _nav_button(gname, f"navbtn_{market}_{first}{sfx}", gi == cur_gi, pick, (first,))
     try:
         if st.query_params.get("s") != cur:
             st.query_params["s"] = cur
     except Exception:  # noqa: BLE001
         pass
     return cur if cur in ordered else ordered[0]
+
+
+def _sub_pick(market: str, wkey: str, keys: tuple) -> None:
+    """안쪽 탭을 눌렀을 때 — 고른 화면을 내비 상태에 적습니다 (다음 실행이 그걸 읽음)."""
+    val = st.session_state.get(wkey)
+    if val in keys:
+        st.session_state[f"nav_{market}"] = val
+
+
+def _sub_nav(market: str, active: str) -> None:
+    """본문 위 안쪽 탭 — 지금 메뉴에 화면이 둘 이상일 때만 (11/19).
+
+    고른 칸을 다시 누르면 segmented_control 이 None 을 돌려주는데, 그때는 내비 상태를
+    건드리지 않고(_sub_pick) 다음 실행에서 지금 화면으로 다시 맞춥니다.
+    """
+    groups = config.tab_groups(market)
+    gi = config.menu_of(market, active)
+    keys = tuple(k for k, _l in groups[gi][1]) if groups else ()
+    if len(keys) < 2:
+        return
+    names = {k: config.subtab_label(k, market) for k in keys}
+    wkey = f"subnav_{market}_{gi}"
+    st.markdown('<div class="dash-submark"></div>', unsafe_allow_html=True)
+    picker = getattr(st, "segmented_control", None)
+    if picker is not None:
+        try:
+            if st.session_state.get(wkey) != active:
+                st.session_state[wkey] = active
+            picker("화면", list(keys), key=wkey, format_func=lambda k: names[k],
+                   label_visibility="collapsed", on_change=_sub_pick,
+                   args=(market, wkey, keys))
+            return
+        except Exception:  # noqa: BLE001 - 위젯 인자는 버전마다 다릅니다
+            pass
+    rkey = wkey + "_r"
+    if st.session_state.get(rkey) != active:
+        st.session_state[rkey] = active
+    st.radio("화면", list(keys), horizontal=True, key=rkey,
+             format_func=lambda k: names[k], label_visibility="collapsed",
+             on_change=_sub_pick, args=(market, rkey, keys))
 
 
 def _peek_market() -> str:
@@ -7193,7 +7451,7 @@ def render_body(opts: dict) -> None:
 
     st.markdown(
         ui.render_topbar(
-            "주식 대시보드", "야간 대체시세 · 시장 지표 · 관심종목", clock,
+            "주식 대시보드", "내 종목 · 후보 · 시장 · 반도체", clock,
             market_label=f"{config.MARKETS.get(_peek_market(), '')} 시장"),
         unsafe_allow_html=True,
     )
@@ -7249,10 +7507,20 @@ def render_body(opts: dict) -> None:
         _groups = config.tab_groups(market)
         _gi = next((i for i, (_g, items) in enumerate(_groups)
                     if any(k == active for k, _l in items)), 0)
+        _multi = bool(_groups) and len(_groups[_gi][1]) > 1
+        # 구역 제목 띠의 색 — 메뉴 색이 기본, '차트 조건 · 거래 스크리너 · 실험' 은 화면마다 따로
         st.markdown(
-            f"<style>{theme.group_vars_css(_gi)}</style>"
-            f'<div class="dash-crumb"><span>{_groups[_gi][0] if _groups else ""} ›</span>'
-            f"{labels.get(active, active)}</div>", unsafe_allow_html=True)
+            f"<style>{theme.group_vars_css(_gi)}{theme.kind_vars_css(active)}</style>"
+            f'<div class="dash-crumb{"" if _multi else " solo"}">'
+            f'<span>{_groups[_gi][0] if _groups else ""}{" ›" if _multi else ""}</span>'
+            f'{config.subtab_label(active, market) if _multi else ""}</div>',
+            unsafe_allow_html=True)
+        # 안쪽 탭 — 메뉴 안의 다른 화면 (11/19, 메뉴 16칸 → 7칸)
+        _sub_nav(market, active)
+        _kinds = ui.render_screen_kinds(
+            active, [k for k, _l in _groups[_gi][1]] if _groups else [])
+        if _kinds:
+            st.markdown(_kinds, unsafe_allow_html=True)
         if opts["demo"]:
             st.markdown(ui.render_demo_banner(), unsafe_allow_html=True)
 
@@ -7267,6 +7535,10 @@ def render_body(opts: dict) -> None:
                                     market=market)
             elif active == "briefing":
                 render_briefing_tab(opts["demo"])
+                # 전일 장 숫자 — 11/19 요약에서 이리로 (아침 브리핑은 글, 이건 일봉 숫자)
+                _render_daily_briefs(opts["demo"], market)
+            elif active == "stock":
+                render_stock_tab(data, fx, opts["demo"], market=market)
             elif active == "discover":
                 render_discover_tab(opts["demo"], market=market)
             elif active == "screener":
@@ -7278,7 +7550,7 @@ def render_body(opts: dict) -> None:
             elif active == "timing":
                 render_timing_tab(opts["demo"], market=market)
             elif active == "paper":
-                _render_paper(market, opts["demo"])
+                render_lab_tab(opts["demo"], market=market)
             elif active == "valuation":
                 render_valuation_tab(data, fx, opts["demo"], opts["phone"],
                                      market=market)

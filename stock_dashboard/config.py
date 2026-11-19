@@ -1034,7 +1034,7 @@ SECTION_WATCHLIST = Section(
     key="watchlist",
     title="관심종목",
     short="관심종목",
-    subtitle="클릭하면 야후·네이버 종목 페이지로 이동",
+    subtitle="이름 = 야후·네이버 종목 페이지 · '상세 ›' = 이 종목만 모아 보기",
     columns=3,
     instruments=(
         Instrument("Microsoft", "MSFT", "yahoo", "NASDAQ", "USD",
@@ -1128,6 +1128,7 @@ TAB_ORDER: tuple[str, ...] = (
     "summary",      # 요약 — 지금 알아야 할 것만
     "briefing",     # 아침 브리핑 — 예약 작업이 매일 쓰는 미국장 글 (11/13, 매크로에서 옮김)
     "holdings",     # 내가 가진 종목 — 변화 감지 + 시세 + 공시 분석
+    "stock",        # 종목 상세 — 종목 하나를 한 페이지에서 (11/19)
     "picks",        # 후보 — 한국, 품질 · 가격 · 선행 EPS 세 등 + 타이밍 꼬리표 (11/13)
     "basis",        # 근거 — 한국, 한 종목의 9개 기준 · 역DCF · EPS + 품질 깔때기 · 밸류에이션 (11/13)
     "timing",       # 차트 — 후보 · 내 종목 위치 · 차트 조건 전체 목록 · 전략 실험 (11/13, 참고용 · 11/17 차트만)
@@ -1204,25 +1205,54 @@ SECTIONS_MERGED_INTO: dict[str, str] = {
 #: 나란히 봐야 의미가 있고, 매크로(금리·환율·유가·VIX)는 어느 시장을
 #: 보든 같은 배경입니다.
 MARKET_TABS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
+    # 2026-11-19 구조 점검(프로젝트 문서 '대시보드-구조-점검') → 사용자 승인: 메뉴 16칸 → 7칸.
+    # **묶음 하나가 왼쪽 메뉴 한 칸**이고, 묶음 안의 화면들은 본문 위 '안쪽 탭' 으로 고릅니다.
+    # 화면 key 와 주소(?s=…)는 그대로라 예전 즐겨찾기가 그대로 열립니다.
+    # 묶는 기준은 '무엇을 계산했나' 가 아니라 '무엇을 보나' 입니다.
     "kr": (
-        # 11/13 17:03 사용자 "아침 브리핑을 공통으로" — 미국장 글이라 시장과 무관
-        ("오늘", ("summary", "holdings")),
-        # 2026-11-13: 5칸 → 3칸. 품질 깔때기 · 밸류에이션은 '근거' 안, 거래 스크리너 ·
-        # 차트 조건은 '차트·거래' 안 (스위치). 17:04 모의 매수를 탭으로 뺌.
-        # 11/17 사용자 "차트·거래에서 거래 스크리너, 차트조건은 나눠줘" → 차트 · 거래 스크리너 두 칸
-        ("찾기", ("picks", "basis", "timing", "screener", "paper")),
-        ("한국 시장", ("sector_heat", "supply", "research", "semi_research",
-                   "kr_flows")),
-        ("공통", ("briefing", "calendar", "macro", "cycle")),
+        ("오늘", ("summary",)),
+        ("내 종목", ("holdings", "stock", "supply")),
+        ("후보", ("picks", "basis")),
+        ("시장", ("sector_heat", "macro", "calendar")),
+        ("반도체", ("cycle", "semi_research")),
+        ("읽기", ("briefing", "kr_flows", "research")),
+        # 사용자(11/19): "일부러 나눈 것 — 묶어서 보되 확실히 분별 가게". 한 칸에 모으되
+        # 안쪽 탭마다 '무엇을 하는 화면인가' 띠(SCREEN_KINDS)를 답니다.
+        ("차트 · 스크리너 · 실험", ("timing", "screener", "paper")),
     ),
     "us": (
-        ("오늘", ("summary", "holdings")),
-        # 2026-11-13 한국과 같은 칸. 거래 스크리너는 한국만이라 셋째 칸 이름은 '차트'.
-        ("찾기", ("picks", "basis", "timing", "paper")),
-        ("미국 시장", ("macro", "us_flows")),
-        ("공통", ("briefing", "calendar", "cycle")),
+        ("오늘", ("summary",)),
+        ("내 종목", ("holdings", "stock")),
+        ("후보", ("picks", "basis")),
+        ("시장", ("macro", "us_flows", "calendar")),
+        ("반도체", ("cycle",)),
+        ("읽기", ("briefing",)),
+        ("차트 · 실험", ("timing", "paper")),
     ),
 }
+
+#: 안쪽 탭에 적는 이름 — 메뉴 이름과 겹치지 않게, 그 화면이 '무엇' 인지로 적습니다.
+#: 없으면 SPECIAL_TAB_LABELS 의 이름을 그대로 씁니다.
+SUBTAB_LABELS: dict[str, str] = {
+    "holdings": "전체",
+    "stock": "종목 상세",
+    "picks": "후보 목록",
+    "basis": "근거",
+    "timing": "차트 조건",
+    "paper": "실험",
+}
+
+#: '차트 · 스크리너 · 실험' 세 화면이 서로 무엇이 다른가 (11/19 사용자: "확실히 분별 가게").
+#: (key, 한 낱말, 무엇을 보여주나, 무엇이 아닌가). 화면 맨 위 띠에 셋을 나란히 적고
+#: 지금 화면만 진하게 합니다 — 한 화면만 봐도 나머지 둘과의 차이가 보이게.
+SCREEN_KINDS: tuple[tuple[str, str, str, str], ...] = (
+    ("timing", "상태", "일봉 지표로 본 지금 차트 위치",
+     "종목을 고르는 화면이 아닙니다"),
+    ("screener", "목록", "가격 · 거래량 규칙에 걸린 종목",
+     "재무는 보지 않습니다 (후보와 다른 목록)"),
+    ("paper", "검증", "규칙대로 가상으로 사고판 기록",
+     "실제 매매가 아닙니다"),
+)
 
 #: 한국 찾기를 3칸으로 줄이며(11/13) 옮긴 탭 — 예전 주소(?s=discover 등)로 들어오면 여기로
 KR_TAB_MOVED: dict[str, str] = {"discover": "basis", "valuation": "basis", "chart": "timing"}
@@ -1230,7 +1260,7 @@ KR_TAB_MOVED: dict[str, str] = {"discover": "basis", "valuation": "basis", "char
 TAB_MOVED: dict[str, dict[str, str]] = {"kr": KR_TAB_MOVED,
                                         "us": {**KR_TAB_MOVED, "screener": "timing"}}
 #: 시장마다 다른 탭 이름 (11/17 부터 한 · 미 모두 '차트' — 거래 스크리너가 따로 나감)
-MARKET_TAB_LABELS: dict[str, dict[str, str]] = {"us": {"timing": "차트"}}
+MARKET_TAB_LABELS: dict[str, dict[str, str]] = {}
 
 #: 처음 열었을 때의 시장
 DEFAULT_MARKET = "kr"
@@ -1240,12 +1270,13 @@ SPECIAL_TAB_LABELS = {
     "summary": "요약",
     "briefing": "아침 브리핑",
     "holdings": "내 종목",
+    "stock": "종목 상세",
     "discover": "품질 깔때기",
     "screener": "거래 스크리너",
     "picks": "후보",
     "basis": "근거",
-    "timing": "차트",
-    "paper": "모의 매수",
+    "timing": "차트 조건",
+    "paper": "실험",
     "macro": "매크로",
     "sector_heat": "섹터 온도",
     "kr_flows": "뉴스 · 공시 · 지표",
@@ -1838,6 +1869,42 @@ def tab_groups(market: str = "kr") -> list[tuple[str, list[tuple[str, str]]]]:
         if items:
             out.append((group, items))
     return out
+
+
+def subtab_label(key: str, market: str = "kr") -> str:
+    """안쪽 탭 이름 — SUBTAB_LABELS 가 먼저, 없으면 화면 이름."""
+    return SUBTAB_LABELS.get(key) or market_labels(market).get(key, key)
+
+
+def menu_of(market: str, key: str) -> int:
+    """그 화면이 들어 있는 메뉴(묶음)의 순번. 없으면 0."""
+    for gi, (_g, items) in enumerate(tab_groups(market)):
+        if any(k == key for k, _l in items):
+            return gi
+    return 0
+
+
+def where(key: str, market: str = "kr") -> str:
+    """화면 안내 문구에 적을 위치 — '메뉴 › 화면' (메뉴에 화면이 하나면 메뉴 이름만).
+
+    문구에 위치를 손으로 적으면 메뉴를 옮길 때마다 낡습니다 (11/19 점검에서 없는 탭을
+    가리키는 안내가 넷 나왔습니다). 그래서 여기서 만듭니다."""
+    for gname, items in tab_groups(market):
+        keys = [k for k, _l in items]
+        if key in keys:
+            return gname if len(keys) == 1 else f"{gname} › {subtab_label(key, market)}"
+    other = "us" if market == "kr" else "kr"
+    if market in MARKETS and key in market_tab_keys(other):
+        return f"{MARKETS[other]} 시장 · {where(key, other)}"
+    return market_labels(market).get(key, key)
+
+
+def screen_href(market: str, key: str, **extra: str) -> str:
+    """앱 안의 다른 화면으로 가는 주소 (?m=kr&s=picks). 값은 화면 key · 종목코드뿐입니다."""
+    from urllib.parse import urlencode  # noqa: PLC0415
+    q = {"m": market, "s": key}
+    q.update({k: v for k, v in extra.items() if v})
+    return "?" + urlencode(q)
 
 
 def market_tab_keys(market: str) -> list[str]:

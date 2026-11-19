@@ -404,7 +404,13 @@ import discover as _disc  # noqa: E402
 _tabs = dict(config.tab_labels())
 # 2026-11-11: 시장이 최상위 축이 되면서 탭이 '시장마다 다른 목록' 이
 # 됐습니다. 전체 목록은 두 시장의 합집합이고, 시장마다 보이는 게 다릅니다.
-check_true("전체 탭 17개 (11/13 찾기 + 17:04 모의 매수 탭 · 11/17 한국 거래 스크리너를 차트에서 다시 나눔 · 품질 깔때기 · 밸류에이션은 근거 안 · 차트 조건은 차트 안 · 실적 탭은 내 종목으로)", len(_tabs) == 17, f"{len(_tabs)}개: {list(_tabs)}")
+check_true("전체 화면 18개 (11/13 찾기 + 17:04 모의 매수 · 11/17 한국 거래 스크리너를 차트에서 다시 나눔 · 품질 깔때기 · 밸류에이션은 근거 안 · 차트 조건은 차트 안 · 실적 탭은 내 종목으로 · 11/19 종목 상세 추가)", len(_tabs) == 18, f"{len(_tabs)}개: {list(_tabs)}")
+# 11/19 구조 점검 → 사용자 승인: 화면은 18개 그대로 두고 **메뉴만 7칸**으로 묶음
+check_true("메뉴는 시장마다 7칸 — 화면 수와 다르다",
+           all(len(config.tab_groups(_m7)) == 7 for _m7 in ("kr", "us")),
+           str({_m7: [g for g, _i in config.tab_groups(_m7)] for _m7 in ("kr", "us")}))
+check_true("종목 상세 화면이 두 시장의 '내 종목' 메뉴에 있다",
+           all("stock" in dict(config.MARKET_TABS[_m7])["내 종목"] for _m7 in ("kr", "us")))
 for _need in ("summary", "holdings", "picks", "basis", "sector_heat",
               "kr_flows", "macro", "us_flows", "cycle"):
     check_true(f"탭 '{_need}' 이 있다", _need in _tabs, str(list(_tabs)))
@@ -628,11 +634,29 @@ _rd2 = _macro.build_readings(config.macro_series(), _ser2, _err2)
 
 _s2 = _sm.build(urgent=[], soon=[], holdings_total=9, fg=_fg2,
                 vix_state=_vx2, trends=_tr2, macro_readings=_rd2)
-check_true("요약 네 줄", len(_s2.rows) == 4, f"{len(_s2.rows)}줄")
+# 11/19: 요약은 카드만 — 섹터 막대 · 후보 3 · 뉴스 5 · 일정 · 전일 장 블록이 한 줄씩으로.
+# 미국 6줄(뉴스 줄은 한국 섹터 뉴스라 한국에만), 한국 7줄.
+check_true("미국 요약 여섯 줄", len(_s2.rows) == 6, f"{len(_s2.rows)}줄")
 check_true("줄 키가 고정",
            [r.key for r in _s2.rows]
-           == ["holdings", "sentiment", "cycle", "discover"],
+           == ["holdings", "sentiment", "cycle", "picks", "sessions", "calendar"],
            str([r.key for r in _s2.rows]))
+_s2k = _sm.build(urgent=[], soon=[], holdings_total=4, market="kr")
+check_true("한국 요약 일곱 줄 — 뉴스 줄이 더 있다",
+           [r.key for r in _s2k.rows]
+           == ["holdings", "sector", "cycle", "picks", "news", "sessions", "calendar"],
+           str([r.key for r in _s2k.rows]))
+check_true("줄마다 갈 화면이 실제 화면 key 다 (없는 탭을 가리키지 않는다)",
+           all(r.goto in config.market_tab_keys("kr") for r in _s2k.rows)
+           and all(r.goto in config.market_tab_keys("us") for r in _s2.rows),
+           str([(r.key, r.goto) for r in _s2k.rows + _s2.rows]))
+_s2html = ui.render_summary(_s2k, "kr")
+check_true("요약 카드는 전부 링크 (11/19: '→ 내 종목 탭' 이 글자라 안 눌렸음)",
+           _s2html.count('<a class="dash-srow dash-srow-link') == len(_s2k.rows)
+           and 'href="?m=kr&amp;s=holdings"' in _s2html and 'target="_self"' in _s2html,
+           str(_s2html.count("dash-srow-link")))
+check_true("카드의 위치 글은 config 가 만든다 — 메뉴를 옮겨도 낡지 않게",
+           config.where("sector_heat", "kr") in _s2html and "탭</div>" not in _s2html)
 check_true("판정 한 줄 생성", _s2.verdict != "")
 check_true("level 은 네 가지뿐",
            all(r.level in ("quiet", "watch", "alert", "unknown")
@@ -701,21 +725,76 @@ check_true("연속 상승이면 watch", _s2.rows[2].level in ("watch", "quiet"),
 _no_cycle = _sm.build(urgent=[], soon=[], holdings_total=9, fg=_fg2)
 check_true("추세가 없으면 데이터 없음", _no_cycle.rows[2].level == "unknown")
 
-print("\n=== 요약 — 발굴은 일부러 뺐습니다 ===")
-check_true("발굴은 항상 조용함", _s2.rows[3].level == "quiet")
-check_true("책상 작업이라고 적음", "책상" in _s2.rows[3].headline,
-           _s2.rows[3].headline)
-# 2026-11-12: 후보가 지수 구성 종목 전수로 바뀌어 '미리 심사해 둔 결과' 라고 적습니다
-check_true("이유를 설명", "미리 심사" in _s2.rows[3].detail,
-           _s2.rows[3].detail[:40])
+print("\n=== 요약 — 후보 · 전일 장 · 일정은 한 줄씩 (11/19) ===")
+# 전에는 넷째 줄이 '종목 발굴 — 책상에서 볼 것' 이었고 없어진 탭을 가리켰습니다.
+check_true("후보 파일을 못 읽었으면 데이터 없음", _s2.rows[3].key == "picks"
+           and _s2.rows[3].level == "unknown", _s2.rows[3].level)
+
+
+class _PickC:
+    def __init__(self, name):
+        self.name, self.ticker = name, name
+
+
+_rp = _sm.row_picks([_PickC("가"), _PickC("나"), _PickC("다"), _PickC("라")], "11/19 06:51")
+check_true("후보 줄 — 몇 종목 · 앞 셋 · 수집 시각", _rp.headline == "4종목 · 앞 셋 가 · 나 · 다"
+           and "11/19 06:51 수집" in _rp.detail and _rp.level == "quiet", str(vars(_rp)))
+check_true("후보가 0이면 그렇게 적는다", "없습니다" in _sm.row_picks([], "").headline)
+import daily_brief as _dbs  # noqa: E402
+
+_bk = _dbs.SessionBrief("kr", title="한국장", session="2026-11-18",
+                        indices=[_dbs.Move("코스피", "^KS11", 5067.44, 2.0),
+                                 _dbs.Move("코스닥", "^KQ11", 662.81, 1.96)])
+_bu = _dbs.SessionBrief("us", title="미국장", session="2026-11-18",
+                        indices=[_dbs.Move("S&P 500", "^GSPC", 7323.63, -0.23)])
+_rs = _sm.row_sessions({"kr": _bk, "us": _bu}, "kr")
+check_true("전일 장 줄 — 고른 시장이 머리, 다른 시장은 세부",
+           _rs.headline == "코스피 +2.0% · 코스닥 +2.0%" and "11월 18일(수) 마감" in _rs.detail
+           and "미국장 S&P 500 -0.2%" in _rs.detail and _rs.goto == "briefing", str(vars(_rs)))
+check_true("전일 장을 못 받았으면 데이터 없음",
+           _sm.row_sessions({"kr": None}, "kr").level == "unknown")
+import calendar_events as _cev  # noqa: E402
+
+_td = _dt.date(2026, 11, 19)
+_ev = [_cev.Event("2026-11-20", "us", "expiry", "옵션 만기", importance=2),
+       _cev.Event("2026-11-26", "kr", "policy", "금통위 기준금리 결정", importance=3)]
+_rc = _sm.row_calendar(_ev, _td, "kr")
+check_true("일정 줄 — 가장 가까운 것이 머리", _rc.headline == "D-1 옵션 만기"
+           and "D-7 금통위" in _rc.detail and _rc.level == "quiet", str(vars(_rc)))
+check_true("이틀 안에 큰 일정이면 볼 것 있음",
+           _sm.row_calendar([_cev.Event("2026-11-20", "kr", "policy", "금통위", importance=3)],
+                            _td, "kr").level == "watch")
+check_true("일정이 없으면 그렇게 적는다", "없음" in _sm.row_calendar([], _td, "kr").headline)
+
+
+class _NamedSig:
+    aggregate = False
+
+    def __init__(self, name, title):
+        self.title = title
+        self.inst = type("I", (), {"name": name})()
+
+
+_named = _sm.build(urgent=[_NamedSig("SK스퀘어", "새 공시 4건 — 최근 7일"),
+                           _NamedSig("SK하이닉스", "새 공시 4건 — 최근 7일")],
+                   soon=[], holdings_total=4, market="kr")
+check_true("내 종목 줄에 종목 이름을 적는다 (11/19: '새 공시 4건 · 새 공시 4건' 이었음)",
+           _named.rows[0].detail == "SK스퀘어 새 공시 4건 · SK하이닉스 새 공시 4건",
+           _named.rows[0].detail)
+_band = ui.render_summary_band(_named)
+check_true("판정 띠 둘째 줄은 '볼 것이 있는 곳' 의 이름 — 건수 단위를 섞지 않는다",
+           "볼 것이 있는 곳 1 — 내 종목" in _band and "확인할 항목" not in _band, _band[-120:])
+check_true("조용할 때의 둘째 줄", "올라온 것이 없습니다" in ui.render_summary_band(
+    _sm.Summary(rows=[_sm.Row(key="a", title="a")])))
 
 print("\n=== 요약 렌더링 ===")
 _sh = ui.render_summary(_s2)
 check_true("밴드", "dash-verdict-band" in _sh)
 # class="dash-srow-chip" 등이 같은 접두사라 정확히 세어야 합니다
-_srow_n = len(_re2.findall(r'class="dash-srow (?:quiet|watch|alert|unknown)"', _sh))
-check_true("네 줄", _srow_n == 4, str(_srow_n))
-check_true("어느 탭으로 갈지 표시", "탭</div>" in _sh)
+_srow_n = len(_re2.findall(
+    r'class="dash-srow(?: dash-srow-link)? (?:quiet|watch|alert|unknown)"', _sh))
+check_true("줄 수만큼 카드", _srow_n == len(_s2.rows), str(_srow_n))
+check_true("어느 화면으로 갈지 표시 (메뉴 › 화면)", "dash-srow-goto" in _sh and " ›</div>" in _sh)
 check_true("하드코딩 색 없음",
            not _re2.findall(r"#[0-9a-fA-F]{6}", _sh),
            str(_re2.findall(r"#[0-9a-fA-F]{6}", _sh)))
@@ -1761,9 +1840,9 @@ check_true("탭마다 있던 시장 라디오를 없앴다",
 check_true("매크로는 시장으로 거르지 않는다",
            "매크로는 **일부러 시장별로 나누지 않습니다.**" in _app_src,
            "금리·환율은 어느 시장을 보든 같은 배경입니다")
-check_true("한국에서 매크로는 공통에 있다",
-           any(g == "공통" and "macro" in ks
-               for g, ks in _cfg_m.MARKET_TABS["kr"]))
+check_true("매크로는 두 시장 모두 '시장' 메뉴에 있다 (11/19 — 전에는 한국 '공통' · 미국 '미국 시장')",
+           all(any(g == "시장" and "macro" in ks for g, ks in _cfg_m.MARKET_TABS[_mm])
+               for _mm in ("kr", "us")))
 
 print("\n=== 섹션 내비는 세로 ===")
 check_true("세로 버튼 목록을 쓴다", "_section_nav(market, labels)" in _app_src)

@@ -173,8 +173,10 @@ check("코드 불일치를 요약에도 띄운다", "종목코드 확인" in k.r
       k.rows[1].detail)
 check("못 받으면 '데이터 없음'",
       sm.build(market="kr", sector_rows=[]).rows[1].level == "unknown")
-check("발굴 안내가 시장마다 다르다",
-      k.rows[3].detail != u.rows[3].detail)
+# 11/19: '종목 발굴 — 책상에서 볼 것'(없어진 탭을 가리키던 줄) → 후보 한 줄
+check("넷째 줄은 후보 — 없어진 '종목 발굴 탭' 안내가 아니다",
+      k.rows[3].key == "picks" and u.rows[3].key == "picks" and k.rows[3].goto == "picks"
+      and "발굴" not in k.rows[3].title + k.rows[3].detail)
 
 _app = pathlib.Path("app.py").read_text(encoding="utf-8")
 check("한국 요약은 공포탐욕을 안 받는다",

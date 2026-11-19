@@ -2573,11 +2573,19 @@ def render_vix(state) -> str:
 # ──────────────────────────────────────────────────────────────────────────────
 
 def render_summary_band(summary) -> str:
-    """맨 위 한 줄. 이것만 보고 앱을 닫을 수 있어야 합니다."""
+    """맨 위 한 줄. 이것만 보고 앱을 닫을 수 있어야 합니다.
+
+    둘째 줄은 '볼 것이 있는 곳' 의 **이름**을 적습니다. 전에는 "확인할 항목 2건" 이었는데
+    바로 위 줄의 "3건 확인 필요"(신호 수)와 세는 단위가 달라 헷갈렸습니다 (11/19)."""
+    names = list(getattr(summary, "attention_titles", []) or [])
     attention = summary.attention_count
     cls = " attention" if attention else ""
-    sub = (f"확인할 항목 {attention}건" if attention
-           else "네 가지를 다 봤고 올라온 것이 없습니다")
+    if not attention:
+        sub = "다 봤고 올라온 것이 없습니다"
+    elif names:
+        sub = f"볼 것이 있는 곳 {len(names)} — " + " · ".join(names)
+    else:
+        sub = f"볼 것이 있는 곳 {attention}"
     return (
         f'<div class="dash-verdict-band{cls}">'
         f'<div class="vb-main">{_esc(summary.verdict)}</div>'
@@ -2585,26 +2593,33 @@ def render_summary_band(summary) -> str:
     )
 
 
-def render_summary_row(row) -> str:
-    """요약 한 줄."""
+def render_summary_row(row, market: str = "kr") -> str:
+    """요약 한 줄 — **카드 전체가 링크**입니다 (11/19: 전에는 '→ 내 종목 탭' 이 글자라
+    눌리지 않았습니다). 갈 화면은 row.goto(화면 key), 이름과 주소는 config 가 만듭니다."""
+    import config  # noqa: PLC0415
     from summary import LEVEL_LABEL
 
-    goto = (f'<div class="dash-srow-goto">→ {_esc(row.goto)} 탭</div>'
-            if row.goto else "")
+    key = row.goto if row.goto in dict(config.tab_labels()) else ""
+    keys = config.market_tab_keys(market) if market in config.MARKETS else []
+    goto = (f'<div class="dash-srow-goto">{_esc(config.where(key, market))} ›</div>'
+            if key else "")
     detail = (f'<div class="dash-srow-detail">{clamp(_esc(row.detail))}</div>'
               if row.detail else "")
-    return (
-        f'<div class="dash-srow {_esc(row.level)}">'
+    inner = (
         f'<span class="dash-srow-chip">'
         f'{_esc(LEVEL_LABEL.get(row.level, row.level))}</span>'
         "<div>"
         f'<span class="dash-srow-title">{_esc(row.title)}</span>'
         f'<div class="dash-srow-head">{_esc(row.headline)}</div>'
-        f"{detail}{goto}</div></div>"
+        f"{detail}{goto}</div>"
     )
+    if key and key in keys:
+        return (f'<a class="dash-srow dash-srow-link {_esc(row.level)}" '
+                f'href="{_esc(config.screen_href(market, key))}" target="_self">{inner}</a>')
+    return f'<div class="dash-srow {_esc(row.level)}">{inner}</div>'
 
 
-def render_summary(summary) -> str:
+def render_summary(summary, market: str = "kr") -> str:
     """판정 한 줄 + **두 칸 상태판**. 전에는 같은 모양 카드가 세로로 네 장
     쌓여 있어서 무엇이 급한지가 위치로 드러나지 않았습니다. 이제 확인할
     것(alert·watch)이 앞에 오고, 조용한 칸은 흐리게 둡니다."""
@@ -2613,9 +2628,94 @@ def render_summary(summary) -> str:
     return (
         render_summary_band(summary)
         + '<div class="dash-sgrid">'
-        + "".join(render_summary_row(r) for r in rows)
+        + "".join(render_summary_row(r, market) for r in rows)
         + "</div>"
     )
+
+
+def render_stock_head(inst, quote, tags=(), chips_html: str = "") -> str:
+    """종목 상세 맨 위 — 이름 · 코드 · 현재가 · 등락 · 꼬리표 (11/19)."""
+    ok = quote is not None and quote.ok
+    scale = getattr(inst, "scale", 1.0) or 1.0
+    unit = getattr(inst, "suffix", "") or ""
+    price = fmt_num(quote.price * scale, inst.decimals) + unit if ok else "—"
+    pct = quote.change_pct if ok else None
+    cls = direction_class(pct) if pct is not None else "flat"
+    chg = f"{direction_glyph(pct)}{fmt_pct(pct)}" if pct is not None else ""
+    link = inst.resolved_link() if hasattr(inst, "resolved_link") else ""
+    name = (f'<a class="dash-rowlink" href="{_esc(link)}" target="_blank" '
+            f'rel="noopener">{_esc(inst.name)}</a>' if link else _esc(inst.name))
+    tag_html = "".join(f"<span>{_esc(t)}</span>" for t in tags if t)
+    extra = (f'<div class="sh-tags">{tag_html}{chips_html}</div>'
+             if (tag_html or chips_html) else "")
+    return ('<div class="dash-stockhead">'
+            f'<span class="sh-name">{name}</span>'
+            f'<span class="sh-code">{_esc(inst.symbol)}</span>'
+            f'<span class="sh-px">{_esc(price)}</span>'
+            f'<span class="sh-chg {cls}">{chg}</span>{extra}</div>')
+
+
+def render_stock_toc(items) -> str:
+    """종목 상세의 구역 바로가기. items: [(앵커 id, 이름)]."""
+    if not items:
+        return ""
+    return ('<div class="dash-stocktoc">'
+            + "".join(f'<a href="#{_esc(a)}" target="_self">{_esc(n)}</a>' for a, n in items)
+            + "</div>")
+
+
+def anchor(name: str) -> str:
+    """구역 앞에 놓는 보이지 않는 닻 — 바로가기(render_stock_toc)가 여기로 옵니다."""
+    return f'<div id="{_esc(name)}" style="scroll-margin-top:70px"></div>'
+
+
+def render_filing_list(filings, limit: int = 8, window_days: int = 7) -> str:
+    """한 종목의 최근 공시 — 날짜 · 종류 · 원문 링크. EDGAR Filing · DART Disclosure 공용.
+
+    최근 window_days 안의 줄에는 '새' 표시를 답니다 (신호와 같은 창)."""
+    rows = []
+    for f in list(filings or [])[:limit]:
+        ago = getattr(f, "days_ago", None)
+        when = _esc(getattr(f, "filing_date", "") or "")
+        ago_txt = f" · {ago}일 전" if ago is not None else ""
+        fresh = (ago is not None and 0 <= ago <= window_days
+                 and getattr(f, "importance", 1) >= 2)
+        form = _esc(str(getattr(f, "form", "") or ""))
+        label = _esc(str(getattr(f, "label", "") or ""))
+        title = form if (not label or label == form) else f"{form} <small>{label}</small>"
+        url = getattr(f, "url", "") or ""
+        link = (f'<a href="{_esc(url)}" target="_blank" rel="noopener">원문 ↗</a>' if url else "")
+        badge = '<span class="hd-sig now">새</span>' if fresh else ""
+        rows.append(f"<tr><td class='fl-when'>{when}{ago_txt}</td>"
+                    f"<td>{title} {badge}</td><td class='fl-link'>{link}</td></tr>")
+    if not rows:
+        return ""
+    return ('<div class="dash-htable-wrap"><table class="dash-htable dash-fil">'
+            "<thead><tr><th>접수일</th><th>공시</th><th></th></tr></thead>"
+            f"<tbody>{''.join(rows)}</tbody></table></div>")
+
+
+def render_screen_kinds(active: str, keys) -> str:
+    """'차트 조건 · 거래 스크리너 · 실험' 이 서로 무엇이 다른가 — 화면 맨 위 띠 (11/19).
+
+    사용자: "일부러 나눈 것 — 묶어서 보되 확실히 분별 가게". 셋을 나란히 적고 지금 화면만
+    진하게 합니다. 이 메뉴의 화면이 아니면 빈 문자열."""
+    import config  # noqa: PLC0415
+
+    kinds = [k for k in config.SCREEN_KINDS if k[0] in set(keys or ())]
+    if active not in {k[0] for k in kinds} or len(kinds) < 2:
+        return ""
+    cells = []
+    for key, word, what, not_what in kinds:
+        on = key == active
+        cells.append(
+            f'<div class="dk-cell dk-{_esc(key)}{" dk-on" if on else ""}">'
+            f'<span class="dk-word">{_esc(word)}</span>'
+            f'<span class="dk-name">{_esc(config.subtab_label(key))}</span>'
+            f'<span class="dk-what">{_esc(what)}</span>'
+            + (f'<span class="dk-not">{_esc(not_what)}</span>' if on else "")
+            + "</div>")
+    return f'<div class="dash-kinds">{"".join(cells)}</div>'
 
 
 def render_sector_bars(rows, n: int = 4) -> str:
@@ -3963,7 +4063,8 @@ def chart_badges(row, limit: int = 3) -> str:
 
 
 def render_holdings_table(rows, chart_rows: dict | None = None, *,
-                          phase=None, today: dt.date | None = None) -> str:
+                          phase=None, today: dt.date | None = None,
+                          detail_href=None) -> str:
     """보유·관심 종목을 한 표로. rows: [(Instrument, Quote|None, 신호목록)].
 
     phase(cycle_phase.Phase)를 주면 메모리 종목 이름 아래에 트랙별 국면 칩을
@@ -4002,6 +4103,10 @@ def render_holdings_table(rows, chart_rows: dict | None = None, *,
             badges += f'<span class="hd-sig soon">이번 주 {soon}</span>'
         if not badges:
             badges = '<span class="hd-sig quiet">조용</span>'
+        if detail_href is not None:
+            # 종목 상세로 (11/19) — 이 종목의 공시 · 수급 · 차트 · 일정을 한 페이지에서
+            badges += (f' <a class="dash-rowlink" href="{_esc(detail_href(inst))}" '
+                       f'target="_self">상세 ›</a>')
         link = inst.resolved_link() if hasattr(inst, "resolved_link") else ""
         name = (f'<a href="{_esc(link)}" target="_blank" rel="noopener">{_esc(inst.name)}</a>'
                 if link else _esc(inst.name))

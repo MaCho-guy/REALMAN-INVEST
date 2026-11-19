@@ -168,10 +168,12 @@ check("``` 안의 # 는 제목 아님", [t for t, _b in ui._bf_split_headings("#
       == ["가", "나"])
 check("고정폭 덩어리(pre)로 그리지 않음", "<pre" not in html and "```" not in html)
 
+# 11/19 메뉴 7칸(사용자 승인): '오늘' 은 요약 하나, 아침 브리핑은 '읽기' 의 첫 화면.
+# (11/13 17:03 "아침 브리핑을 공통으로" — 시장과 무관한 글이라는 뜻은 그대로: 두 시장 모두에 있음)
 tabs = {m: [k for _g, items in config.tab_groups(m) if _g == "오늘" for k, _l in items] for m in ("kr", "us")}
-common = {m: [k for _g, items in config.tab_groups(m) if _g == "공통" for k, _l in items] for m in ("kr", "us")}
-check("오늘 = 요약 · 내 종목 / 아침 브리핑은 공통 맨 앞 (11/13 17:03 사용자 요청)",
-      all(v == ["summary", "holdings"] for v in tabs.values())
+common = {m: [k for _g, items in config.tab_groups(m) if _g == "읽기" for k, _l in items] for m in ("kr", "us")}
+check("오늘 = 요약 / 아침 브리핑은 두 시장 모두 '읽기' 맨 앞 (11/19 메뉴 7칸)",
+      all(v == ["summary"] for v in tabs.values())
       and all(v and v[0] == "briefing" for v in common.values()), f"{tabs} {common}")
 src = open("app.py", encoding="utf-8").read()
 mb = src.split("def render_macro_tab(")[1].split("\ndef ")[0] + src.split("def render_briefing_section(")[1].split("\ndef ")[0]

@@ -69,7 +69,7 @@ check("전부 캐시면 그렇게 말한다", "바로 나왔습니다" in log.su
 # ──────────────────────────────────────────────────────────────────────────────
 src = pathlib.Path("app.py").read_text(encoding="utf-8")
 tree = ast.parse(src)
-WANT = ("_peek_section", "_nav_button", "_section_nav", "_section_jobs",
+WANT = ("_peek_section", "_nav_button", "_section_nav", "_sub_nav", "_sub_pick", "_section_jobs",
         "_prefetch", "_ctx_initializer", "_peek_market", "_quotes_fn")
 fns = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in WANT]
 check("필요한 함수가 app.py 에 있다", len(fns) == len(WANT),
@@ -90,6 +90,13 @@ class FakeSt:
         self.md = []
         self._click = click        # 이번 실행 직전에 누른 버튼 key
         self._old = old
+        self.segs = []             # (key, options, on_change, args) — 안쪽 탭
+
+    def segmented_control(self, label, options, key=None, format_func=None,
+                          label_visibility=None, on_change=None, args=()):
+        self.segs.append((key, list(options), on_change, args,
+                          [format_func(o) for o in options] if format_func else list(options)))
+        return self.session_state.get(key)
 
     def markdown(self, html, **k):
         self.md.append(html)
@@ -122,22 +129,31 @@ print("\n=== 섹션 버튼 ===")
 got, st = run_nav("kr")
 kr_keys = config.market_tab_keys("kr")
 check("처음 열면 첫 섹션", got == kr_keys[0], got)
-check("시장의 섹션마다 버튼 하나", len(st.buttons) == len(kr_keys),
-      f"{len(st.buttons)} vs {len(kr_keys)}")
+# 11/19 메뉴 7칸 (사용자 승인): 버튼은 화면마다가 아니라 **메뉴(묶음)마다** 하나
+kr_groups = [g for g in config.tab_groups("kr") if g[1]]
+check("시장의 메뉴마다 버튼 하나 (화면 수가 아니라 메뉴 수)",
+      len(st.buttons) == len(kr_groups) == 7 and len(kr_keys) > len(kr_groups),
+      f"{len(st.buttons)} vs 메뉴 {len(kr_groups)} · 화면 {len(kr_keys)}")
+check("버튼 글자는 메뉴 이름", [b[0] for b in st.buttons] == [g for g, _i in kr_groups],
+      str([b[0] for b in st.buttons]))
 prim = [b for b in st.buttons if b[2] == "primary"]
 check("지금 섹션 하나만 남색(primary)", len(prim) == 1
       and prim[0][1] == f"navbtn_kr_{kr_keys[0]}", str(prim))
-check("묶음 이름이 진짜 글자로 들어간다 (CSS 끼워넣기 아님)",
-      sum('class="dash-navhead"' in h for h in st.md)
-      == len([g for g, i in config.tab_groups("kr") if i]))
+check("묶음 머리글 줄은 따로 없다 — 메뉴 이름이 곧 버튼",
+      not any('class="dash-navhead"' in h for h in st.md))
 check("내비 칸 표식이 있다", any("dash-navmark" in h for h in st.md))
 check("주소창에 섹션을 남긴다", st.query_params.get("s") == kr_keys[0])
 
 got, st = run_nav("kr", click_section="sector_heat")
 prim = [b for b in st.buttons if b[2] == "primary"]
-check("누른 섹션이 바로 남색으로", got == "sector_heat"
-      and prim and prim[0][1] == "navbtn_kr_sector_heat", str(prim))
+check("누른 화면이 든 메뉴가 바로 남색으로 (버튼 key = 그 메뉴의 첫 화면)",
+      got == "sector_heat" and prim and prim[0][1] == "navbtn_kr_sector_heat"
+      and prim[0][0] == "시장", str(prim))
 check("주소도 따라간다", st.query_params.get("s") == "sector_heat")
+got, st = run_nav("kr", click_section="macro")
+prim = [b for b in st.buttons if b[2] == "primary"]
+check("메뉴 안의 둘째 화면에 있어도 그 메뉴가 남색", got == "macro"
+      and len(prim) == 1 and prim[0][0] == "시장", str(prim))
 
 got, _ = run_nav("kr", query={"s": "kr_flows"})
 check("새로고침해도 주소의 섹션으로", got == "kr_flows", got)
@@ -147,9 +163,49 @@ check("다른 시장의 섹션 주소면 첫 섹션으로 (오류 아님)",
 got, _ = run_nav("us", session={"nav_us": "us_flows", "nav_kr": "sector_heat"})
 check("시장마다 보던 자리를 따로 기억", got == "us_flows", got)
 got, st = run_nav("kr", old=True)
-check("width 를 모르는 예전 스트림릿에서도 그려진다", len(st.buttons) == len(kr_keys))
+check("width 를 모르는 예전 스트림릿에서도 그려진다", len(st.buttons) == len(kr_groups))
 keys = [b[1] for b in run_nav("kr")[1].buttons] + [b[1] for b in run_nav("us")[1].buttons]
 check("버튼 key 가 겹치지 않는다 (겹치면 스트림릿이 오류)", len(keys) == len(set(keys)))
+
+# ──────────────────────────────────────────────────────────────────────────────
+print("\n=== 안쪽 탭 (11/19 메뉴 7칸) ===")
+
+
+def run_sub(market, active, session=None):
+    st = FakeSt(session)
+    ns = {"st": st, "config": config, "threading": threading, "perf": perf}
+    exec(compile(mod, "app.py", "exec"), ns)
+    ns["_sub_nav"](market, active)
+    return st, ns
+
+
+st, ns = run_sub("kr", "macro")
+check("메뉴에 화면이 여럿이면 안쪽 탭을 그린다", len(st.segs) == 1
+      and st.segs[0][1] == ["sector_heat", "macro", "calendar"], str(st.segs[:1]))
+check("안쪽 탭 표식이 있다 (CSS 가 이 표식으로 찾음)", any("dash-submark" in h for h in st.md))
+check("지금 화면이 골라진 채로 그려진다", st.session_state.get(st.segs[0][0]) == "macro")
+check("안쪽 탭 이름은 화면이 '무엇' 인지로 (메뉴 이름과 안 겹치게)",
+      run_sub("kr", "timing")[0].segs[0][4] == ["차트 조건", "거래 스크리너", "실험"]
+      and run_sub("kr", "holdings")[0].segs[0][4] == ["전체", "종목 상세", "수급"])
+st1, _ = run_sub("kr", "summary")
+check("화면이 하나뿐인 메뉴에는 안쪽 탭이 없다", st1.segs == [] and st1.md == [])
+# 누르기: 위젯 값이 바뀌고 → 콜백이 내비 상태를 바꾸고 → 다음 실행이 그 화면을 그림
+key, _opts, cb, args, _names = st.segs[0]
+st.session_state[key] = "calendar"
+ns["st"] = st
+cb(*args)
+check("안쪽 탭을 누르면 내비 상태가 그 화면으로", st.session_state.get("nav_kr") == "calendar")
+st.session_state[key] = None            # 고른 칸을 다시 누르면 선택이 풀려 None
+cb(*args)
+check("고른 칸을 다시 눌러도(None) 화면이 바뀌지 않는다",
+      st.session_state.get("nav_kr") == "calendar")
+st2, _ = run_sub("kr", "calendar", session=dict(st.session_state))
+check("다음 실행에서 풀린 선택을 지금 화면으로 되돌린다",
+      st2.session_state.get(st2.segs[0][0]) == "calendar")
+check("미국에는 거래 스크리너가 없다 — 안쪽 탭 둘",
+      run_sub("us", "timing")[0].segs[0][1] == ["timing", "paper"])
+check("주소는 여전히 화면 key (?s=macro) — 예전 즐겨찾기가 그대로 열린다",
+      run_nav("kr", query={"s": "semi_research"})[0] == "semi_research")
 
 # ──────────────────────────────────────────────────────────────────────────────
 print("\n=== 화면별 동시 받기 목록 ===")

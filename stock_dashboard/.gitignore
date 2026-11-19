@@ -4,3 +4,5 @@ __pycache__/
 *.pyc
 .streamlit/secrets.toml
 .env
+# tools.app_preview 가 만드는 프리뷰 (매번 새로 만듭니다)
+app_preview.html

@@ -69,8 +69,9 @@ f_new = [Filing("10-Q", ago(3), ago(10), "acc-1", "mu.htm", cik=723125)]
 found = sig_mod.detect([MU], {"MU": quote()}, {"MU": doc(ago(40), ("decoder",))},
                        {"MU": f_new}, thresholds=TH)
 filing_sigs = [s for s in found if s.kind == "new_filing"]
-check("분석보다 새 공시면 감지", len(filing_sigs) == 1)
-check("30일 이내는 심각도 3", filing_sigs[0].severity == 3, str(filing_sigs[0].severity))
+check("최근 7일 안의 새 공시면 감지", len(filing_sigs) == 1)
+check("7일 이내는 심각도 3", filing_sigs[0].severity == 3, str(filing_sigs[0].severity))
+check("제목에 창을 적는다", "최근 7일" in filing_sigs[0].title, filing_sigs[0].title)
 check("공시 링크 포함", "sec.gov" in filing_sigs[0].url, filing_sigs[0].url)
 check("프롬프트에 폼·날짜", "10-Q" in filing_sigs[0].prompt and ago(3) in filing_sigs[0].prompt)
 check("프롬프트에 기존 분석 생성일", ago(40) in filing_sigs[0].prompt)
@@ -94,8 +95,31 @@ check("중요도 1 폼(내부자 거래)은 신호 아님",
 
 found = sig_mod.detect([MU], {"MU": quote()}, {"MU": doc()},
                        {"MU": f_new}, thresholds=TH)
-check("분석이 아예 없으면 공시 전부가 '최신'",
-      len([s for s in found if s.kind == "new_filing"]) == 1)
+check("분석이 없어도 최근 7일 공시는 감지",
+      len([s for s in found if s.kind == "new_filing" and s.severity == 3]) == 1)
+
+# 11/19 사용자 선택: 새 공시 알림은 최근 7일. 분석이 없는 종목(11개 중 10개)은 전에는
+# 모든 공시가 '새 공시' 라 알림이 꺼지지 않았습니다.
+f_week = [Filing("10-Q", ago(8), ago(15), "acc-8", "mu.htm", cik=723125)]
+found = sig_mod.detect([MU], {"MU": quote()}, {"MU": doc()}, {"MU": f_week}, thresholds=TH)
+check("분석이 없고 8일 지난 공시는 알리지 않는다",
+      not [s for s in found if s.kind == "new_filing"], str(kinds_of(found)))
+f_edge = [Filing("10-Q", ago(7), ago(15), "acc-7", "mu.htm", cik=723125)]
+found = sig_mod.detect([MU], {"MU": quote()}, {"MU": doc()}, {"MU": f_edge}, thresholds=TH)
+check("7일째까지는 알린다",
+      len([s for s in found if s.kind == "new_filing" and s.severity == 3]) == 1)
+found = sig_mod.detect([MU], {"MU": quote()}, {"MU": doc(ago(40), ("decoder",))},
+                       {"MU": f_week}, thresholds=TH)
+late = [s for s in found if s.kind == "new_filing"]
+check("분석 뒤에 나왔지만 7일 지난 공시는 '참고' 로만",
+      len(late) == 1 and late[0].severity == 1 and "분석 뒤 공시" in late[0].title,
+      str([(s.severity, s.title) for s in late]))
+check("참고 줄에는 뉴스를 붙이지 않는다", late and not late[0].wants_news)
+found = sig_mod.detect([MU], {"MU": quote()}, {"MU": doc()}, {"MU": f_new + f_week},
+                       thresholds=TH)
+both = [s for s in found if s.kind == "new_filing"]
+check("최근 것과 지난 것이 섞이면 최근 것만 센다",
+      len(both) == 1 and "새 공시 1건" in both[0].title, str([s.title for s in both]))
 
 print("\n=== 실적 발표 임박 ===")
 found = sig_mod.detect([MU], {"MU": quote(earnings_date=ahead(3))},

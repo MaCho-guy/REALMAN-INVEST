@@ -25,13 +25,20 @@ def check(label, cond, detail=""):
         FAILS.append(label)
 
 
-kr = dict(config.tab_groups("kr"))["찾기"]
-us = dict(config.tab_groups("us"))["찾기"]
-check("한국 찾기 = 후보 · 근거 · 차트 · 거래 스크리너 · 모의 매수 (11/17 사용자 '나눠줘' — "
-      "품질 깔때기 · 밸류에이션은 근거 안, 차트 조건은 차트 안)",
+# 11/19 메뉴 7칸(사용자 승인) — '찾기' 다섯 칸이 두 메뉴로: 후보(후보 목록 · 근거) /
+# 차트 · 스크리너 · 실험. 11/17 "거래 스크리너, 차트 조건은 나눠줘" 는 그대로 — 화면은
+# 여전히 따로이고(안쪽 탭), 화면마다 성격 띠(SCREEN_KINDS)로 구분합니다.
+_g_kr, _g_us = dict(config.tab_groups("kr")), dict(config.tab_groups("us"))
+kr = _g_kr["후보"] + _g_kr["차트 · 스크리너 · 실험"]
+us = _g_us["후보"] + _g_us["차트 · 실험"]
+check("한국: 후보(후보 목록 · 근거) + 차트 조건 · 거래 스크리너 · 실험 — 화면은 따로 "
+      "(품질 깔때기 · 밸류에이션은 근거 안)",
       [k for k, _l in kr] == ["picks", "basis", "timing", "screener", "paper"], str(kr))
 check("미국은 스크리너 없음 (원래 없던 화면)", "screener" not in [k for k, _l in us], str(us))
-check("탭 이름", dict(kr)["basis"] == "근거" and dict(kr)["timing"] == "차트"
+check("차트 조건 · 거래 스크리너 · 실험마다 성격 띠가 있다 (11/19 '확실히 분별 가게')",
+      [k[0] for k in config.SCREEN_KINDS] == ["timing", "screener", "paper"]
+      and len({k[1] for k in config.SCREEN_KINDS}) == 3, str(config.SCREEN_KINDS))
+check("탭 이름", dict(kr)["basis"] == "근거" and dict(kr)["timing"] == "차트 조건"
       and dict(kr)["screener"] == "거래 스크리너"
       and config.SPECIAL_TAB_LABELS["discover"] == "품질 깔때기"
       and config.SPECIAL_TAB_LABELS["screener"] == "거래 스크리너")

@@ -188,7 +188,20 @@ check("triage 에 일정 · 금액 넘김", "upcoming=_news_upcoming(use_demo)" 
       and "amount_rules=config.NEWS_AMOUNT_RULES" in app_src)
 check("뉴스 탭: 꼭 읽기 → 섹터별 전체(접는 칸)", app_src.index("ui.render_news_triage(must, worth, labels)")
       < app_src.index('st.expander(f"섹터별 전체 보기'))
-check("요약 탭에 꼭 읽기", "_render_news_must(use_demo)" in app_src)
+# 11/19: 요약에는 뉴스 목록이 아니라 **한 줄**(몇 건 · 내 종목이 걸렸나)만 — 목록은 뉴스 화면에
+check("요약에는 꼭 읽기 한 줄만 (목록은 뉴스 화면)", "_render_news_must" not in app_src
+      and "news=news_pair" in app_src and "news_pair = _news_triage(got[0], use_demo)" in app_src)
+import summary as _smn  # noqa: E402
+_mine = news.Picked(Headline("SK하이닉스 수출 1조달러", "u"), ["내 종목 SK하이닉스"], 4.0)
+_etc = news.Picked(Headline("삼성SDI 수조원대 ESS 수주", "u"), ["수주 · 계약"], 3.0)
+_r = _smn.row_news([_etc, _mine], [])
+check("요약 뉴스 줄 — 건수 · 내 종목 건수 · 내 종목 제목이 앞", _r.headline == "2건 · 내 종목 1건"
+      and "SK하이닉스" in _r.detail and _r.level == "watch" and _r.goto == "kr_flows", str(vars(_r)))
+check("내 종목이 안 걸리면 조용함", _smn.row_news([_etc], []).level == "quiet")
+check("아직 못 받았으면 '받는 중'", _smn.row_news(None, None).level == "unknown")
+check("미국 요약에는 한국 섹터 뉴스 줄이 없다 (11/19 점검: 미국 요약에 한국 뉴스)",
+      "news" not in [r.key for r in _smn.build(market="us").rows]
+      and "news" in [r.key for r in _smn.build(market="kr").rows])
 check("요약은 기다리지 않음 (_soft)", "_soft(load_sector_news, use_demo, default=None)" in app_src)
 check("요약 화면 미리 받기에 섹터 뉴스", '"섹터 뉴스": lambda: load_sector_news(use_demo)' in app_src)
 check("캐시 버전 올림 (모양 바뀜)", "@swr.cached(1_800, version=1)\ndef load_sector_news" in app_src)

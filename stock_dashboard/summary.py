@@ -1,23 +1,23 @@
-"""
-요약 — 휴대폰에서 10초 안에 보는 한 화면.
+"""요약 — 휴대폰에서 10초 안에 보는 한 화면.
 
-**다른 5개 탭과 축이 다릅니다.** 5개는 "무엇을 하려는 화면인가" 로 묶었고,
-이건 "지금 알아야 할 것만" 입니다. 휴대폰으로 간간히 확인하는 용도라면
-탭 5개를 돌아다니는 게 아니라 **한 화면에서 끝나야** 합니다.
+**이 화면에는 카드만 있습니다** (2026-11-19 구조 점검 → 사용자 승인). 전에는 섹터 막대 ·
+후보 3 · 뉴스 5 · 일정 · 전일 장 · 신호 상세가 이 화면에 쌓여 휴대폰 6화면 길이였습니다.
+이제 그것들은 각자 화면에만 있고, 여기에는 **한 줄씩**만 남깁니다 — 카드를 누르면
+그 화면으로 갑니다.
 
-담는 것은 네 줄입니다:
+    1. 내 종목        — 최근 7일 새 공시 · 실적 임박 · 급변
+    2. 시장           — 한국: 섹터 온도 / 미국: 공포탐욕 + VIX 기간구조
+    3. 메모리 사이클  — 국면 판정 기록 + DIO 방향
+    4. 후보           — 몇 종목, 앞 셋
+    5. 꼭 읽을 뉴스   — 몇 건, 내 종목이 걸렸나 (한국)
+    6. 전일 장        — 마지막으로 마감한 날의 지수
+    7. 다가오는 일정  — 가장 가까운 것
 
-    1. 내 종목에 생긴 일   — 신규 공시 · 실적 임박 · 급변 (긴급한 것만)
-    2. 시장 분위기        — 공포탐욕지수 + VIX 기간구조
-    3. 메모리 사이클      — 국면 판정 기록 + DIO 방향 + 반도체 생산·가격 전년대비
-    4. 발굴 신규          — 어디를 봐야 하는지 (수치는 그 탭에서)
+각 줄은 **지금 볼 필요가 있나 없나**를 먼저 말합니다. "조용합니다" 가 정상 상태이고,
+맨 윗줄만 보고 앱을 닫을 수 있어야 합니다.
 
-**담지 않는 것:** 68종목 스크리닝과 역DCF 는 책상 작업입니다. 휴대폰으로
-68개 기업의 10년 재무를 받아오면 느리고, 작은 화면에서 9컬럼 표를 읽을 수도
-없습니다. 그 탭으로 가라고만 적습니다.
-
-각 줄은 **지금 볼 필요가 있나 없나**를 먼저 말합니다. "조용합니다" 가
-정상 상태이고, 그게 보이면 앱을 닫아도 됩니다.
+`Row.goto` 는 화면 이름이 아니라 **화면 key** 입니다 — 이름과 주소는 그리는 쪽이
+config 에서 만듭니다 (메뉴를 옮겨도 안내가 낡지 않게).
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ class Row:
     level: str = "quiet"
     headline: str = ""
     detail: str = ""
-    #: 어느 탭으로 가야 하나
+    #: 누르면 갈 화면의 key (config.TAB_ORDER 의 값). 이름 · 주소는 그리는 쪽이 만듭니다
     goto: str = ""
 
     @property
@@ -67,6 +67,14 @@ class Summary:
         return self.attention_count == 0
 
     @property
+    def attention_titles(self) -> list[str]:
+        """볼 것이 있는 줄의 이름 — 급한 것(alert)이 앞."""
+        order = {"alert": 0, "watch": 1}
+        rows = sorted((r for r in self.rows if r.needs_attention),
+                      key=lambda r: order.get(r.level, 2))
+        return [r.title for r in rows]
+
+    @property
     def verdict(self) -> str:
         """맨 위에 한 줄. 이것만 보고 닫을 수 있어야 합니다."""
         n = self.attention_count
@@ -86,32 +94,44 @@ class Summary:
 # 줄 만들기
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _sig_text(sig) -> str:
+    """'SK하이닉스 새 공시 4건' — 종목 이름 + 신호 제목의 앞부분.
+
+    11/19 점검: 제목만 이어 붙여 "새 공시 4건 — … · 새 공시 4건 — …" 처럼 어느 종목인지
+    없는 줄이 됐습니다."""
+    title = str(getattr(sig, "title", "")).split(" — ")[0]
+    if getattr(sig, "aggregate", False):
+        return title
+    name = getattr(getattr(sig, "inst", None), "name", "") or ""
+    return f"{name} {title}".strip()
+
+
 def row_holdings(urgent: list, soon: list, total: int) -> Row:
     """1. 내 종목에 생긴 일."""
-    row = Row(key="holdings", title="내 종목", goto="내 종목")
+    row = Row(key="holdings", title="내 종목", goto="holdings")
 
     if urgent:
         row.level = "alert"
-        row.headline = f"{len(urgent)}건 확인 필요"
-        row.detail = " · ".join(s.title for s in urgent[:MAX_SIGNALS])
+        row.headline = f"지금 확인 {len(urgent)}건"
+        row.detail = " · ".join(_sig_text(s) for s in urgent[:MAX_SIGNALS])
         if len(urgent) > MAX_SIGNALS:
             row.detail += f" 외 {len(urgent) - MAX_SIGNALS}건"
     elif soon:
         row.level = "watch"
         row.headline = f"이번 주 {len(soon)}건"
-        row.detail = " · ".join(s.title for s in soon[:MAX_SIGNALS])
+        row.detail = " · ".join(_sig_text(s) for s in soon[:MAX_SIGNALS])
         if len(soon) > MAX_SIGNALS:
             row.detail += f" 외 {len(soon) - MAX_SIGNALS}건"
     else:
         row.level = "quiet"
         row.headline = f"{total}종목 모두 조용함"
-        row.detail = "신규 공시·실적 임박·급변 없음"
+        row.detail = "최근 7일 새 공시 · 실적 임박 · 급변 없음"
     return row
 
 
 def row_sentiment(fg, vix_state) -> Row:
     """2. 시장 분위기 — 공포탐욕 + VIX 기간구조."""
-    row = Row(key="sentiment", title="시장 분위기", goto="매크로")
+    row = Row(key="sentiment", title="시장 분위기", goto="macro")
 
     parts: list[str] = []
     level = "quiet"
@@ -144,7 +164,7 @@ def row_sentiment(fg, vix_state) -> Row:
     if not row.detail:
         row.detail = (
             f"기간구조 {vix_state.structure}"
-            if vix_state is not None and vix_state.ok else "세부는 매크로 탭"
+            if vix_state is not None and vix_state.ok else "세부 지표 7개는 매크로 화면"
         )
     return row
 
@@ -189,7 +209,7 @@ def _phase_bits(phase, trends: dict, today) -> tuple[str, str, list[str]]:
 def row_cycle(trends: dict, macro_readings: list, phase=None, today=None,
               *, phase_check: bool = True) -> Row:
     """3. 메모리 사이클 — 국면 판정 기록 + DIO 방향 + 반도체 생산·가격."""
-    row = Row(key="cycle", title="메모리 사이클", goto="메모리 사이클")
+    row = Row(key="cycle", title="메모리 사이클", goto="cycle")
 
     bits: list[str] = []
     level = "quiet"
@@ -235,24 +255,106 @@ def row_cycle(trends: dict, macro_readings: list, phase=None, today=None,
     return row
 
 
-def row_discover(note: str = "") -> Row:
-    """4. 발굴 — 휴대폰에서는 수치를 돌리지 않습니다."""
-    return Row(
-        key="discover", title="종목 발굴", level="quiet",
-        headline="책상에서 볼 것",
-        detail=note or (
-            "68종목 스크리닝과 역DCF 는 10년 재무를 받아와야 해서 휴대폰에서는 "
-            "느립니다. 발굴·밸류에이션 탭에서 확인하십시오."
-        ),
-        goto="종목 발굴",
-    )
+def row_picks(picks=None, when: str = "", market: str = "kr") -> Row:
+    """4. 후보 — 몇 종목이고 앞 셋이 누구인가. 목록은 후보 화면에만 있습니다.
+
+    picks = 관문을 넘은 후보(순서대로). None 이면 아직 못 읽은 것(파일 없음)."""
+    row = Row(key="picks", title="후보", goto="picks")
+    if picks is None:
+        row.level = "unknown"
+        row.headline = "후보 파일을 아직 못 읽었습니다"
+        row.detail = "다음 수집(06:43 · 15:43) 뒤에 나옵니다"
+        return row
+    names = [str(getattr(c, "name", "") or getattr(c, "ticker", "")) for c in picks[:3]]
+    if not picks:
+        row.headline = "관문을 넘은 종목이 없습니다"
+    else:
+        row.headline = f"{len(picks)}종목 · 앞 셋 " + " · ".join(n for n in names if n)
+    row.detail = "품질 · 가격 · 선행 EPS" + (f" · {when} 수집" if when else "")
+    return row
+
+
+def row_news(must=None, worth=None) -> Row:
+    """5. 꼭 읽을 뉴스 (한국 섹터 뉴스) — 몇 건이고 내 종목이 걸렸나.
+
+    must · worth = news.triage 의 결과(Picked 목록). None 이면 아직 받는 중."""
+    row = Row(key="news", title="꼭 읽을 뉴스", goto="kr_flows")
+    if must is None:
+        row.level = "unknown"
+        row.headline = "받는 중"
+        return row
+    mine = [p for p in must if any(str(t).startswith("내 종목") for t in getattr(p, "tags", ()))]
+    if not must:
+        row.headline = "오늘 꼭 읽을 것은 없습니다"
+        row.detail = f"볼 만함 {len(worth or [])}건"
+        return row
+    row.headline = f"{len(must)}건" + (f" · 내 종목 {len(mine)}건" if mine else "")
+    lead = (mine or must)[0]
+    title = str(getattr(getattr(lead, "head", None), "title", ""))
+    row.detail = title if len(title) <= 46 else title[:45] + "…"
+    row.level = "watch" if mine else "quiet"
+    return row
+
+
+def row_sessions(briefs=None, market: str = "kr") -> Row:
+    """6. 전일 장 — 마지막으로 마감한 거래일의 지수 등락. 숫자만, 해석 없이.
+
+    briefs = {시장: daily_brief.SessionBrief 또는 None}. 고른 시장이 머리, 다른 시장이 세부."""
+    row = Row(key="sessions", title="전일 장", goto="briefing")
+    briefs = briefs or {}
+
+    def line(b, n: int) -> str:
+        moves = [m for m in getattr(b, "indices", []) if getattr(m, "ok", False)][:n]
+        return " · ".join(f"{m.label} {m.pct:+.1f}%" for m in moves)
+
+    main = briefs.get(market)
+    if main is None or not getattr(main, "ok", False) or not line(main, 1):
+        row.level = "unknown"
+        row.headline = "전일 장 숫자를 받지 못했습니다" if main is not None else "받는 중"
+        return row
+    row.headline = line(main, 3)
+    bits = [f"{main.session_label} 마감"]
+    for m, b in briefs.items():
+        if m != market and b is not None and getattr(b, "ok", False) and line(b, 2):
+            bits.append(f"{b.title} {line(b, 2)}")
+    row.detail = " · ".join(bits)
+    return row
+
+
+def row_calendar(events=None, today=None, market: str = "kr") -> Row:
+    """7. 다가오는 일정 — 앞으로 7일 중 가장 가까운 것. 전체는 주요 일정 화면.
+
+    events = calendar_events.Event 목록(날짜순). 이틀 안에 큰 일정이 있으면 '볼 것 있음'."""
+    row = Row(key="calendar", title="다가오는 일정", goto="calendar")
+    if events is None:
+        row.level = "unknown"
+        row.headline = "받는 중"
+        return row
+    if not events:
+        row.headline = "앞으로 7일, 큰 일정 없음"
+        return row
+    import datetime as _dt
+
+    today = today or _dt.date.today()
+
+    def tag(e) -> str:
+        d = (e.day - today).days
+        return ("오늘" if d == 0 else f"D-{d}") + f" {e.title}"
+
+    row.headline = tag(events[0])
+    rest = events[1:3]
+    row.detail = (" · ".join(tag(e) for e in rest)
+                  + (f" 외 {len(events) - 3}건" if len(events) > 3 else "")) if rest else ""
+    near = [e for e in events if (e.day - today).days <= 2 and e.importance >= 3]
+    row.level = "watch" if near else "quiet"
+    return row
 
 
 def row_sector(sector_rows) -> Row:
     """한국 — 섹터 온도. 업종 순환이 보이면 '볼 것 있음'."""
     import sector_heat as _sh  # noqa: PLC0415
 
-    row = Row(key="sector", title="섹터 온도", goto="섹터 온도")
+    row = Row(key="sector", title="섹터 온도", goto="sector_heat")
     usable = [r for r in (sector_rows or []) if r.ok and not r.benchmark]
     if not usable:
         row.level = "unknown"
@@ -281,27 +383,33 @@ def build(*, urgent=None, soon=None, holdings_total: int = 0,
           fg=None, vix_state=None, trends=None,
           macro_readings=None, market: str = "us",
           sector_rows=None, phase=None, today=None,
-          phase_check: bool = True) -> Summary:
+          phase_check: bool = True,
+          picks=None, picks_when: str = "", news=None,
+          sessions=None, events=None, extras: bool = True) -> Summary:
     """요약을 만듭니다. 없는 입력은 '데이터 없음' 으로 표시합니다.
 
     **시장마다 둘째 줄이 다릅니다.** 미국은 시장 심리(공포탐욕·VIX),
     한국은 섹터 온도입니다. 공포탐욕과 VIX 는 미국 지표라 한국 화면의
     둘째 줄에 둘 이유가 약하고, 한국에서 매일 보는 건 '어느 업종으로
     돈이 가나' 입니다.
+
+    news = (꼭 읽기, 볼 만함) 또는 None. 섹터 뉴스는 한국 것이라 **한국 화면에만** 줄을
+    둡니다 (11/19 점검: 미국 요약에 한국 뉴스가 나왔습니다). extras=False 면 뒤의
+    네 줄(후보 · 뉴스 · 전일 장 · 일정)을 만들지 않습니다.
     """
     second = (row_sector(sector_rows) if market == "kr"
               else row_sentiment(fg, vix_state))
-    discover_note = (
-        # 2026-11-12: 후보가 손으로 고른 목록에서 지수 구성 종목 전수로 바뀌었고,
-        # 심사는 아침 수집기가 미리 합니다 (universe.py) — 화면에서 기다리지 않습니다.
-        "국내 대형주 약 350종목(코스피 + 코스닥)을 여섯 스크리너로 거릅니다. "
-        "아침 · 장 마감 뒤에 미리 심사해 둔 결과입니다." if market == "kr" else
-        "미국 S&P 500 등 약 500종목을 버핏식 품질 기준으로 거릅니다. 하루 한 번 "
-        "미리 심사해 둔 결과입니다.")
-    return Summary(rows=[
+    rows = [
         row_holdings(urgent or [], soon or [], holdings_total),
         second,
         row_cycle(trends or {}, macro_readings or [], phase, today,
                   phase_check=phase_check),
-        row_discover(discover_note + " 발굴·밸류에이션 탭에서 확인하십시오."),
-    ])
+    ]
+    if extras:
+        rows.append(row_picks(picks, picks_when, market))
+        if market == "kr":
+            must, worth = news if news is not None else (None, None)
+            rows.append(row_news(must, worth))
+        rows.append(row_sessions(sessions, market))
+        rows.append(row_calendar(events, today, market))
+    return Summary(rows=rows)

@@ -70,11 +70,16 @@ PALETTE: dict[Mode, dict[str, str]] = {
 #: (세 바탕 모두 명암비 9 이상). 등락색(적 · 청 · 녹)과 헷갈리지 않게 채도를 낮춘
 #: 채도를 낮춘 하늘 · 세이지 · 샌드 · 웜 그레이입니다 — 색은 '어느 묶음인가' 만 뜻합니다.
 GROUP_TONES: tuple[tuple[str, str, str, str], ...] = (
-    ("today", "#e9f1f7", "#d3e3ef", "#6f9dbd"),     # 흐린 하늘
-    ("find", "#eaf2ec", "#d5e5d9", "#78a587"),      # 세이지
-    ("market", "#f7eee3", "#eedcc6", "#c49a6c"),    # 샌드
-    ("common", "#efefec", "#e0dfda", "#96948d"),    # 웜 그레이
+    ("today", "#e9f1f7", "#d3e3ef", "#6f9dbd"),     # 흐린 하늘 — 오늘
+    ("mine", "#eaf2ec", "#d5e5d9", "#78a587"),      # 세이지 — 내 종목
+    ("picks", "#f7eee3", "#eedcc6", "#c49a6c"),     # 샌드 — 후보
+    ("market", "#e6f0ef", "#cfe2e0", "#6c9f9a"),    # 흐린 청록 — 시장
+    ("semi", "#eceff4", "#d9dfe9", "#8391ab"),      # 슬레이트 — 반도체
+    ("read", "#f2f0e3", "#e4e0c8", "#a59c68"),      # 카키 — 읽기
+    ("lab", "#efefec", "#e0dfda", "#96948d"),       # 웜 그레이 — 차트 · 스크리너 · 실험
 )
+# 11/19 메뉴 7칸 — 넷이던 색을 일곱으로. 같은 밝기 · 낮은 채도 한 벌을 유지했고
+# (11/13 "보라색은 맘에 안 듦" → 보라 없음), 참고용 묶음은 일부러 무채색입니다.
 # 09:40 "보라색은 맘에 안 듦" · 09:46 "파스텔톤은 좋은데 색조합이 이상함" —
 # 하늘 · 민트 · 복숭아 · 버터는 채도가 제각각이라 따로 놀았습니다. 채도를 한 단계
 # 낮추고 밝기를 맞춘 한 벌(흐린 하늘 · 세이지 · 샌드 · 웜 그레이)로 바꿨습니다.
@@ -97,7 +102,8 @@ def nav_group_css(market: str, groups, *, mobile: bool = False) -> str:
     out = []
     for gi, (_name, items) in enumerate(groups):
         _k, tint, mid, line = group_tone(gi)
-        for key, _label in items:
+        # 11/19: 버튼은 메뉴(묶음)마다 하나 — key 는 그 메뉴의 첫 화면
+        for key, _label in items[:1]:
             b = f"{col} .st-key-navbtn_{market}_{key}{sfx} button"
             out.append(
                 f'{b}[kind="secondary"]{{background:{tint} !important;'
@@ -108,6 +114,24 @@ def nav_group_css(market: str, groups, *, mobile: bool = False) -> str:
                 f"border:1.5px solid {line} !important;color:var(--dash-ink) !important;}}"
                 f'{b}[kind="primary"] p{{color:var(--dash-ink) !important;}}')
     return "".join(out)
+
+
+#: '차트 조건 · 거래 스크리너 · 실험' 은 한 메뉴 안에 있어도 **화면마다 색이 다릅니다**
+#: (11/19 사용자: "묶어서 보되 확실히 분별 가게"). (옅은 바탕, 고른 바탕, 선).
+KIND_TONES: dict[str, tuple[str, str, str]] = {
+    "timing": ("#e9f1f7", "#d3e3ef", "#6f9dbd"),     # 상태 — 흐린 하늘
+    "screener": ("#f7eee3", "#eedcc6", "#c49a6c"),   # 목록 — 샌드
+    "paper": ("#eaf2ec", "#d5e5d9", "#78a587"),      # 검증 — 세이지
+}
+
+
+def kind_vars_css(key: str) -> str:
+    """그 화면의 구역 제목 띠 색 — KIND_TONES 에 없는 화면이면 빈 문자열(메뉴 색 그대로)."""
+    tone = KIND_TONES.get(key)
+    if tone is None:
+        return ""
+    tint, mid, line = tone
+    return f":root{{--grp-tint:{tint};--grp-mid:{mid};--grp-line:{line};}}"
 
 
 def group_vars_css(index: int) -> str:
@@ -159,13 +183,18 @@ def build_vars(convention: str, scope: str = ":root") -> str:
        2026-11-11: 아래 여섯 칸을 한 단계씩 올렸습니다. 10·11px 짜리 보조
        글자가 대비까지 낮아 야간 모드에서 읽히지 않는다는 지적을 받았습니다.
        큰 수치 쪽(7~9)은 이미 충분해서 건드리지 않았습니다. */
-    --fs-1: 0.72rem;   /* 11.5px — 출처 태그, 작은 칩 */
-    --fs-2: 0.78rem;   /* 12.5px — 캡션, 세부 설명 */
-    --fs-3: 0.84rem;   /* 13.5px — 표 본문, 판정 줄 */
-    --fs-4: 0.90rem;   /* 14.5px — 본문, 카드 라벨 */
-    --fs-5: 0.98rem;   /* 16px — 카드 제목 */
-    --fs-6: 1.10rem;   /* 18px — 섹션 제목 */
-    --fs-7: 1.30rem;   /* 21px — 중간 수치 */
+    /* 2026-11-19: 넓은 화면의 글 단계를 넷으로 모았습니다 — 12 · 14 · 16 · 18px.
+       재 보니 800px 폭에서 9종이 쓰였고 가장 흔한 크기가 11.5px 였습니다. 1px 차이
+       (11.5/12.5, 13.5/14.5)는 위계로 읽히지 않아 합쳤고, 변수 이름은 그대로 두어
+       쓰는 쪽을 고치지 않습니다. 휴대폰 값(아래 640px 규칙)은 11/13 에 사용자가
+       직접 맞춘 것이라 건드리지 않았습니다. */
+    --fs-1: 0.75rem;   /* 12px — 출처 태그, 작은 칩 */
+    --fs-2: 0.75rem;   /* 12px — 캡션, 세부 설명 */
+    --fs-3: 0.875rem;  /* 14px — 표 본문, 판정 줄 */
+    --fs-4: 0.875rem;  /* 14px — 본문, 카드 라벨 */
+    --fs-5: 1.00rem;   /* 16px — 카드 제목 */
+    --fs-6: 1.125rem;  /* 18px — 섹션 제목 */
+    --fs-7: 1.25rem;   /* 20px — 중간 수치 */
     --fs-8: 1.60rem;   /* 26px — 큰 수치 */
     --fs-9: 2.00rem;   /* 32px — 최대 수치 */
 
@@ -222,7 +251,9 @@ def build_css(convention: str, stack: bool = True) -> str:
             # 표 → 카드 규칙은 맨 뒤여야 합니다 (표마다 준 폭·여백을 덮습니다)
             + (build_stack_rules() if stack else "")
             # 휴대폰 글자 크기 정리 (11/13) — 표 → 카드 규칙보다도 뒤
-            + build_type_rules() + "</style>")
+            + build_type_rules()
+            # 메뉴 7칸 · 안쪽 탭 · 요약 카드 · 휴대폰 머리 (11/19) — 맨 뒤
+            + build_menu_rules() + "</style>")
 
 
 def build_density_rules() -> str:
@@ -3618,4 +3649,127 @@ def build_native_rules() -> str:
   div[data-testid="stElementContainer"]:has(.dash-ctrlmark):not(:has(button)) {{
     display: none !important;
   }}
+"""
+
+
+def build_menu_rules() -> str:
+    """메뉴 7칸 · 안쪽 탭 · 요약 카드 링크 · 휴대폰 머리 줄이기 (2026-11-19).
+
+    구조 점검(프로젝트 문서 '대시보드-구조-점검')에서 잰 것: 휴대폰 첫 화면에서 판정 띠가
+    87% 지점에서 시작했고(그 위는 제목 · 안내 · 지수 카드 6개 · '받은 시각' 6줄), 요약은
+    6.1 화면 길이였습니다. 여기서는 ① 지수 카드를 한 줄로 ② '받은 시각' 을 한 줄로 접고
+    ③ 요약의 조용한 카드는 한 줄만 보입니다.
+    """
+    return """
+  /* ── 안쪽 탭 (메뉴 안의 화면 고르기) ── */
+  div[data-testid="stElementContainer"]:has(.dash-submark) { display: none !important; }
+  div[data-testid="stElementContainer"]:has(.dash-submark)
+    + div[data-testid="stElementContainer"] { margin: 0 0 4px; }
+  div[data-testid="stElementContainer"]:has(.dash-submark)
+    + div[data-testid="stElementContainer"] button {
+    min-height: 36px; padding: 4px 16px !important; }
+  div[data-testid="stElementContainer"]:has(.dash-submark)
+    + div[data-testid="stElementContainer"] button p {
+    font-size: var(--fs-4) !important; font-weight: 650; }
+  /* 메뉴에 화면이 하나뿐이면 알약에 '›' 뒤가 비어 있습니다 */
+  .dash-crumb.solo span { color: var(--dash-ink); font-weight: 650; }
+
+  /* ── 화면 성격 띠 — 차트 조건(상태) · 거래 스크리너(목록) · 실험(검증) ── */
+  .dash-kinds { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
+    gap: 6px; margin: 2px 0 12px; }
+  .dk-cell { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 9px;
+    row-gap: 1px; align-items: center; padding: 7px 11px; border-radius: var(--r-inner);
+    border: 1px dashed var(--dash-border); color: var(--dash-ink-muted); }
+  .dk-word { grid-row: 1 / span 3; align-self: start; margin-top: 1px;
+    font-size: var(--fs-1); font-weight: 750; letter-spacing: .02em;
+    padding: 2px 9px; border-radius: var(--r-pill);
+    background: var(--dk-mid, var(--dash-raised)); color: var(--dash-ink); }
+  .dk-name { grid-column: 2; font-size: var(--fs-3); font-weight: 700; color: var(--dash-ink-2); }
+  .dk-what { grid-column: 2; font-size: var(--fs-2); line-height: 1.45; }
+  .dk-not { grid-column: 2; font-size: var(--fs-2); line-height: 1.45; color: var(--dash-ink-2); }
+  .dk-cell.dk-on { border: 1px solid var(--dk-line, var(--dash-accent));
+    border-left: 4px solid var(--dk-line, var(--dash-accent));
+    background: var(--dk-tint, var(--dash-surface)); color: var(--dash-ink-2); }
+  .dk-cell.dk-on .dk-name { color: var(--dash-ink); }
+  .dk-timing { --dk-tint: #e9f1f7; --dk-mid: #d3e3ef; --dk-line: #6f9dbd; }
+  .dk-screener { --dk-tint: #f7eee3; --dk-mid: #eedcc6; --dk-line: #c49a6c; }
+  .dk-paper { --dk-tint: #eaf2ec; --dk-mid: #d5e5d9; --dk-line: #78a587; }
+
+  /* ── 요약 카드 = 링크 ── */
+  a.dash-srow-link { text-decoration: none !important; color: inherit !important;
+    cursor: pointer; transition: border-color .12s, background .12s; }
+  a.dash-srow-link:hover, a.dash-srow-link:focus-visible {
+    border-color: var(--dash-accent); background: var(--dash-raised) !important; }
+  a.dash-srow-link .dash-srow-goto { color: var(--dash-accent); font-weight: 650; }
+  .dash-srow-detail { display: -webkit-box; -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical; overflow: hidden; }
+
+  /* ── 받은 시각 — 한 줄로 접힘 (누르면 전부) ── */
+  details.dash-times { display: block; margin: 0 0 10px; }
+  details.dash-times > summary { list-style: none; cursor: pointer; display: flex;
+    flex-wrap: wrap; align-items: baseline; gap: 3px 10px; }
+  details.dash-times > summary::-webkit-details-marker { display: none; }
+  details.dash-times > summary::after { content: "▾"; color: var(--dash-ink-muted); }
+  details.dash-times[open] > summary::after { content: "▴"; }
+  details.dash-times .dt-all { display: flex; flex-wrap: wrap; gap: 3px 12px; margin-top: 4px; }
+
+  /* ── 종목 상세 ── */
+  .dash-stockhead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px;
+    background: var(--dash-surface); border: 1px solid var(--dash-border);
+    border-left: 4px solid var(--grp-line, var(--dash-accent));
+    border-radius: var(--r-card); padding: 12px 15px; margin: 0 0 12px; }
+  .dash-stockhead .sh-name { font-size: var(--fs-6); font-weight: 750; color: var(--dash-ink); }
+  .dash-stockhead .sh-code { font-size: var(--fs-2); color: var(--dash-ink-muted); }
+  .dash-stockhead .sh-px { font-size: var(--fs-7); font-weight: 800; color: var(--dash-ink);
+    font-variant-numeric: tabular-nums; margin-left: auto; }
+  .dash-stockhead .sh-chg { font-size: var(--fs-3); font-weight: 700;
+    font-variant-numeric: tabular-nums; }
+  .dash-stockhead .sh-chg.up { color: var(--dash-up); }
+  .dash-stockhead .sh-chg.down { color: var(--dash-down); }
+  .dash-stockhead .sh-tags { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 5px;
+    font-size: var(--fs-1); color: var(--dash-ink-2); }
+  .dash-stockhead .sh-tags span { border: 1px solid var(--dash-border);
+    border-radius: var(--r-pill); padding: 1px 8px; background: var(--dash-raised); }
+  .dash-stocktoc { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+  .dash-stocktoc a { font-size: var(--fs-2); font-weight: 650; text-decoration: none !important;
+    color: var(--dash-ink) !important; background: var(--grp-tint, var(--dash-raised));
+    border: 1px solid var(--dash-divider); border-radius: var(--r-pill); padding: 2px 11px; }
+  .dash-stocktoc a:hover { border-color: var(--grp-line, var(--dash-accent)); }
+  .dash-stocklist { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+  .dash-stocklist a { font-size: var(--fs-3); font-weight: 650; text-decoration: none !important;
+    color: var(--dash-ink) !important; background: var(--dash-surface);
+    border: 1px solid var(--dash-border); border-radius: var(--r-inner); padding: 5px 12px; }
+  .dash-stocklist a.on { background: var(--grp-mid, var(--dash-raised));
+    border-color: var(--grp-line, var(--dash-accent)); }
+  .dash-stocklist a small { font-weight: 500; color: var(--dash-ink-muted); margin-left: 5px; }
+  table.dash-fil th, table.dash-fil td { text-align: left !important; }
+  table.dash-fil td.fl-when { white-space: nowrap; font-variant-numeric: tabular-nums;
+    color: var(--dash-ink-2); width: 1%; }
+  table.dash-fil td.fl-link { text-align: right !important; white-space: nowrap; width: 1%; }
+  table.dash-fil td small { color: var(--dash-ink-muted); margin-left: 4px; }
+  a.dash-rowlink { color: inherit !important; text-decoration: none !important;
+    border-bottom: 1px dotted var(--dash-ink-muted); }
+  a.dash-rowlink:hover { border-bottom-color: var(--dash-accent); }
+
+  @media (max-width: 640px) {
+    /* ① 지수 카드 여섯 장 → 한 줄 (옆으로 넘겨 봄). 전에는 3 × 2 두 줄 */
+    .dash-mstrip { display: flex; grid-template-columns: none; overflow-x: auto;
+      scroll-snap-type: x proximity; gap: 5px; margin: 0 0 8px;
+      scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+    .dash-mstrip::-webkit-scrollbar { display: none; }
+    .dash-mstrip .ms-cell { flex: 0 0 31%; scroll-snap-align: start; }
+    /* ② 요약 — 조용한 카드는 한 줄만 (이름 · 머리글). 볼 것이 있는 카드만 세부를 보임 */
+    .dash-sgrid .dash-srow.quiet .dash-srow-detail,
+    .dash-sgrid .dash-srow.quiet .dash-srow-goto,
+    .dash-sgrid .dash-srow.unknown .dash-srow-detail,
+    .dash-sgrid .dash-srow.unknown .dash-srow-goto { display: none; }
+    .dash-sgrid .dash-srow.quiet, .dash-sgrid .dash-srow.unknown { padding: 6px 10px; }
+    .dash-sgrid .dash-srow.quiet .dash-srow-head { font-size: var(--fs-3); }
+    .dash-verdict-band { padding: 9px 12px; margin: 0 0 8px; }
+    /* ③ 화면 성격 띠 — 지금 화면 한 칸만 (나머지 둘은 안쪽 탭이 이미 보여 줌) */
+    .dash-kinds { grid-auto-flow: row; gap: 4px; margin-bottom: 8px; }
+    .dk-cell:not(.dk-on) { display: none; }
+    .dash-stockhead { padding: 9px 11px; }
+    .dash-stockhead .sh-px { margin-left: 0; }
+  }
 """

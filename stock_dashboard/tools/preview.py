@@ -1802,7 +1802,7 @@ def build_html(convention: str, use_demo: bool) -> str:
         '<div class="dash-topbar">'
         '<span class="dash-logo">주식 대시보드</span>'
         '<span class="dash-market-badge" id="pv-badge">한국 시장</span>'
-        '<span class="dash-logo-sub">야간 대체시세 · 시장 지표 · 관심종목</span>'
+        '<span class="dash-logo-sub">내 종목 · 후보 · 시장 · 반도체</span>'
         "</div>",
         banner,
         '<div class="pv-ctrl" aria-hidden="true"><span>표시</span>'

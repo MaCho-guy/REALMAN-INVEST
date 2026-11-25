@@ -1241,12 +1241,28 @@ def render_analysis_body(body_html: str) -> str:
     return f'<div class="dash-analysis-body">{body_html}</div>'
 
 
-def render_analysis_missing(label: str, command: str, key: str, kind: str) -> str:
+def render_analysis_missing(label: str, command: str, key: str, kind: str, *,
+                            hosted: bool = False, name: str = "") -> str:
     """분석이 없을 때의 안내.
 
     위의 '분석 실행' 버튼이 1순위 경로이고, 이 안내는 claude CLI 를 쓸 수 없을 때의
     수동 대안입니다.
+
+    hosted=True (올려 둔 서버): 누를 버튼도 저장할 폴더도 없으므로 그 설명 대신
+    실제로 되는 길 하나만 적습니다 — Claude 대화에서 요청하면 올라옵니다.
     """
+    if hosted:
+        who = name or key
+        return (
+            '<div class="dash-missing">'
+            f'<div class="dash-missing-title">{_esc(label)} — 아직 없음</div>'
+            '<div class="dash-missing-body">'
+            "Claude 대화에서 아래처럼 요청하면 분석을 만들어 이 자리에 올립니다 "
+            "(올린 뒤 1~2분이면 보입니다)."
+            "</div>"
+            f'<div class="dash-missing-cmd">{_esc(who)} 분석해서 올려줘</div>'
+            "</div>"
+        )
     return (
         '<div class="dash-missing">'
         f'<div class="dash-missing-title">{_esc(label)} 미생성</div>'

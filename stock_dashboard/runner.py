@@ -118,6 +118,29 @@ def cli_info() -> CliInfo:
         return CliInfo(available=False, path=path, error=f"버전 확인 실패: {exc}")
 
 
+_HOSTED_ENV = "DASH_HOSTED"   # "1" = 서버로 취급, "0" = PC 로 취급 (판별이 틀릴 때 손으로 고정)
+
+
+def is_hosted() -> bool:
+    """이 앱이 Streamlit Community Cloud 같은 '올려 둔 서버' 에서 돌고 있는가.
+
+    왜 필요한가: '분석 실행' 은 앱이 도는 컴퓨터의 claude 실행 파일을 띄웁니다.
+    서버에는 그것을 깔 수 없으므로 버튼 · 설치 안내가 영영 쓸모없고, 사용자는
+    그것을 '고쳐야 할 오류' 로 읽었습니다 (2026-11-25). 서버에서만 숨깁니다.
+
+    판별: Streamlit Community Cloud 는 저장소를 /mount/src/<저장소>/ 에 풀고
+    /home/adminuser/venv 의 파이썬으로 돌립니다. 둘 중 하나라도 맞으면 서버.
+    못 알아보면 False(=PC 취급) — 그때는 예전처럼 꺼진 버튼과 접힌 안내가
+    보일 뿐이라 잃는 것이 없습니다. 환경변수 DASH_HOSTED 로 강제할 수 있습니다.
+    """
+    forced = os.environ.get(_HOSTED_ENV, "").strip()
+    if forced in ("1", "0"):
+        return forced == "1"
+    here = os.path.abspath(__file__).replace("\\", "/")
+    prefix = (sys.prefix or "").replace("\\", "/")
+    return here.startswith("/mount/src/") or prefix.startswith("/home/adminuser/")
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # 작업 상태
 # ──────────────────────────────────────────────────────────────────────────────

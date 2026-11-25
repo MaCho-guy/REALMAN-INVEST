@@ -6599,14 +6599,25 @@ _STATUS_STYLE = {
 }
 
 
-def _render_job_panel(inst, kind: str, label: str, job: runner.Job, cli: runner.CliInfo) -> None:
-    """한 종류 분석의 실행 버튼 + 상태를 그립니다."""
+def _render_job_panel(inst, kind: str, label: str, job: runner.Job, cli: runner.CliInfo,
+                      *, hosted: bool = False) -> None:
+    """한 종류 분석의 실행 버튼 + 상태를 그립니다.
+
+    hosted=True 이고 claude 가 없으면(올려 둔 서버) **실행 버튼을 그리지 않습니다** —
+    거기서는 영영 꺼져 있을 버튼입니다. 보여 줄 상태도 없으면(대기) 줄 자체를 안 그립니다.
+    PC 에서는 예전 그대로입니다.
+    """
     icon, status_text = _STATUS_STYLE.get(job.status, ("", job.status))
+    hide_run = hosted and not cli.available and not job.is_running
+    if hide_run and job.status == "idle":
+        return
 
     cols = st.columns([1.4, 1, 1, 2.6])
 
     with cols[0]:
-        if job.is_running:
+        if hide_run:
+            pass
+        elif job.is_running:
             st.button("중단", key=f"cancel_{inst.analysis_key}_{kind}",
                       use_container_width=True,
                       on_click=runner.cancel_job,
@@ -6679,6 +6690,8 @@ def render_analysis_tab(*, embed: bool = False,
     """
     instruments = config.analysis_instruments()
     cli = runner.cli_info()
+    # 올려 둔 서버(claude 를 깔 수 없는 곳)인가 — 거기서는 실행 버튼 · 설치 안내를 숨깁니다
+    hosted = (not cli.available) and runner.is_hosted()
 
     st.markdown(
         ui.render_section_head(
@@ -6690,7 +6703,15 @@ def render_analysis_tab(*, embed: bool = False,
     )
 
     # ── 실행 환경 상태 ────────────────────────────────────────────────────────
-    if not cli.available:
+    if hosted:
+        # 2026-11-25 사용자 승인: 서버에서는 꺼진 '분석 실행' 버튼 3개와 PC 설치
+        # 안내를 아예 숨깁니다 ("자꾸 보이는데 어떻게 해결해?" — 서버에서는 해결할
+        # 것이 없는 문구였습니다). 새 분석은 Claude 대화에서 만들어 올리는 것으로
+        # 정했으므로 그 길만 한 줄로 적습니다. PC 에서는 아래 예전 안내 그대로.
+        st.markdown(ui.render_notice(
+            "<b>이미 만든 분석을 보는 곳입니다.</b> 새 분석 · 다시 분석은 "
+            "Claude 대화에서 요청하면 여기에 올라옵니다."), unsafe_allow_html=True)
+    elif not cli.available:
         # 2026-11-12 실제 화면: 설치 안내가 든 노란 경고 상자가 휴대폰에서
         # 화면 3분의 1(288px)을 차지했습니다. 배포한 서버에는 claude CLI 를
         # 깔 수 없으니 그 안내는 대부분의 경우 쓸모가 없습니다 — 한 줄로
@@ -6760,7 +6781,8 @@ def render_analysis_tab(*, embed: bool = False,
     if doc.is_stale:
         st.warning(
             f"이 분석은 {doc.age_days}일 전({doc.generated})에 생성됐습니다. "
-            f"그 사이 실적 발표가 있었다면 다시 실행하십시오.",
+            + ("그 사이 실적 발표가 있었다면 Claude 대화에서 다시 분석을 요청하십시오."
+               if hosted else "그 사이 실적 발표가 있었다면 다시 실행하십시오."),
             icon="🕒",
         )
 
@@ -6768,7 +6790,8 @@ def render_analysis_tab(*, embed: bool = False,
     for tab, (kind, label, desc) in zip(kind_tabs, analysis_store.KINDS):
         with tab:
             st.caption(desc)
-            _render_job_panel(inst, kind, label, jobs[(inst.analysis_key, kind)], cli)
+            _render_job_panel(inst, kind, label, jobs[(inst.analysis_key, kind)], cli,
+                              hosted=hosted)
 
             body = doc.html.get(kind)
             if body:
@@ -6794,7 +6817,8 @@ def render_analysis_tab(*, embed: bool = False,
             elif not jobs[(inst.analysis_key, kind)].is_running:
                 cmd = analysis_store.skill_command(kind, inst.analysis_key, inst.name)
                 st.markdown(
-                    ui.render_analysis_missing(label, cmd, inst.analysis_key, kind),
+                    ui.render_analysis_missing(label, cmd, inst.analysis_key, kind,
+                                               hosted=hosted, name=inst.name),
                     unsafe_allow_html=True,
                 )
 

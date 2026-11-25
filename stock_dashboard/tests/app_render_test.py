@@ -232,6 +232,44 @@ check("메뉴 규칙이 휴대폰 글자 규칙보다 뒤에 실린다",
       css.rfind(theme.build_menu_rules()) > css.rfind(theme.build_type_rules()) > 0)
 check("휴대폰에서 지수 카드는 한 줄", ".dash-mstrip { display: flex;" in theme.build_menu_rules())
 
+# ── 공시 분석 칸: 올려 둔 서버에서는 실행 버튼 · PC 설치 안내를 숨긴다 (2026-11-25) ──
+print("\n=== 공시 분석 — 서버 / PC ===")
+import runner  # noqa: E402
+
+_cli_info, _hosted_env = runner.cli_info, os.environ.get("DASH_HOSTED")
+runner.cli_info = lambda: runner.CliInfo(available=False, error="claude CLI 를 PATH 에서 찾을 수 없습니다.")
+try:
+    os.environ["DASH_HOSTED"] = "1"
+    check("is_hosted: DASH_HOSTED=1 이면 서버", runner.is_hosted() is True)
+    srv = fakest.render_screen(app, st, "us", "holdings", demo=True)
+    os.environ["DASH_HOSTED"] = "0"
+    check("is_hosted: DASH_HOSTED=0 이면 PC", runner.is_hosted() is False)
+    pc = fakest.render_screen(app, st, "us", "holdings", demo=True)
+    os.environ.pop("DASH_HOSTED")
+    check("is_hosted: 이 시험 환경(판별 못 함)은 PC 취급", runner.is_hosted() is False)
+finally:
+    runner.cli_info = _cli_info
+    if _hosted_env is None:
+        os.environ.pop("DASH_HOSTED", None)
+    else:
+        os.environ["DASH_HOSTED"] = _hosted_env
+_run_btn = re.compile(r'<span class="fs-btn[^"]*">(분석 실행|다시 실행|3종 모두 실행)</span>')
+check("서버: 공시 분석 칸이 그려진다", "공시 분석" in srv)
+check("서버: 실행 버튼이 없다", not _run_btn.search(srv), str(_run_btn.findall(srv)[:3]))
+check("서버: PC 설치 안내 · CLI 문구가 없다",
+      "PC 에서 직접 실행하려면" not in srv and "PATH 에서" not in srv and "npm install" not in srv)
+check("서버: 새 분석을 얻는 길 한 줄", "Claude 대화에서 요청하면 여기에 올라옵니다" in srv)
+check("서버: 본문 보기 칸은 그대로", "전문 보기" in srv)
+check("PC(claude 없음): 꺼진 실행 버튼 · 접힌 설치 안내는 예전 그대로",
+      bool(_run_btn.search(pc)) and "PC 에서 직접 실행하려면" in pc and "PATH 에서" in pc)
+import components as _ui  # noqa: E402
+_m_srv = _ui.render_analysis_missing("기업 해독기", "/company-decoder-korean Apple", "AAPL", "decoder",
+                                     hosted=True, name="Apple")
+_m_pc = _ui.render_analysis_missing("기업 해독기", "/company-decoder-korean Apple", "AAPL", "decoder")
+check("서버: 없는 분석은 '요청하면 올라온다' 만 안내",
+      "Apple 분석해서 올려줘" in _m_srv and "분석 실행" not in _m_srv and "저장 경로" not in _m_srv)
+check("PC: 없는 분석 안내는 예전 그대로", "분석 실행" in _m_pc and "analysis/AAPL/decoder.html" in _m_pc)
+
 print("\n" + "=" * 56)
 if FAILS:
     print(f"실패 {len(FAILS)}건:")

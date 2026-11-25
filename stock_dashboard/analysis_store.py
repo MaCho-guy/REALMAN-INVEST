@@ -48,6 +48,7 @@ meta.json 스키마:
 
 from __future__ import annotations
 
+import re
 import datetime as dt
 import json
 import os
@@ -121,6 +122,48 @@ def _safe_key(key: str) -> str:
     return "".join(ch for ch in key if ch.isalnum() or ch in "_-")
 
 
+_KEEP_OPEN = re.compile(r"<(pre|textarea)\b", re.I)
+_KEEP_CLOSE = re.compile(r"</(pre|textarea)\s*>", re.I)
+
+
+def clean_html(body: str) -> str:
+    """분석 HTML 에서 빈 줄과 줄 앞 공백을 없앱니다 (글자 · 모양 규칙은 그대로).
+
+    왜: 화면은 이 HTML 을 st.markdown(unsafe_allow_html=True) 로 넣습니다. 마크다운
+    규칙에서 HTML 덩어리는 **첫 빈 줄에서 끝나고**, 그 뒤에 4칸 넘게 들여쓴 줄은
+    코드 블록이 됩니다. 그래서 파일에 빈 줄이 있으면 <style> 이 중간에서 잘려
+    표 폭 · 2단 배치 · 상자 테두리 같은 모양이 빠집니다 (2026-11-25 MU 에서 실제로
+    겪음 — 적용된 <style> 1,151자 / 원래 3,232자).
+
+    <pre> · <textarea> 안은 줄 맞춤이 뜻이므로 지우지 않고 문자 참조로 바꿉니다:
+    줄 앞 공백 → &#32; , 탭 → &#9; , 빈 줄 → &#32; (브라우저에서는 똑같이 보입니다).
+    '<' 로 시작하지 않는 글(HTML 이 아닌 것)은 건드리지 않습니다.
+    """
+    if not body.lstrip().startswith("<"):
+        return body
+    out: list[str] = []
+    keep = False
+    for line in body.splitlines():
+        opens = bool(_KEEP_OPEN.search(line))
+        if keep and not opens:
+            rest = line.lstrip(" \t")
+            lead = line[:len(line) - len(rest)]
+            if not rest:
+                out.append("&#32;")
+            else:
+                out.append(lead.replace(" ", "&#32;").replace("\t", "&#9;") + rest.rstrip())
+        elif line.strip():
+            out.append(line.strip())
+        if opens:
+            keep = True
+        if _KEEP_CLOSE.search(line):
+            # 같은 줄에서 열고 닫았거나, 닫는 줄을 만났을 때
+            last_open = max((m.start() for m in _KEEP_OPEN.finditer(line)), default=-1)
+            last_close = max(m.start() for m in _KEEP_CLOSE.finditer(line))
+            keep = last_open > last_close
+    return "\n".join(out) + "\n"
+
+
 def load(base_dir: str, key: str) -> AnalysisDoc:
     """analysis/<key>/ 를 읽습니다. 없으면 빈 AnalysisDoc 을 반환합니다."""
     safe = _safe_key(key)
@@ -162,7 +205,7 @@ def load(base_dir: str, key: str) -> AnalysisDoc:
             doc.warnings.append(f"{kind}.html 읽기 실패: {exc}")
             continue
         if body.strip():
-            doc.html[kind] = body
+            doc.html[kind] = clean_html(body)
 
     return doc
 

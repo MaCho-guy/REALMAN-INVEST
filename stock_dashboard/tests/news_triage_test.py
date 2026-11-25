@@ -140,8 +140,12 @@ got = news.rank_stories(rows, 3, now=UTC_NOW, tier=config.NEWS_TIER_SOURCES)
 check("rank_stories: score · ts 채움", got[0].score > 0 and abs(got[0].ts - rows[0][0].timestamp()) < 1,
       f"{got[0].score} {got[0].ts}")
 _orig = news._rss_body
+# pubDate 는 '지금' 기준으로 만든다 — fetch_sector_news 는 실제 시계로 max_days 를 거르므로,
+# 날짜를 박아 두면 그 날에서 7일이 지난 뒤부터 이 검사가 저절로 실패한다 (2026-11-25 에 실제로 겪음).
+import email.utils as _eu
+_pub = _eu.format_datetime(dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=2), usegmt=True)
 news._rss_body = lambda q, d: ("<item><title>삼성SDI 수주 - 연합뉴스</title><link>https://x</link>"
-                               "<pubDate>Mon, 16 Nov 2026 02:00:00 GMT</pubDate>"
+                               f"<pubDate>{_pub}</pubDate>"
                                '<source url="u">연합뉴스</source></item>')
 out, _err = news.fetch_sector_news([("battery", "2차전지", "q")], rank=True, max_days=7)
 news._rss_body = _orig
